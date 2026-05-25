@@ -3,7 +3,7 @@
 // achievements are badges (the 10k catalog) recorded with their unlock date.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { type Boss, type Quest, type State, type Stats, levelInfo } from "./state.ts";
-import { skillProgress, topSkills, totalLevel } from "./skills.ts";
+import { MAX_TOTAL_LEVEL, SKILLS, fmtBig, maxedCount, skillProgress, topSkills, totalLevel } from "./skills.ts";
 
 export const HOME = process.env.HOME ?? "/home/alexkahn";
 export const RDIR = `${HOME}/.renown`;
@@ -126,7 +126,7 @@ export function renderHud(s: State): string {
   const total = totalLevel(skx);
   const top = topSkills(skx, 1)[0];
   const tp = skillProgress(top.xp);
-  let hud = `${C.b}${C.mag}Lvl${total}${C.r} ${top.def.icon}${C.b}${top.level}${C.r} ${bar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r}`;
+  let hud = `${C.b}${C.mag}Lvl${total}${C.r} ${bar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r} ${top.def.icon} ${C.b}${top.def.name} ${top.level}${C.r}`;
   if (s.flash && s.flash.until > Date.now()) hud += `  ${s.flash.msg}`;
   return hud;
 }
@@ -141,6 +141,20 @@ export function renderGreet(s: State): string {
   const best = `top ${top.def.icon} ${top.def.name} ${top.level}`;
   const xp = today > 0 ? ` ${C.dim}·${C.r} ${C.yel}+${today} XP today${C.r}` : "";
   return `${streak} ${C.dim}·${C.r} ${lvl} ${C.dim}·${C.r} ${best}${xp}`;
+}
+
+// Full skill sheet for `renown skills` — every discipline, highest first.
+export function renderSkillList(s: State): string {
+  const skx = s.skillXp ?? {};
+  const rows = SKILLS.map((sk) => { const xp = skx[sk.id] ?? 0; const pr = skillProgress(xp); return { sk, xp, lvl: pr.level, pct: pr.pct }; })
+    .sort((a, b) => b.lvl - a.lvl || b.xp - a.xp);
+  const head = `${C.b}${C.mag}Total Level ${totalLevel(skx)}${C.r}${C.dim}/${MAX_TOTAL_LEVEL}${C.r}  ${C.gold}${maxedCount(skx)} maxed${C.r}  ${C.dim}${SKILLS.length} skills${C.r}`;
+  // fixed-width columns (level · bar · %) lead so they align; emoji+name trail freely.
+  const lines = rows.map(({ sk, xp, lvl, pct }) => {
+    const lc = lvl >= 99 ? C.gold : lvl >= 50 ? C.grn : lvl >= 20 ? C.yel : C.r;
+    return `  ${lc}Lv${String(lvl).padStart(2)}${C.r} ${bar(pct, 10)} ${C.dim}${String(pct).padStart(3)}%${C.r} ${sk.icon} ${sk.name} ${C.dim}${fmtBig(xp)}xp${C.r}`;
+  });
+  return [head, ...lines].join("\n");
 }
 
 export function listSpikeBosses(dir: string): { comm: string; gb: number; ts: number }[] {

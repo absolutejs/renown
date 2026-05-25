@@ -45,7 +45,7 @@ function classify(path: string) {
 const JUNK = /^(wip|\.+|update|fixes?|asdf|stuff|temp|tmp|test|x+|foo|bar|changes?|misc|minor|cleanup|format|prettier|lint)$/i;
 const CONV = /^(feat|fix|refactor|perf|test|docs|build|ci|style|revert)(\(.+\))?!?:/i;
 
-export interface CraftResult { xp: number; lines: number; oss: boolean; ext: boolean; stars: number; langs: string[]; hasTests: boolean; subject: string; committedAt: number; breakdown: string[] }
+export interface CraftResult { xp: number; lines: number; oss: boolean; ext: boolean; stars: number; langs: string[]; paths: string[]; hasTests: boolean; subject: string; committedAt: number; breakdown: string[] }
 
 export async function scoreCommit(s: State, cfg: Config, repo: string, sha: string): Promise<CraftResult | null> {
   const raw = await $`git -C ${repo} show --no-color --no-renames --format=%ae%x00%P%x00%ct%x00%s --numstat ${sha}`.text().catch(() => "");
@@ -56,13 +56,14 @@ export async function scoreCommit(s: State, cfg: Config, repo: string, sha: stri
   if ((parents || "").trim().split(/\s+/).filter(Boolean).length > 1) return null;
   if (cfg.myEmails.length && !cfg.myEmails.includes((ae || "").trim())) return null;
 
-  let sub = 0, srcFiles = 0, lines = 0; const langs = new Set<string>(); let hasTests = false, hasDocs = false;
+  let sub = 0, srcFiles = 0, lines = 0; const langs = new Set<string>(); const paths: string[] = []; let hasTests = false, hasDocs = false;
   for (const line of rest) {
     const m = line.match(/^(\d+|-)\t(\d+|-)\t(.+)$/); if (!m) continue;
     const add = m[1] === "-" ? 0 : Number(m[1]); const cl = classify(m[3]);
     sub += cl.weight * add; if (cl.weight >= 0.5) lines += add;
     if (cl.lang) langs.add(cl.lang); if (cl.test) hasTests = true; if (cl.docs) hasDocs = true;
     if (cl.weight >= 0.8) srcFiles++;
+    if (!cl.generated) paths.push(m[3]);   // real changed files (skip lockfiles/dist) for skill routing
   }
   const breakdown = [`substance ${sub.toFixed(0)}`];
   let craft = 1;
@@ -87,5 +88,5 @@ export async function scoreCommit(s: State, cfg: Config, repo: string, sha: stri
   let xp = sub * craft * dup * proj * diminish;
   if (sub < 4) xp = Math.min(xp, 2);
   xp = Math.min(Math.round(xp), 300);
-  return { xp, lines, oss: !!meta?.oss, ext, stars: meta?.stars ?? 0, langs: [...langs], hasTests, subject: subj, committedAt, breakdown };
+  return { xp, lines, oss: !!meta?.oss, ext, stars: meta?.stars ?? 0, langs: [...langs], paths, hasTests, subject: subj, committedAt, breakdown };
 }

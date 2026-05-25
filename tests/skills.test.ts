@@ -15,7 +15,7 @@ import {
 
 const craft = (over: Partial<CraftResult>): CraftResult => ({
   xp: 100, lines: 10, oss: false, ext: false, stars: 0,
-  langs: ["TypeScript"], hasTests: false, subject: "add feature",
+  langs: ["TypeScript"], paths: [], hasTests: false, subject: "ship widget",
   committedAt: 0, breakdown: [], ...over
 });
 
@@ -46,14 +46,27 @@ describe("skills xp curve (OSRS-style)", () => {
   });
 });
 
+describe("the catalog", () => {
+  test("has exactly 100 unique disciplines", () => {
+    expect(SKILLS).toHaveLength(100);
+    expect(new Set(SKILLS.map((sk) => sk.id)).size).toBe(100);
+  });
+});
+
 describe("craft routing", () => {
-  test("a plain single-language commit trains only Shipping", () => {
-    expect(awardCraft(craft({ xp: 40 }))).toEqual({ shipping: 40 });
+  test("every commit trains Shipping", () => {
+    expect(awardCraft(craft({ xp: 40 })).shipping).toBe(40);
+  });
+
+  test("a TypeScript file trains the TypeScript skill (path-based)", () => {
+    const gains = awardCraft(craft({ xp: 60, paths: ["src/app.ts"] }));
+    expect(gains.typescript).toBe(60);
+    expect(gains.shipping).toBe(60);
   });
 
   test("an open-source, tested, multi-language fix trains many skills at once", () => {
     const gains = awardCraft(
-      craft({ xp: 100, lines: 250, oss: true, ext: true, stars: 1200, langs: ["TypeScript", "CSS"], hasTests: true, subject: "fix: handle null id" })
+      craft({ xp: 100, lines: 250, oss: true, ext: true, stars: 1200, langs: ["TypeScript", "CSS"], paths: ["src/app.tsx", "src/ui/button.css"], hasTests: true, subject: "fix: handle null id" })
     );
     expect(gains.shipping).toBe(100);
     expect(gains.testing).toBe(100);
@@ -61,9 +74,10 @@ describe("craft routing", () => {
     expect(gains.foreign).toBe(100);
     expect(gains.debugging).toBe(100);
     expect(gains.architecture).toBe(100);
+    expect(gains.frontend).toBe(100);
     expect(gains.polyglot).toBe(50);
     expect(gains.stargazing).toBeGreaterThan(0);
-    expect(gains.refactoring ?? 0).toBe(0);
+    expect(gains.featurecraft ?? 0).toBe(0);
   });
 });
 

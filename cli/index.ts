@@ -6,9 +6,10 @@
 //   recap            → one-shot Recap view
 //   heartbeat        → register cwd's repo + tick (the entry editors/agents call)
 //   greet            → one-line "welcome back" (streak + level), for session start
+//   skills           → full skill sheet (all disciplines, levels + xp)
 //   watch            → editor-agnostic activity daemon (next on the roadmap)
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
-import { WATCHED, loadState, renderGreet } from "../core/runtime.ts";
+import { WATCHED, loadState, renderGreet, renderSkillList } from "../core/runtime.ts";
 import { runEvent } from "../core/event.ts";
 
 function registerCwdRepo() {
@@ -26,8 +27,9 @@ switch (cmd) {
   case "commit": await runEvent("commit", arg); break;
   case "heartbeat": registerCwdRepo(); await runEvent("tick"); break;
   case "greet": console.log(renderGreet(loadState())); break;
+  case "skills": console.log(renderSkillList(loadState())); break;
   case "recap": { process.env.DQ_TAB = "5"; process.env.DQ_ONESHOT = "1"; const { runTui } = await import("./quest.ts"); await runTui(); break; }
   case "watch": { const { runDaemon } = await import("../core/daemon.ts"); await runDaemon(); break; }
   case undefined: case "": { const { runTui } = await import("./quest.ts"); await runTui(); break; }
-  default: console.log("usage: renown [tick | commit <repo> | recap | heartbeat | greet | watch]");
+  default: console.log("usage: renown [tick | commit <repo> | recap | heartbeat | greet | skills | watch]");
 }
