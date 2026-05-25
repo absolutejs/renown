@@ -85,4 +85,7 @@ export async function runEvent(cmd?: string, arg?: string) {
   writeFileSync(HUD, renderHud(s)); saveState(s);
   await submit(s, cfg).catch(() => {});
   if (events.length && process.stdout.isTTY) process.stdout.write("\n" + events.map(e => "  " + e).join("\n") + "\n\n");
+  // epic moments (a 99 / legendary) take over the terminal with full ASCII fanfare
+  const epic = cels.find(c => c.tier >= 4);
+  if (epic && process.stdout.isTTY) { const { play, epicFrames } = await import("./ascii.ts"); await play(epicFrames(epic.text), { delay: 100 }); }
 }
