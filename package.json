@@ -1,0 +1,24 @@
+{
+  "name": "@absolutejs/renown",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Renown — earn XP and renown for real, meritorious dev work. Editor-agnostic, with 10k achievements and competitive per-project leaderboards. By AbsoluteJS.",
+  "type": "module",
+  "bin": {
+    "renown": "src/cli/quest.ts"
+  },
+  "scripts": {
+    "db:push": "drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "db:check": "bun run src/db/check.ts",
+    "server": "bun run src/server/index.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10"
+  }
+}

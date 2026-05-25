@@ -1,0 +1,11 @@
+node_modules/
+.env
+.env.*.local
+dist/
+build/
+*.log
+*.tmp
+.DS_Store
+# local player save / runtime state (never committed)
+.renown/
+state.json
