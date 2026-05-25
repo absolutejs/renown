@@ -3,11 +3,13 @@ import type { CraftResult } from "../core/craft.ts";
 import {
   applyGains,
   awardCraft,
+  fmtBig,
   levelForXp,
   MAX_LEVEL,
   SKILLS,
   skillProgress,
   totalLevel,
+  virtualLevelForXp,
   xpForLevel
 } from "../core/skills.ts";
 
@@ -75,5 +77,31 @@ describe("ledger + totals", () => {
 
   test("a fresh account sits at total level = number of skills", () => {
     expect(totalLevel({})).toBe(SKILLS.length);
+  });
+});
+
+describe("authentic OSRS curve + virtual levels", () => {
+  test("level 99 costs the real OSRS 13,034,431 xp", () => {
+    expect(xpForLevel(99)).toBe(13034431);
+  });
+
+  test("virtual levels extend past 99 and stay BigInt-safe at absurd xp", () => {
+    expect(virtualLevelForXp(0)).toBe(1);
+    expect(virtualLevelForXp(xpForLevel(99))).toBe(99);
+    expect(virtualLevelForXp(50_000_000)).toBeGreaterThan(99);
+    // does not throw or saturate at the edge of safe integers, and stays monotonic
+    const huge = virtualLevelForXp(Number.MAX_SAFE_INTEGER);
+    expect(huge).toBeGreaterThan(virtualLevelForXp(1e12));
+  });
+});
+
+describe("absurd-number formatting", () => {
+  test("names magnitudes, then falls back to scientific", () => {
+    expect(fmtBig(999)).toBe("999");
+    expect(fmtBig(1234)).toBe("1.23K");
+    expect(fmtBig(1_500_000)).toBe("1.50M");
+    expect(fmtBig(1.234e9)).toBe("1.23B");
+    expect(fmtBig(1e30)).toBe("1.00No");
+    expect(fmtBig(1e70)).toMatch(/e70$/);
   });
 });

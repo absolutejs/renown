@@ -10,10 +10,11 @@ import type { CraftResult } from "./craft.ts";
 
 export const MAX_LEVEL = 99;
 
-// XP_SCALE divides the authentic OSRS thresholds so 99 is a long-but-reachable grind for
-// real dev work (raw OSRS 99 = 13,034,431 xp, unreachable at ~30-300 xp/commit). The curve
-// SHAPE is preserved; only the magnitude is tuned. Bump it down to make 99 rarer.
-export const XP_SCALE = 25;
+// XP_SCALE divides the authentic OSRS thresholds. 1 = the real OSRS curve (level 99 =
+// 13,034,431 xp): brutal on purpose. At dev xp rates (~30-300/commit) even a single 99 is
+// a long-haul grind, and maxing EVERY skill is a lifetime flex you are not meant to finish
+// — exactly like RuneScape. Push it below 1 to make 99s rarer still; shape is preserved.
+export const XP_SCALE = 1;
 
 // Authentic OSRS experience table (scaled): xp required to *reach* each level, 1-indexed.
 const xpAt: number[] = (() => {
@@ -42,6 +43,49 @@ export const skillProgress = (xp: number) => {
   const base = xpAt[lvl], next = xpAt[lvl + 1];
   const into = xp - base, need = next - base;
   return { level: lvl, into, need, pct: Math.floor((into / need) * 100) };
+};
+
+// ---------- virtual levels & absurd numbers ----------
+// 99 is the *displayed* cap, but xp never stops — virtual levels extend the same curve
+// forever. Their thresholds blow far past Number.MAX_SAFE_INTEGER, so they live in BigInt:
+// the integer limit is NOT the level limit. The authentic (unscaled) table is grown lazily
+// and memoized; player xp is scaled at compare time so XP_SCALE still applies.
+const bigAt: bigint[] = [0n, 0n];
+let bigPoints = 0n;
+let bigBuilt = 1;
+const growVirtual = (toLevel: number) => {
+  for (let lvl = bigBuilt; lvl < toLevel; lvl++) {
+    bigPoints += BigInt(Math.floor(lvl + 300 * Math.pow(2, lvl / 7)));
+    bigAt[lvl + 1] = bigPoints / 4n;
+  }
+  if (toLevel > bigBuilt) bigBuilt = toLevel;
+};
+
+// Uncapped level (1 → ∞): 99+ for prestige grinders, BigInt-safe to absurd magnitudes.
+export const virtualLevelForXp = (xp: number) => {
+  const target = BigInt(Math.floor(Math.max(0, xp) * XP_SCALE));
+  let lvl = 1;
+  growVirtual(3);
+  while (target >= bigAt[lvl + 1]) {
+    lvl++;
+    growVirtual(lvl + 2);
+  }
+  return lvl;
+};
+
+const BIG_SUFFIX = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc", "Ud", "Dd", "Td", "Qad", "Qid", "Sxd", "Spd", "Ocd", "Nod", "Vg"];
+const FMT_GROUP = 3;
+
+// Render absurd numbers readably: 1234 → "1.23K", 1e9 → "1.00B"; past the named suffixes
+// it falls back to scientific notation, so the display never overflows or lies.
+export const fmtBig = (n: number) => {
+  if (!isFinite(n)) return "∞";
+  if (n < 1000) return String(Math.floor(n));
+  const tier = Math.floor(Math.log10(n) / FMT_GROUP);
+  if (tier >= BIG_SUFFIX.length) return n.toExponential(2).replace("e+", "e");
+  const scaled = n / Math.pow(10, tier * FMT_GROUP);
+  const dp = scaled < 10 ? 2 : scaled < 100 ? 1 : 0;
+  return `${scaled.toFixed(dp)}${BIG_SUFFIX[tier]}`;
 };
 
 // ---------- the strengths (data-driven; tune freely) ----------
