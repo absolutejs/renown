@@ -15,15 +15,15 @@ importance multiplier**: open-source ×, GitHub stars (log scale), and contribut
 *someone else's* repo ×. Only commits you authored count.
 
 ## Architecture (Bun monorepo)
-- `src/core` — engine: craft scoring, achievements, stats, leveling, shared types.
-- `src/daemon` — **editor-agnostic** activity tracker: a filesystem watcher over your
+- `core` — engine: craft scoring, achievements, stats, leveling, shared types.
+- `daemon` — **editor-agnostic** activity tracker: a filesystem watcher over your
   git repos emits activity heartbeats with **zero editor plugins** (works in VS Code,
   Neovim, JetBrains, anything) and detects commits. Editor plugins can POST richer
   heartbeats to it (WakaTime-style) later.
-- `src/cli` — `renown` / `renown recap` TUI + `renown heartbeat`.
-- `src/server` — Bun API + Drizzle/Neon: `/submit`, `/top`, `/top?project`,
+- `cli` — `renown` / `renown recap` TUI + `renown heartbeat`.
+- `server` — Bun API + Drizzle/Neon: `/submit`, `/top`, `/top?project`,
   `/achievements` (catalog + global rarity %).
-- `src/db` — Drizzle schema + Neon client.
+- `db` — Drizzle schema + Neon client.
 
 ## Database (Drizzle + Postgres on Neon)
 `players`, `achievements` (catalog incl. the 10k; `unlock_count` → **rarity %**),

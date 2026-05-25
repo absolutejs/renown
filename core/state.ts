@@ -25,6 +25,7 @@ export interface State {
   lastTick: number; lastLogScanTs: number;
   best: { xpInDay: number; level: number; streak: number };
   stats: Stats; projects: Record<string, ProjStat>; langsDeep: Record<string, LangStat>;
+  flash?: { msg: string; until: number } | null;
 }
 
 // ---------- infinite leveling ----------
