@@ -3,7 +3,7 @@
 import { C, availG, bar, loadConfig, loadState, memPct, paint, strip } from "../core/runtime.ts";
 import { type State, levelInfo, titleFor } from "../core/state.ts";
 import { CURATED, curatedCount, info, totalCount } from "../core/achievements/index.ts";
-import { type Entry, type ProjEntry, fetchBoard, fetchProjectBoard } from "../core/leaderboard.ts";
+import { type Entry, type ProjEntry, type Rarity, fetchBoard, fetchProjectBoard, fetchRarity } from "../core/leaderboard.ts";
 import { DOW, fmtDur, peakDow, peakHour, spark, sumDays, topLangs, topProjects } from "../core/stats.ts";
 
 const W = () => Math.max(64, Math.min(104, process.stdout.columns || 90));
@@ -13,7 +13,9 @@ let s: State = loadState();
 let board: { entries: Entry[]; live: boolean } = { entries: [], live: false };
 let projBoard: { entries: ProjEntry[]; live: boolean } = { entries: [], live: false };
 let lbSel = 0;
+let rarity: Rarity = { map: {}, players: 0, live: false };
 const loadBoard = async () => { try { board = await fetchBoard(s, cfg); } catch {} };
+const loadRarity = async () => { try { rarity = await fetchRarity(cfg); } catch {} };
 const loadProj = async () => { const tp = topProjects(s, 6); if (lbSel > 0 && tp[lbSel - 1]) { try { projBoard = await fetchProjectBoard(s, cfg, tp[lbSel - 1].k); } catch {} } };
 
 const TABS = ["Hero", "Quests", "Achievements", "Bestiary", "Leaderboard", "Recap"];
@@ -49,12 +51,18 @@ function questsTab() {
 }
 function achTab() {
   const got = (id: string) => !!s.achievements[id];
-  const recent = Object.entries(s.achievements).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([id]) => info(id)).filter(Boolean);
+  const rar = (id: string): number | undefined => rarity.map[id];
+  const recent = Object.entries(s.achievements).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([id]) => info(id)).filter((x): x is NonNullable<typeof x> => !!x);
   const cats = [...new Set(CURATED.map(a => a.cat))].map(c => { const l = CURATED.filter(a => a.cat === c); return `${c} ${C.b}${l.filter(a => got(a.id)).length}/${l.length}${C.r}`; });
   const cur = CURATED.filter(a => got(a.id)).length;
-  const rows = [`${C.b}${Object.keys(s.achievements).length}${C.r}${C.dim}/${totalCount()} unlocked  ·  ${cur}/${curatedCount()} curated  ·  ${totalCount() - curatedCount()} procedural to discover${C.r}`, "", `${C.gold}recently earned:${C.r}`];
-  for (const a of recent) rows.push(`  ${paint("🏆 " + a!.name, TIERCOL[a!.tier] ?? C.wht)} ${C.dim}${a!.vis !== "secret" ? a!.desc : ""}${C.r}`);
+  const owned = Object.keys(s.achievements).filter(id => rar(id) !== undefined);
+  const rarest = owned.length ? owned.reduce((m, id) => (rar(id)! < rar(m)! ? id : m)) : null;
+  const rows = [`${C.b}${Object.keys(s.achievements).length}${C.r}${C.dim}/${totalCount()} unlocked · ${cur}/${curatedCount()} curated${rarity.players ? ` · rarity from ${rarity.players} player${rarity.players > 1 ? "s" : ""}${rarity.live ? "" : " (cached)"}` : ""}${C.r}`];
+  if (rarest) rows.push(`${C.gold}rarest badge:${C.r} ${info(rarest)?.name} ${C.dim}(${rar(rarest)}% of players)${C.r}`);
+  rows.push("", `${C.gold}recently earned:${C.r}`);
+  for (const a of recent) { const rr = rar(a.id); rows.push(`  ${paint("🏆 " + a.name, TIERCOL[a.tier] ?? C.wht)}${rr !== undefined ? ` ${C.dim}${rr}% have it${C.r}` : ""}`); }
   if (!recent.length) rows.push(`  ${C.dim}none yet — commit something real${C.r}`);
+  if (!rarity.players && !cfg.leaderboardEndpoint) rows.push("", `${C.dim}set leaderboardEndpoint + run the server for live rarity %${C.r}`);
   rows.push("", `${C.dim}curated by category:${C.r}`, `${C.dim}${cats.join("  ·  ")}${C.r}`);
   return box("Achievements", rows);
 }
@@ -104,9 +112,9 @@ function render(clear = true) {
   process.stdout.write((clear ? "\x1b[2J\x1b[H" : "") + out.join("\n") + "\n");
 }
 export async function runTui() {
-  if (!process.stdin.isTTY || ONESHOT) { refresh(); s = loadState(); if (tab === 4) await loadBoard(); render(false); return; }
+  if (!process.stdin.isTTY || ONESHOT) { refresh(); s = loadState(); if (tab === 4) await loadBoard(); if (tab === 2) await loadRarity(); render(false); return; }
   const quit = () => { try { process.stdin.setRawMode(false); } catch {} process.stdout.write("\x1b[?25h\x1b[?1049l"); process.exit(0); };
-  refresh(); s = loadState(); loadBoard().then(render);
+  refresh(); s = loadState(); loadBoard().then(render); loadRarity().then(render);
   process.stdout.write("\x1b[?1049h\x1b[?25l"); render();
   process.stdin.setRawMode(true); process.stdin.resume();
   process.stdin.on("data", (b: Buffer) => {
@@ -116,8 +124,9 @@ export async function runTui() {
     else if (key === "\x1b[C" || key === "l") tab = (tab + 1) % N;
     else if (key === "\x1b[D" || key === "h") tab = (tab + (N - 1)) % N;
     else if (key === "p" && tab === 4) { lbSel = (lbSel + 1) % (topProjects(s, 6).length + 1); loadProj().then(render); }
-    else if (key === "r") { refresh(); s = loadState(); loadBoard().then(render); }
+    else if (key === "r") { refresh(); s = loadState(); loadBoard().then(render); loadRarity().then(render); }
     if (tab === 4 && lbSel === 0 && !board.entries.length) loadBoard().then(render);
+    if (tab === 2 && !rarity.players) loadRarity().then(render);
     render();
   });
   setInterval(() => { s = loadState(); render(); }, 1000);

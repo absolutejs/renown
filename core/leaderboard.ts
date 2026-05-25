@@ -8,6 +8,21 @@ import { topProjects } from "./stats.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 
 const CACHE = `${RDIR}/leaderboard.json`;
+const RCACHE = `${RDIR}/rarity.json`;
+export interface Rarity { map: Record<string, number>; players: number; live: boolean }
+export async function fetchRarity(cfg: Config): Promise<Rarity> {
+  if (cfg.leaderboardEndpoint) {
+    try {
+      const r = await fetch(`${base(cfg)}/achievements?n=2000`, { signal: AbortSignal.timeout(5000) });
+      const j = await r.json() as { players: number; achievements: { id: string; rarity: number }[] };
+      const map: Record<string, number> = {};
+      for (const a of j.achievements ?? []) map[a.id] = a.rarity;
+      writeFileSync(RCACHE, JSON.stringify({ map, players: j.players }));
+      return { map, players: j.players ?? 0, live: true };
+    } catch { try { const c = JSON.parse(readFileSync(RCACHE, "utf8")); return { map: c.map, players: c.players, live: false }; } catch {} }
+  }
+  return { map: {}, players: 0, live: false };
+}
 export interface ProjEntry { key: string; name: string; xp: number; commits: number; lines: number; stars: number; oss: boolean; you?: boolean }
 export interface Entry { id?: string; name: string; level: number; xp: number; streak: number; oss: number; ach: number; active?: number; projects?: ProjEntry[]; unlocked?: string[]; commits?: number; lines?: number; you?: boolean }
 export const selfEntry = (s: State): Entry => ({
