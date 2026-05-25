@@ -23,5 +23,19 @@ body {
 .who { font-weight: 600; }
 .lvl { color: #f0abfc; font-weight: 600; }
 .xp { color: #c4b5fd; }
+.ranks li { cursor: pointer; transition: background .12s ease; }
+.ranks li:hover { background: rgba(255,255,255,.05); }
+.ranks li.sel { background: rgba(196,181,253,.12); outline: 1px solid rgba(196,181,253,.35); }
+.skills { background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); border-radius: 16px; padding: 24px 28px; margin-top: 24px; }
+.skills h2 { font-size: 18px; color: #c4b5fd; margin-bottom: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.skill { display: grid; grid-template-columns: 20px 1fr auto; grid-template-rows: auto 4px; column-gap: 8px; align-items: center; padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.02); }
+.skill .ic { font-size: 15px; text-align: center; }
+.skill .nm { font-size: 13px; color: #d8d8e8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill .lv { font-size: 13px; font-weight: 700; color: #f0abfc; }
+.skill .barT { grid-column: 1 / -1; height: 4px; border-radius: 3px; background: rgba(255,255,255,.07); overflow: hidden; }
+.skill .barF { display: block; height: 100%; background: linear-gradient(90deg, #c4b5fd, #f0abfc); }
+.skill.maxed { outline: 1px solid rgba(240,200,90,.5); }
+.skill.maxed .lv { color: #f0c85a; }
 .foot { text-align: center; color: #6a6a85; font-size: 13px; margin-top: 40px; }
 .foot a { color: #9a9ac0; }
