@@ -38,6 +38,7 @@ switch (cmd) {
     break;
   }
   case "gallery": { const { runGallery } = await import("../core/ascii.ts"); await runGallery(); break; }
+  case "collection": { const { renderCollection } = await import("../core/collectibles.ts"); console.log(renderCollection(loadState().collectibles ?? {})); break; }
   case "recap": { process.env.DQ_TAB = "5"; process.env.DQ_ONESHOT = "1"; const { runTui } = await import("./quest.ts"); await runTui(); break; }
   case "watch": { const { runDaemon } = await import("../core/daemon.ts"); await runDaemon(); break; }
   case undefined: case "": { const { runTui } = await import("./quest.ts"); await runTui(); break; }

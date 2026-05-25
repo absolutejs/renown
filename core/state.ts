@@ -20,6 +20,7 @@ export interface State {
   ossCommits: number; extCommits: number; starsTouched: number; topStars: number;
   langs: Record<string, number>; hours: Record<string, number>; days: Record<string, number>;
   skillXp: Record<string, number>;
+  collectibles: Record<string, { at: number; count: number }>;
   achievements: Record<string, number>; bestiary: Record<string, Boss>;
   questDay: string; quests: Quest[]; repoHeads: Record<string, string>;
   recentFp: string[]; craftDay: string; craftXpToday: number; maxMem: number;

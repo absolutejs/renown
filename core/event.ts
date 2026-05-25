@@ -10,6 +10,7 @@ import { sampleBosses } from "./bosses.ts";
 import { repoMeta, scoreCommit } from "./craft.ts";
 import { applyGains, awardCraft, skillById, totalLevel } from "./skills.ts";
 import { type Celebration, achievementUp, bossUp, enqueue, skillUp, totalUp } from "./celebrate.ts";
+import { addCollectible, dropCelebration, rollDrop } from "./collectibles.ts";
 import { recordActivity, recordCommit } from "./stats.ts";
 import { submit } from "./leaderboard.ts";
 
@@ -53,6 +54,8 @@ async function reconcile(s: State, repo: string) {
     if (r.xp > 0) ev(award(s, r.xp, `"${r.subject.slice(0, 28)}"${r.oss ? " OSS" : ""}`));
     else ev(`${C.dim}· no XP: ${r.subject.slice(0, 30)} (${r.breakdown[0]})${C.r}`);
     for (const u of applyGains(s.skillXp, awardCraft(r))) { const sk = skillById(u.id); if (sk) { ev(`${C.b}${C.grn}${sk.icon} ${sk.name} Lv${u.to}!${C.r}`); cels.push(skillUp(sk.icon, sk.name, u.to)); } }
+    const drop = rollDrop(r.xp, r.oss, s.collectibles, new Date(r.committedAt || Date.now()));
+    if (drop) { const isNew = addCollectible(s.collectibles, drop); ev(`${C.b}${C.mag}📦 ${drop.icon} ${drop.name}${isNew ? " (new!)" : ""}${C.r}`); cels.push(dropCelebration(drop, isNew)); }
     progress(s, "earn150", r.xp); progress(s, "lines200", r.lines);
     if (r.oss) progress(s, "oss1", 1); if (r.hasTests) progress(s, "tests", 1);
   }
