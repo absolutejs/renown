@@ -12,6 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:check": "bun run src/db/check.ts",
+    "db:seed": "bun run src/db/seed.ts",
     "server": "bun run src/server/index.ts"
   },
   "dependencies": {
