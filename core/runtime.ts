@@ -2,7 +2,8 @@
 // agnostic; not tied to Claude Code). XP is earned by the craft engine + quests;
 // achievements are badges (the 10k catalog) recorded with their unlock date.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { type Boss, type Quest, type State, type Stats, levelInfo, titleFor } from "./state.ts";
+import { type Boss, type Quest, type State, type Stats, levelInfo } from "./state.ts";
+import { skillProgress, topSkills, totalLevel } from "./skills.ts";
 
 export const HOME = process.env.HOME ?? "/home/alexkahn";
 export const RDIR = `${HOME}/.renown`;
@@ -86,7 +87,7 @@ export function freshState(): State {
     v: STATE_V, name: cfg.playerName, playerId: cfg.playerId, createdAt: now,
     xp: 0, lifetimeXp: 0, streak: 1, lastActiveDay: new Date().toISOString().slice(0, 10),
     commits: 0, linesAdded: 0, bossesSurvived: 0, secondsHealthy: 0, ossCommits: 0, extCommits: 0, starsTouched: 0, topStars: 0,
-    langs: {}, hours: {}, days: {}, achievements: {}, bestiary: {},
+    langs: {}, hours: {}, days: {}, skillXp: {}, achievements: {}, bestiary: {},
     questDay: "", quests: [], repoHeads: {}, recentFp: [], craftDay: "", craftXpToday: 0, maxMem: 0,
     lastTick: 0, lastLogScanTs: 0, lastBossTs: 0, best: { xpInDay: 0, level: 1, streak: 1 },
     stats: emptyStats(), projects: {}, langsDeep: {},
@@ -94,8 +95,14 @@ export function freshState(): State {
   ensureDailyQuests(s);
   return s;
 }
+// Skills migrate in without a version bump: existing saves keep their progress and the
+// lifetime grind seeds the headline Shipping skill once, so nobody starts from scratch.
+export function ensureSkills(s: State) {
+  s.skillXp ??= {};
+  if (s.skillXp.shipping === undefined && s.lifetimeXp > 0) s.skillXp.shipping = s.lifetimeXp;
+}
 export function loadState(): State {
-  try { const s = JSON.parse(readFileSync(STATE, "utf8")) as State; if (s.v !== STATE_V) throw 0; ensureStats(s); ensureDailyQuests(s); return s; }
+  try { const s = JSON.parse(readFileSync(STATE, "utf8")) as State; if (s.v !== STATE_V) throw 0; ensureStats(s); ensureSkills(s); ensureDailyQuests(s); return s; }
   catch { mkdirSync(RDIR, { recursive: true }); const s = freshState(); saveState(s); return s; }
 }
 export function saveState(s: State) { try { mkdirSync(RDIR, { recursive: true }); const t = `${STATE}.tmp`; writeFileSync(t, JSON.stringify(s)); renameSync(t, STATE); } catch {} }
@@ -104,20 +111,23 @@ export function memPct(): number { try { const t = readFileSync("/proc/meminfo",
 export function availG(): number { try { const t = readFileSync("/proc/meminfo", "utf8"); return Number(t.match(/^MemAvailable:\s+(\d+)/m)?.[1] ?? 0) / 1048576; } catch { return 0; } }
 export function bar(pct: number, width = 16, col = C.grn) { const f = Math.max(0, Math.min(width, Math.round((pct / 100) * width))); return paint("▓".repeat(f), col) + paint("░".repeat(width - f), C.gry); }
 
+// award updates the global renown total (s.xp/lifetimeXp = the absurd lifetime score);
+// per-skill level-up celebrations are emitted where commits are routed (see event.ts).
 export function award(s: State, xp: number, why: string): string[] {
-  const before = levelInfo(s.xp).level;
   s.xp += xp; s.lifetimeXp += xp;
   const t = new Date().toISOString().slice(0, 10);
   if (s.craftDay !== t) { s.craftDay = t; s.craftXpToday = 0; }
   s.craftXpToday += xp; s.best.xpInDay = Math.max(s.best.xpInDay, s.craftXpToday);
-  const after = levelInfo(s.xp).level; s.best.level = Math.max(s.best.level, after);
-  const msgs = [`${C.yel}⚡ +${xp} XP${C.r} ${C.dim}(${why})${C.r}`];
-  if (after > before) msgs.push(`${C.b}${C.mag}⭐ LEVEL UP! ${before} → ${after} — ${titleFor(after)}${C.r}`);
-  return msgs;
+  s.best.level = Math.max(s.best.level, levelInfo(s.xp).level);
+  return [`${C.yel}⚡ +${xp} XP${C.r} ${C.dim}(${why})${C.r}`];
 }
 export function renderHud(s: State): string {
-  const li = levelInfo(s.xp);
-  let hud = `${C.b}${C.mag}Lv${li.level}${C.r} ${bar(li.pct, 8)} ${C.dim}${li.pct}%${C.r} ${s.streak > 0 ? `${C.orange}🔥${s.streak}${C.r}` : ""}`;
+  const skx = s.skillXp ?? {};
+  const total = totalLevel(skx);
+  const top = topSkills(skx, 1)[0];
+  const tp = skillProgress(top.xp);
+  let hud = `${C.b}${C.mag}Lv${total}${C.r} ${top.def.icon}${C.b}${top.level}${C.r} ${bar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r}`;
+  if (s.streak > 0) hud += ` ${C.orange}🔥${s.streak}${C.r}`;
   if (s.flash && s.flash.until > Date.now()) hud += `  ${s.flash.msg}`;
   return hud;
 }

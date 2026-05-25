@@ -8,6 +8,7 @@ import type { State } from "./state.ts";
 import { evalAll, info } from "./achievements/index.ts";
 import { sampleBosses } from "./bosses.ts";
 import { repoMeta, scoreCommit } from "./craft.ts";
+import { applyGains, awardCraft, skillById } from "./skills.ts";
 import { recordActivity, recordCommit } from "./stats.ts";
 import { submit } from "./leaderboard.ts";
 
@@ -49,6 +50,7 @@ async function reconcile(s: State, repo: string) {
     recordCommit(s, key, pname, r); touchStreak(s);
     if (r.xp > 0) ev(award(s, r.xp, `"${r.subject.slice(0, 28)}"${r.oss ? " OSS" : ""}`));
     else ev(`${C.dim}· no XP: ${r.subject.slice(0, 30)} (${r.breakdown[0]})${C.r}`);
+    for (const u of applyGains(s.skillXp, awardCraft(r))) { const sk = skillById(u.id); if (sk) ev(`${C.b}${C.grn}${sk.icon} ${sk.name} Lv${u.to}!${C.r}`); }
     progress(s, "earn150", r.xp); progress(s, "lines200", r.lines);
     if (r.oss) progress(s, "oss1", 1); if (r.hasTests) progress(s, "tests", 1);
   }
