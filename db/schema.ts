@@ -2,7 +2,7 @@
 // Cloud holds the competitive truth: players, the achievement catalog (with global
 // unlock counts → rarity %), per-player unlocks (with date achieved), and per-project
 // boards. Rich local activity/recap data stays on-device; only scores/unlocks sync.
-import { bigint, boolean, integer, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 export const players = pgTable("players", {
   id: text("id").primaryKey(),                                  // client-generated player id
@@ -14,6 +14,8 @@ export const players = pgTable("players", {
   activeSec: bigint("active_sec", { mode: "number" }).notNull().default(0),
   achievements: integer("achievements").notNull().default(0),
   ossCommits: integer("oss_commits").notNull().default(0),
+  totalLevel: integer("total_level").notNull().default(0),        // sum of skill levels (RS-style)
+  skillXp: jsonb("skill_xp").$type<Record<string, number>>().notNull().default({}),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

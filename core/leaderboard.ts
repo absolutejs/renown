@@ -4,6 +4,7 @@
 import type { State } from "./state.ts";
 import { type Config, RDIR } from "./runtime.ts";
 import { levelInfo } from "./state.ts";
+import { totalLevel } from "./skills.ts";
 import { topProjects } from "./stats.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -24,10 +25,11 @@ export async function fetchRarity(cfg: Config): Promise<Rarity> {
   return { map: {}, players: 0, live: false };
 }
 export interface ProjEntry { key: string; name: string; xp: number; commits: number; lines: number; stars: number; oss: boolean; you?: boolean }
-export interface Entry { id?: string; name: string; level: number; xp: number; streak: number; oss: number; ach: number; active?: number; projects?: ProjEntry[]; unlocked?: string[]; commits?: number; lines?: number; you?: boolean }
+export interface Entry { id?: string; name: string; level: number; xp: number; streak: number; oss: number; ach: number; active?: number; totalLevel?: number; skillXp?: Record<string, number>; projects?: ProjEntry[]; unlocked?: string[]; commits?: number; lines?: number; you?: boolean }
 export const selfEntry = (s: State): Entry => ({
   id: s.playerId, name: s.name, level: levelInfo(s.xp).level, xp: s.lifetimeXp, streak: s.best.streak,
   oss: s.ossCommits, ach: Object.keys(s.achievements).length, active: s.stats.activeSec | 0,
+  totalLevel: totalLevel(s.skillXp ?? {}), skillXp: s.skillXp ?? {},
   projects: topProjects(s, 5).map(p => ({ key: p.k, name: p.name, xp: p.xp, commits: p.commits, lines: p.lines, stars: p.stars, oss: p.oss })),
   unlocked: Object.keys(s.achievements),   // for global rarity % on the server
 });
