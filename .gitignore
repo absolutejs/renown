@@ -10,3 +10,4 @@ build/
 # local player save / runtime state (never committed)
 .renown/
 state.json
+backups/
