@@ -10,6 +10,7 @@
 //   parade           → queue a sample celebration parade onto the status line
 //   gallery          → full-screen animated ASCII showcase (big text, fireworks, rainbow)
 //   collection       → your collectibles (drops + event loot)
+//   summon [seed]     → procedurally generate & render a unique creature ('gallery' = 6)
 //   watch            → editor-agnostic activity daemon (next on the roadmap)
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { WATCHED, loadState, renderGreet, renderSkillList } from "../core/runtime.ts";
@@ -39,8 +40,14 @@ switch (cmd) {
   }
   case "gallery": { const { runGallery } = await import("../core/ascii.ts"); await runGallery(); break; }
   case "collection": { const { renderCollection } = await import("../core/collectibles.ts"); console.log(renderCollection(loadState().collectibles ?? {})); break; }
+  case "summon": {
+    const { generate, renderCard } = await import("../core/procgen.ts");
+    if (arg === "gallery") { for (let i = 0; i < 6; i++) console.log(renderCard(generate(`renown:${Date.now()}:${i}:${Math.random()}`)) + "\n"); }
+    else console.log(renderCard(generate(arg ?? `renown:${Date.now()}:${Math.random()}`)));
+    break;
+  }
   case "recap": { process.env.DQ_TAB = "5"; process.env.DQ_ONESHOT = "1"; const { runTui } = await import("./quest.ts"); await runTui(); break; }
   case "watch": { const { runDaemon } = await import("../core/daemon.ts"); await runDaemon(); break; }
   case undefined: case "": { const { runTui } = await import("./quest.ts"); await runTui(); break; }
-  default: console.log("usage: renown [tick | commit <repo> | recap | heartbeat | greet | skills | collection | parade | gallery | watch]");
+  default: console.log("usage: renown [tick | commit <repo> | recap | heartbeat | greet | skills | collection | summon | parade | gallery | watch]");
 }

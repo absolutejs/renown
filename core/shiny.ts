@@ -11,7 +11,7 @@ const lerp = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
 
 export const fg = (r: number, g: number, b: number) => `\x1b[38;2;${r | 0};${g | 0};${b | 0}m`;
 
-const hsvToRgb = (h: number, s = 1, v = 1): RGB => {
+export const hsvToRgb = (h: number, s = 1, v = 1): RGB => {
   const i = Math.floor(h * 6), f = h * 6 - i;
   const p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
   const [r, g, b] = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][((i % 6) + 6) % 6];

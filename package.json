@@ -14,6 +14,7 @@
     "parade": "bun run cli/index.ts parade",
     "skills": "bun run cli/index.ts skills",
     "collection": "bun run cli/index.ts collection",
+    "summon": "bun run cli/index.ts summon",
     "greet": "bun run cli/index.ts greet",
     "recap": "bun run cli/index.ts recap",
     "tui": "bun run cli/index.ts",
