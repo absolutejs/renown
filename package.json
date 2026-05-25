@@ -14,8 +14,8 @@
     "db:studio": "drizzle-kit studio",
     "db:check": "bun run db/check.ts",
     "db:seed": "bun run db/seed.ts",
-    "db:backup": "bun ../absolutejs/src/cli/index.ts db backup --exclude achievements",
-    "db:restore": "bun ../absolutejs/src/cli/index.ts db restore && bun run db/recompute-rarity.ts",
+    "db:backup": "absolute db backup --exclude achievements",
+    "db:restore": "absolute db restore && bun run db/recompute-rarity.ts",
     "server": "bun run server/index.ts"
   },
   "dependencies": {
@@ -23,6 +23,7 @@
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
+    "@absolutejs/absolute": "0.19.0-beta.1052",
     "drizzle-kit": "^0.31.10"
   }
 }
