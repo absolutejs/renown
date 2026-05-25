@@ -3,6 +3,7 @@ node_modules/
 .env.*.local
 dist/
 build/
+.absolutejs/
 *.log
 *.tmp
 .DS_Store
