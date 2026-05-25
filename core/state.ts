@@ -22,7 +22,7 @@ export interface State {
   achievements: Record<string, number>; bestiary: Record<string, Boss>;
   questDay: string; quests: Quest[]; repoHeads: Record<string, string>;
   recentFp: string[]; craftDay: string; craftXpToday: number; maxMem: number;
-  lastTick: number; lastLogScanTs: number;
+  lastTick: number; lastLogScanTs: number; lastBossTs: number;
   best: { xpInDay: number; level: number; streak: number };
   stats: Stats; projects: Record<string, ProjStat>; langsDeep: Record<string, LangStat>;
   flash?: { msg: string; until: number } | null;

@@ -3,9 +3,10 @@
 // evaluates the 10k achievement catalog (badges), submits to the leaderboard, writes HUD.
 import { $ } from "bun";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { C, HUD, WATCHED, award, bossFor, ensureDailyQuests, hasEmergencyKill, listSpikeBosses, loadConfig, loadState, renderHud, saveState } from "./runtime.ts";
+import { C, HUD, WATCHED, award, ensureDailyQuests, loadConfig, loadState, renderHud, saveState } from "./runtime.ts";
 import type { State } from "./state.ts";
 import { evalAll, info } from "./achievements/index.ts";
+import { sampleBosses } from "./bosses.ts";
 import { repoMeta, scoreCommit } from "./craft.ts";
 import { recordActivity, recordCommit } from "./stats.ts";
 import { submit } from "./leaderboard.ts";
@@ -52,14 +53,8 @@ async function reconcile(s: State, repo: string) {
     if (r.oss) progress(s, "oss1", 1); if (r.hasTests) progress(s, "tests", 1);
   }
 }
-async function scanBosses(s: State) {
-  for (const b of listSpikeBosses(cfg.bossLogDir).filter(b => b.ts > (s.lastLogScanTs || 0))) {
-    const i = bossFor(b.comm); const e = (s.bestiary[i.key] ??= { name: i.name, emoji: i.emoji, gb: 0, count: 0 });
-    e.count++; e.gb = Math.max(e.gb, b.gb); e.lastSeen = b.ts; s.bossesSurvived++;
-    ev(`${i.emoji} ${C.yel}Survived a ${i.name} (${b.gb.toFixed(1)}GB)${C.r}`); ev(award(s, 30, `slew ${i.name}`));
-    progress(s, "slayboss", 1); s.lastLogScanTs = Math.max(s.lastLogScanTs, b.ts);
-  }
-  if (hasEmergencyKill(cfg.bossLogDir, s.lastTick || s.createdAt) && !s.achievements["hog-slayer"]) { s.achievements["hog-slayer"] = Date.now(); ev(`${C.b}${C.cyn}🏆 Hog Slayer${C.r}`); ev(award(s, 60, "guardian saved you")); }
+function scanBosses(s: State) {                              // live, universal (core/bosses.ts)
+  for (const msg of sampleBosses(s)) { ev(`${C.yel}${msg}${C.r}`); ev(award(s, 30, "slew a boss")); progress(s, "slayboss", 1); }
 }
 function memTick(s: State) {
   const now = Date.now(), dt = s.lastTick ? Math.min(120, Math.max(0, Math.floor((now - s.lastTick) / 1000))) : 0;
@@ -73,7 +68,7 @@ export async function runEvent(cmd?: string, arg?: string) {
   const s = loadState(); ensureDailyQuests(s);
   if (cmd === "commit" && arg) { await reconcile(s, arg).catch(() => {}); }
   else {
-    touchStreak(s); memTick(s); await scanBosses(s);
+    touchStreak(s); memTick(s); scanBosses(s);
     if (existsSync(WATCHED)) for (const r of [...new Set(readFileSync(WATCHED, "utf8").split("\n").map(x => x.trim()).filter(Boolean))].slice(-40)) await reconcile(s, r).catch(() => {});
     const q = s.quests.find(x => x.id === "polyglot"); if (q && !q.done) { q.prog = Object.keys(s.langs).length; if (q.prog >= q.goal) { q.done = true; ev(award(s, q.xp, "quest")); } }
   }

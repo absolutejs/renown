@@ -44,9 +44,12 @@ password before this repo is public.**
 
 ## Roadmap
 - [x] DB schema + Neon
-- [ ] Migrate the craft/achievements/stats/leaderboard engine into `src/core`
-- [ ] Editor-agnostic activity daemon (`renown watch`)
-- [ ] 10,000-achievement generator + DB seed
-- [ ] Server API (submit/top/achievements) + rarity %
-- [ ] Per-project leaderboards end-to-end
+- [x] Engine in `core/` (craft, achievements, stats, leaderboard, runtime, event)
+- [x] 10,000-achievement catalog (258 curated + 10.6k generated) + DB seed
+- [x] Universal memory bosses (live `/proc` sampler — any machine, no log files)
+- [x] Editor-agnostic activity daemon (`renown watch`)
+- [x] Server API (`/submit`, `/top`, `/top?project`, `/achievements` + rarity %)
+- [x] Per-project leaderboards end-to-end
+- [ ] Wire the TUI to show live rarity % from the server
 - [ ] Editor plugins (VS Code first — we already ship `absolutejs-vscode-extension`)
+- [ ] Auth / anti-cheat on the server before public launch

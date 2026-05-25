@@ -21,16 +21,16 @@ export const paint = (s: string, c: string) => `${c}${s}${C.r}`;
 export const strip = (x: string) => x.replace(/\x1b\[[0-9;]*m/g, "");
 export const hash = (s: string) => { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 
-export interface Config { playerName: string; playerId: string; myEmails: string[]; myOwners: string[]; leaderboardEndpoint: string; bossLogDir: string }
+export interface Config { playerName: string; playerId: string; myEmails: string[]; myOwners: string[]; leaderboardEndpoint: string; bossLogDir: string; codeRoots: string[] }
 const uuid = () => "xxxxxxxxxxxx".replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
 const sh = (cmd: string[]) => { try { return (Bun.spawnSync(cmd, { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim(); } catch { return ""; } };
 export function loadConfig(): Config {
-  try { return { bossLogDir: `${HOME}/.claude/mem-tools/logs`, leaderboardEndpoint: "", ...JSON.parse(readFileSync(CONFIG, "utf8")) }; }
+  try { return { bossLogDir: `${HOME}/.claude/mem-tools/logs`, leaderboardEndpoint: "", codeRoots: [HOME], ...JSON.parse(readFileSync(CONFIG, "utf8")) }; }
   catch {
     const login = sh(["gh", "api", "user", "-q", ".login"]) || sh(["git", "config", "--global", "user.name"]) || "player";
     const email = sh(["git", "config", "--global", "user.email"]);
     const orgs = sh(["gh", "api", "user/orgs", "-q", ".[].login"]).split("\n").filter(Boolean);
-    const cfg: Config = { playerName: login, playerId: uuid(), myEmails: [email].filter(Boolean), myOwners: [login, ...orgs], leaderboardEndpoint: "", bossLogDir: `${HOME}/.claude/mem-tools/logs` };
+    const cfg: Config = { playerName: login, playerId: uuid(), myEmails: [email].filter(Boolean), myOwners: [login, ...orgs], leaderboardEndpoint: "", bossLogDir: `${HOME}/.claude/mem-tools/logs`, codeRoots: [HOME] };
     try { mkdirSync(RDIR, { recursive: true }); writeFileSync(CONFIG, JSON.stringify(cfg, null, 2)); } catch {}
     return cfg;
   }
@@ -77,6 +77,7 @@ export function ensureStats(s: State) {
   for (const k of ["hourActive", "commitHour"] as const) if (!Array.isArray(s.stats[k]) || s.stats[k].length !== 24) s.stats[k] = Array(24).fill(0);
   for (const k of ["dowActive", "commitDow"] as const) if (!Array.isArray(s.stats[k]) || s.stats[k].length !== 7) s.stats[k] = Array(7).fill(0);
   s.stats.daily ??= {}; s.stats.sessions ??= []; s.projects ??= {}; s.langsDeep ??= {};
+  s.lastBossTs ??= 0;
 }
 
 export function freshState(): State {
@@ -87,7 +88,7 @@ export function freshState(): State {
     commits: 0, linesAdded: 0, bossesSurvived: 0, secondsHealthy: 0, ossCommits: 0, extCommits: 0, starsTouched: 0, topStars: 0,
     langs: {}, hours: {}, days: {}, achievements: {}, bestiary: {},
     questDay: "", quests: [], repoHeads: {}, recentFp: [], craftDay: "", craftXpToday: 0, maxMem: 0,
-    lastTick: 0, lastLogScanTs: 0, best: { xpInDay: 0, level: 1, streak: 1 },
+    lastTick: 0, lastLogScanTs: 0, lastBossTs: 0, best: { xpInDay: 0, level: 1, streak: 1 },
     stats: emptyStats(), projects: {}, langsDeep: {},
   };
   ensureDailyQuests(s);

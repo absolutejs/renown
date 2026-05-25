@@ -141,7 +141,7 @@ add("the-bundle", "Bundle of Joy", "Ship 50,000 lines", "WebDev", "gold", "hidde
 // ── Craft & quality ───────────────────────────────────────────────────────────
 add("eden-bane", "Eden's Bane", "Survive a 10GB+ Type Dragon (tsc)", "Craft", "gold", "shown", s => (s.bestiary.tsc?.gb ?? 0) >= 10);
 add("perfectionist", "Perfectionist", "Reach level 25", "Craft", "platinum", "shown", s => level(s) >= 25);
-add("the-widening", "The Widening", "Tame an intractable type", "Craft", "gold", "secret", () => false);
+add("the-widening", "The Widening", "Survive an 8GB+ Type Dragon as a polyglot (5+ langs)", "Craft", "gold", "secret", s => (s.bestiary.tsc?.gb ?? 0) >= 8 && distinctLangs(s) >= 5);
 add("clean-coder", "Clean Coder", "Earn 10,000 lifetime XP", "Craft", "gold", "shown", s => s.lifetimeXp >= 10000);
 add("legend-tier", "Living Legend", "Reach level 50", "Craft", "mythic", "shown", s => level(s) >= 50);
 add("renowned", "Renowned", "Reach level 100", "Craft", "mythic", "hidden", s => level(s) >= 100);
@@ -154,9 +154,9 @@ add("hydra-slayer", "Hydra Slayer", "Survive an 8GB+ Regex Hydra (grep)", "Boss"
 add("dragon-tamer", "Dragon Tamer", "Survive a 12GB+ Type Dragon", "Boss", "platinum", "hidden", s => (s.bestiary.tsc?.gb ?? 0) >= 12);
 add("abyss", "Stared Into The Abyss", "Touch 98% memory and survive", "Boss", "platinum", "secret", s => s.maxMem >= 98);
 add("the-brink", "The Brink", "Touch 95% memory", "Boss", "gold", "secret", s => s.maxMem >= 95);
-add("zero-byte", "Zero-Byte Necromancer", "Capture a 0-byte vmmem dump and live", "Boss", "secret", "secret", () => false);
-add("saga-survivor", "Saga Survivor", "Survive the catastrophe that forged Renown", "Boss", "mythic", "secret", () => false);
-add("hog-slayer", "Hog Slayer", "The guardian OOM-kills a runaway and you survive", "Boss", "platinum", "hidden", () => false);
+add("zero-byte", "Zero-Byte Necromancer", "Face a memory boss before your first commit", "Boss", "secret", "secret", s => s.bossesSurvived >= 1 && s.commits === 0);
+add("saga-survivor", "Saga Survivor", "Survive your first memory catastrophe", "Boss", "mythic", "secret", s => s.bossesSurvived >= 1);
+add("hog-slayer", "Hog Slayer", "Survive a 16GB+ memory monster", "Boss", "platinum", "hidden", s => Object.values(s.bestiary).some(b => b.gb >= 16));
 
 // ── Sessions & activity ───────────────────────────────────────────────────────
 add("first-hour", "First Hour", "Bank an hour of active coding", "Activity", "bronze", "shown", s => s.stats.activeSec >= 3600);

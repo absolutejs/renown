@@ -25,7 +25,7 @@ switch (cmd) {
   case "commit": await runEvent("commit", arg); break;
   case "heartbeat": registerCwdRepo(); await runEvent("tick"); break;
   case "recap": { process.env.DQ_TAB = "5"; process.env.DQ_ONESHOT = "1"; const { runTui } = await import("./quest.ts"); await runTui(); break; }
-  case "watch": console.log("renown watch — editor-agnostic daemon is next on the roadmap"); break;
+  case "watch": { const { runDaemon } = await import("../core/daemon.ts"); await runDaemon(); break; }
   case undefined: case "": { const { runTui } = await import("./quest.ts"); await runTui(); break; }
   default: console.log("usage: renown [tick | commit <repo> | recap | heartbeat | watch]");
 }
