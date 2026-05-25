@@ -16,6 +16,10 @@ export const players = pgTable("players", {
   ossCommits: integer("oss_commits").notNull().default(0),
   totalLevel: integer("total_level").notNull().default(0),        // sum of skill levels (RS-style)
   skillXp: jsonb("skill_xp").$type<Record<string, number>>().notNull().default({}),
+  // --- authoritative leaderboard: server-recomputed from GitHub, NOT client-submitted ---
+  githubVerified: boolean("github_verified").notNull().default(false),  // OAuth proved login ownership
+  verifiedScore: bigint("verified_score", { mode: "number" }).notNull().default(0),  // the only ranked number
+  verifiedAt: timestamp("verified_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

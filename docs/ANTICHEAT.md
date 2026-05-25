@@ -19,12 +19,22 @@ Private throwaway commits, bot-farmed history, and edited local state → **genu
 0 reward value**, however much "XP" they generate. (Ownable wild creatures are gated on
 `isOwnable`.)
 
-### 3. Server-side verification is the real gate
-The client is untrusted (anyone can edit `~/.renown/state.json`). The reward path
-**recomputes from the GitHub API**: the commit exists, you authored it, and the repo's
-stars/license/owner are real. The on-chain **Attestation** (`@absolutejs/onchain`) only signs
-a `fact` that GitHub independently confirms — so neither a player nor the operator can mint a
-token without the genuine interaction having happened.
+### 3. The leaderboard is server-authoritative — client numbers NEVER rank
+The client is untrusted: `~/.renown/state.json` is editable, so every xp/level/skill number
+a client submits is a hint, not a fact. The leaderboard ranks **only** by `verified_score`,
+which is **recomputed server-side directly from the GitHub public API** (`web/src/backend/
+verify.ts` → real repos, stars, contributions to repos you don't own, account age) — none of
+which a player *or the operator* can fabricate without it actually being true on GitHub.
+- `/submit` stores client data as a local mirror but can **never** set `verified_score`.
+- `/top` returns only `github_verified` players, ordered by `verified_score`.
+- `/verify` recomputes from GitHub (throttled); it only *stores* for a login whose ownership
+  is **OAuth-proven** (`github_verified`), so you can't rank by impersonating someone's login.
+- Editing your local dashboard is purely cosmetic motivation — it has zero leaderboard effect.
+- (Proven: a faker with 9,999,999 local xp does not appear; a verified account ranks by its
+  real GitHub-derived score.)
+
+The on-chain **Attestation** (`@absolutejs/onchain`) applies the same rule to ownership: it
+only signs a `fact` GitHub independently confirms — no genuine interaction, no token.
 
 ### 4. Substance scoring already nukes low-effort
 `craft.ts`: generated/lockfile/dist/minified ≈ 0, near-duplicate ×0.35, junk/empty message

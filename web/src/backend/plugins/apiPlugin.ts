@@ -6,8 +6,9 @@ import { Elysia } from "elysia";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
 import { achievements, playerProjects, players } from "../../../../db/schema.ts";
 import { gameDb, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
+import { verifyGithub } from "../verify.ts";
 
-const TOP_MAX = 100, ACH_MAX = 2000;
+const TOP_MAX = 100, ACH_MAX = 2000, REVERIFY_MS = 10 * 60 * 1000;
 
 export const apiPlugin = () =>
   new Elysia({ prefix: "/api" })
@@ -25,8 +26,24 @@ export const apiPlugin = () =>
           .where(eq(playerProjects.projectKey, String(query.project))).orderBy(desc(playerProjects.xp)).limit(n);
         return rows.map((r) => ({ key: query.project, ...r }));
       }
-      const rows = await gameDb.select().from(players).orderBy(desc(players.xp)).limit(n);
-      return rows.map((p) => ({ id: p.id, name: p.handle, level: p.level, totalLevel: p.totalLevel, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec }));
+      // THE authoritative leaderboard: only GitHub-verified players, ranked by the
+      // server-recomputed verifiedScore — client-submitted xp NEVER affects the ranking.
+      const rows = await gameDb.select().from(players).where(eq(players.githubVerified, true)).orderBy(desc(players.verifiedScore)).limit(n);
+      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec }));
+    })
+    // Recompute a player's authoritative score from GitHub. Safe to call by anyone (it only
+    // pulls from GitHub — no client data is trusted) but only stores for an OAuth-verified
+    // login, and is throttled. This is how the leaderboard stays real.
+    .post("/verify", async ({ body }) => {
+      const login = String((body as { login?: string })?.login ?? "");
+      if (!login) return { error: "login required" };
+      const row = (await gameDb.select().from(players).where(eq(players.githubLogin, login)))[0];
+      if (!row?.githubVerified) return { error: "login ownership not verified (OAuth required)" };
+      if (row.verifiedAt && Date.now() - new Date(row.verifiedAt).getTime() < REVERIFY_MS) return { ok: true, score: row.verifiedScore, throttled: true };
+      const v = await verifyGithub(login);
+      if (!v) return { error: "github verification failed" };
+      await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, row.id));
+      return { ok: true, score: v.score, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
     })
     .get("/skills", async ({ query }) => {
       const id = String(query.id ?? "");
