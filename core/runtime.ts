@@ -4,6 +4,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { type Boss, type Quest, type State, type Stats, levelInfo } from "./state.ts";
 import { MAX_TOTAL_LEVEL, SKILLS, fmtBig, maxedCount, skillProgress, topSkills, totalLevel } from "./skills.ts";
+import { gradientBar, rainbow } from "./shiny.ts";
 
 export const HOME = process.env.HOME ?? "/home/alexkahn";
 export const RDIR = `${HOME}/.renown`;
@@ -126,8 +127,10 @@ export function renderHud(s: State): string {
   const total = totalLevel(skx);
   const top = topSkills(skx, 1)[0];
   const tp = skillProgress(top.xp);
-  // base HUD only; celebrations are drained separately by the status line (see celebrate.ts)
-  return `${C.b}${C.mag}Lvl${total}${C.r} ${bar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r} ${top.def.icon} ${C.b}${top.def.name} ${top.level}${C.r}`;
+  // base HUD only; celebrations are drained separately by the status line (see celebrate.ts).
+  // a 99 skill earns a rainbow level — the rarest thing on the line.
+  const lvlBadge = top.level >= 99 ? rainbow(String(top.level)) : `${C.b}${top.level}${C.r}`;
+  return `${C.b}${C.mag}Lvl${total}${C.r} ${gradientBar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r} ${top.def.icon} ${C.b}${top.def.name}${C.r} ${lvlBadge}`;
 }
 
 // A one-line "welcome back" for session start (streak lives here now, not the status line).
@@ -151,7 +154,8 @@ export function renderSkillList(s: State): string {
   // fixed-width columns (level · bar · %) lead so they align; emoji+name trail freely.
   const lines = rows.map(({ sk, xp, lvl, pct }) => {
     const lc = lvl >= 99 ? C.gold : lvl >= 50 ? C.grn : lvl >= 20 ? C.yel : C.r;
-    return `  ${lc}Lv${String(lvl).padStart(2)}${C.r} ${bar(pct, 10)} ${C.dim}${String(pct).padStart(3)}%${C.r} ${sk.icon} ${sk.name} ${C.dim}${fmtBig(xp)}xp${C.r}`;
+    const badge = lvl >= 99 ? rainbow(`Lv${lvl}`) : `${lc}Lv${String(lvl).padStart(2)}${C.r}`;
+    return `  ${badge} ${gradientBar(pct, 10)} ${C.dim}${String(pct).padStart(3)}%${C.r} ${sk.icon} ${sk.name} ${C.dim}${fmtBig(xp)}xp${C.r}`;
   });
   return [head, ...lines].join("\n");
 }

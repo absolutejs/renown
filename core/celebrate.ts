@@ -5,18 +5,28 @@
 // loudest moments — the hook phase 4 swaps for full ASCII animations).
 import { readFileSync, writeFileSync } from "node:fs";
 import { C, RDIR } from "./runtime.ts";
+import { B, R, gradient, rainbow, shimmer } from "./shiny.ts";
 
 export const CELEBRATIONS = `${RDIR}/celebrations.txt`;
-const QUEUE_CAP = 40;
+const QUEUE_CAP = 60;
+const RAINBOW_FRAMES = 7, SHIMMER_FRAMES = 3;
 
 export interface Celebration { tier: number; text: string }
 
-// tier 1 minor · 2 notable · 3 big · 4 epic — styling gets louder as it climbs
-export const renderCelebration = (c: Celebration): string => {
-  if (c.tier >= 4) return `${C.b}${C.gold}${C.inv} ✦ ${c.text} ✦ ${C.r}`;
-  if (c.tier === 3) return `${C.b}${C.gold}★ ${c.text} ★${C.r}`;
-  if (c.tier === 2) return `${C.b}${C.cyn}✧ ${c.text}${C.r}`;
-  return `${C.grn}⬆ ${c.text}${C.r}`;
+// One celebration → one or more rendered frames (the status line pops one per refresh, so
+// extra frames animate). Shine escalates with tier so the rare stuff is unmistakable:
+//   1 plain green · 2 cyan→blue gradient · 3 gold shimmer (sweeps) · 4 scrolling RAINBOW.
+const framesFor = (c: Celebration): string[] => {
+  if (c.tier >= 4) {
+    const txt = `✦ ${c.text} ✦`;
+    return Array.from({ length: RAINBOW_FRAMES }, (_, i) => B + rainbow(txt, i / RAINBOW_FRAMES));
+  }
+  if (c.tier === 3) {
+    const txt = `★ ${c.text} ★`, len = [...txt].length;
+    return Array.from({ length: SHIMMER_FRAMES }, (_, i) => B + shimmer(txt, Math.round((i / (SHIMMER_FRAMES - 1)) * (len - 1))));
+  }
+  if (c.tier === 2) return [gradient(`✧ ${c.text}`, [120, 220, 255], [130, 140, 255])];
+  return [`${C.grn}⬆ ${c.text}${R}`];
 };
 
 export const skillUp = (icon: string, name: string, level: number): Celebration => {
@@ -28,13 +38,13 @@ export const achievementUp = (name: string, tier = 2): Celebration => ({ tier, t
 export const bossUp = (): Celebration => ({ tier: 2, text: "⚔ Boss slain" });
 export const totalUp = (total: number): Celebration => ({ tier: total % 100 === 0 ? 4 : total % 50 === 0 ? 3 : 2, text: `Total Level ${total}` });
 
-// append rendered celebrations to the drain file (capped so it never grows unbounded)
+// expand celebrations into frames and append to the drain file (capped, never unbounded)
 export const enqueue = (cels: Celebration[]) => {
-  if (!cels.length) return;
+  const frames = cels.flatMap(framesFor);
+  if (!frames.length) return;
   try {
     let existing: string[] = [];
     try { existing = readFileSync(CELEBRATIONS, "utf8").split("\n").filter(Boolean); } catch {}
-    const all = [...existing, ...cels.map(renderCelebration)].slice(-QUEUE_CAP);
-    writeFileSync(CELEBRATIONS, all.join("\n") + "\n");
+    writeFileSync(CELEBRATIONS, [...existing, ...frames].slice(-QUEUE_CAP).join("\n") + "\n");
   } catch {}
 };
