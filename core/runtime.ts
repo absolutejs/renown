@@ -126,9 +126,8 @@ export function renderHud(s: State): string {
   const total = totalLevel(skx);
   const top = topSkills(skx, 1)[0];
   const tp = skillProgress(top.xp);
-  let hud = `${C.b}${C.mag}Lvl${total}${C.r} ${bar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r} ${top.def.icon} ${C.b}${top.def.name} ${top.level}${C.r}`;
-  if (s.flash && s.flash.until > Date.now()) hud += `  ${s.flash.msg}`;
-  return hud;
+  // base HUD only; celebrations are drained separately by the status line (see celebrate.ts)
+  return `${C.b}${C.mag}Lvl${total}${C.r} ${bar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r} ${top.def.icon} ${C.b}${top.def.name} ${top.level}${C.r}`;
 }
 
 // A one-line "welcome back" for session start (streak lives here now, not the status line).

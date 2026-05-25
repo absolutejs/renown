@@ -8,12 +8,14 @@ import type { State } from "./state.ts";
 import { evalAll, info } from "./achievements/index.ts";
 import { sampleBosses } from "./bosses.ts";
 import { repoMeta, scoreCommit } from "./craft.ts";
-import { applyGains, awardCraft, skillById } from "./skills.ts";
+import { applyGains, awardCraft, skillById, totalLevel } from "./skills.ts";
+import { type Celebration, achievementUp, bossUp, enqueue, skillUp, totalUp } from "./celebrate.ts";
 import { recordActivity, recordCommit } from "./stats.ts";
 import { submit } from "./leaderboard.ts";
 
 const cfg = loadConfig();
 const events: string[] = [];
+const cels: Celebration[] = [];                               // tiered toasts for the status-line parade
 const ev = (m: string | null | string[]) => { if (m) for (const x of ([] as string[]).concat(m)) if (x) events.push(x); };
 const day = () => new Date().toISOString().slice(0, 10);
 const yest = () => new Date(Date.now() - 86400000).toISOString().slice(0, 10);
@@ -30,7 +32,7 @@ function progress(s: State, id: string, delta: number) {
 }
 function checkAch(s: State) {                                  // achievements are badges (no XP)
   const have = new Set(Object.keys(s.achievements));
-  for (const id of evalAll(s, have)) { s.achievements[id] = Date.now(); have.add(id); const a = info(id); ev(`${C.b}${C.cyn}🏆 ${a?.name ?? id}${C.r}${a?.vis === "secret" ? ` ${C.dim}(secret)${C.r}` : ""}`); }
+  for (const id of evalAll(s, have)) { s.achievements[id] = Date.now(); have.add(id); const a = info(id); ev(`${C.b}${C.cyn}🏆 ${a?.name ?? id}${C.r}${a?.vis === "secret" ? ` ${C.dim}(secret)${C.r}` : ""}`); cels.push(achievementUp(a?.name ?? id, a?.vis === "secret" ? 3 : 2)); }
 }
 
 async function reconcile(s: State, repo: string) {
@@ -50,13 +52,13 @@ async function reconcile(s: State, repo: string) {
     recordCommit(s, key, pname, r); touchStreak(s);
     if (r.xp > 0) ev(award(s, r.xp, `"${r.subject.slice(0, 28)}"${r.oss ? " OSS" : ""}`));
     else ev(`${C.dim}· no XP: ${r.subject.slice(0, 30)} (${r.breakdown[0]})${C.r}`);
-    for (const u of applyGains(s.skillXp, awardCraft(r))) { const sk = skillById(u.id); if (sk) ev(`${C.b}${C.grn}${sk.icon} ${sk.name} Lv${u.to}!${C.r}`); }
+    for (const u of applyGains(s.skillXp, awardCraft(r))) { const sk = skillById(u.id); if (sk) { ev(`${C.b}${C.grn}${sk.icon} ${sk.name} Lv${u.to}!${C.r}`); cels.push(skillUp(sk.icon, sk.name, u.to)); } }
     progress(s, "earn150", r.xp); progress(s, "lines200", r.lines);
     if (r.oss) progress(s, "oss1", 1); if (r.hasTests) progress(s, "tests", 1);
   }
 }
 function scanBosses(s: State) {                              // live, universal (core/bosses.ts)
-  for (const msg of sampleBosses(s)) { ev(`${C.yel}${msg}${C.r}`); ev(award(s, 30, "slew a boss")); progress(s, "slayboss", 1); }
+  for (const msg of sampleBosses(s)) { ev(`${C.yel}${msg}${C.r}`); ev(award(s, 30, "slew a boss")); cels.push(bossUp()); progress(s, "slayboss", 1); }
 }
 function memTick(s: State) {
   const now = Date.now(), dt = s.lastTick ? Math.min(120, Math.max(0, Math.floor((now - s.lastTick) / 1000))) : 0;
@@ -68,6 +70,7 @@ function memTickMem(): number { try { const t = readFileSync("/proc/meminfo", "u
 
 export async function runEvent(cmd?: string, arg?: string) {
   const s = loadState(); ensureDailyQuests(s);
+  const totalBefore = totalLevel(s.skillXp);
   if (cmd === "commit" && arg) { await reconcile(s, arg).catch(() => {}); }
   else {
     touchStreak(s); memTick(s); scanBosses(s);
@@ -75,6 +78,9 @@ export async function runEvent(cmd?: string, arg?: string) {
     const q = s.quests.find(x => x.id === "polyglot"); if (q && !q.done) { q.prog = Object.keys(s.langs).length; if (q.prog >= q.goal) { q.done = true; ev(award(s, q.xp, "quest")); } }
   }
   checkAch(s); recordActivity(s, s.lifetimeXp, s.commits); s.lastTick = Date.now();
+  const totalAfter = totalLevel(s.skillXp);                    // celebrate every total-level milestone of 10 we crossed
+  for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUp(m));
+  enqueue(cels);
   if (events.length) s.flash = { msg: events[events.length - 1], until: Date.now() + 45000 };
   writeFileSync(HUD, renderHud(s)); saveState(s);
   await submit(s, cfg).catch(() => {});
