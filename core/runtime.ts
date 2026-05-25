@@ -126,10 +126,21 @@ export function renderHud(s: State): string {
   const total = totalLevel(skx);
   const top = topSkills(skx, 1)[0];
   const tp = skillProgress(top.xp);
-  let hud = `${C.b}${C.mag}Lv${total}${C.r} ${top.def.icon}${C.b}${top.level}${C.r} ${bar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r}`;
-  if (s.streak > 0) hud += ` ${C.orange}🔥${s.streak}${C.r}`;
+  let hud = `${C.b}${C.mag}Lvl${total}${C.r} ${top.def.icon}${C.b}${top.level}${C.r} ${bar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r}`;
   if (s.flash && s.flash.until > Date.now()) hud += `  ${s.flash.msg}`;
   return hud;
+}
+
+// A one-line "welcome back" for session start (streak lives here now, not the status line).
+export function renderGreet(s: State): string {
+  const skx = s.skillXp ?? {};
+  const top = topSkills(skx, 1)[0];
+  const today = s.craftDay === new Date().toISOString().slice(0, 10) ? s.craftXpToday : 0;
+  const streak = `${C.orange}🔥 ${s.streak}-day streak${C.r}`;
+  const lvl = `${C.mag}Lvl ${totalLevel(skx)}${C.r}`;
+  const best = `top ${top.def.icon} ${top.def.name} ${top.level}`;
+  const xp = today > 0 ? ` ${C.dim}·${C.r} ${C.yel}+${today} XP today${C.r}` : "";
+  return `${streak} ${C.dim}·${C.r} ${lvl} ${C.dim}·${C.r} ${best}${xp}`;
 }
 
 export function listSpikeBosses(dir: string): { comm: string; gb: number; ts: number }[] {
