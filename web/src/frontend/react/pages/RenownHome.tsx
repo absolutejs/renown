@@ -41,8 +41,8 @@ const App = () => {
         <h1>⚔ Renown</h1>
         <p className="tag">Earn XP and renown for real, meritorious dev work — in any editor.</p>
         <div className="cta">
-          <a className="btn gh" href="/login/github">Log in with GitHub</a>
-          <a className="btn gg" href="/login/google">Log in with Google</a>
+          <a className="btn gh" href="/oauth2/github/authorization">Log in with GitHub</a>
+          <a className="btn gg" href="/oauth2/google/authorization?client=login">Log in with Google</a>
         </div>
       </header>
 
