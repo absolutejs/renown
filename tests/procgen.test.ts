@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { generate, makeRng, type Tier } from "../core/procgen.ts";
+import { generate, makeRng, rollWild, type Tier } from "../core/procgen.ts";
 
 describe("procgen determinism (the seed is the asset)", () => {
   test("the same seed always reproduces the exact same creature", () => {
@@ -35,5 +35,20 @@ describe("procgen rarity", () => {
     expect(c.rarestTrait.length).toBeGreaterThan(0);
     expect(c.sprite().split("\n").length).toBeGreaterThan(2);
     expect(typeof c.oneOfOne).toBe("boolean");
+  });
+});
+
+describe("wild drops", () => {
+  test("the roll is deterministic per commit (not gameable by re-ticking)", () => {
+    const a = rollWild(5000, "owner/repo", "deadbeef");
+    const b = rollWild(5000, "owner/repo", "deadbeef");
+    expect(a?.seed ?? null).toBe(b?.seed ?? null);
+  });
+  test("finds are rare and seeded by the commit (provenance)", () => {
+    let found = 0;
+    for (let i = 0; i < 1000; i++) if (rollWild(100, "r", `sha${i}`)) found++;
+    expect(found).toBeLessThan(150);                  // low-xp commits rarely drop
+    const hit = rollWild(5000, "acme/app", "c0ffee");
+    if (hit) expect(hit.seed).toBe("wild:acme/app:c0ffee");
   });
 });

@@ -88,7 +88,7 @@ export function freshState(): State {
     v: STATE_V, name: cfg.playerName, playerId: cfg.playerId, createdAt: now,
     xp: 0, lifetimeXp: 0, streak: 1, lastActiveDay: new Date().toISOString().slice(0, 10),
     commits: 0, linesAdded: 0, bossesSurvived: 0, secondsHealthy: 0, ossCommits: 0, extCommits: 0, starsTouched: 0, topStars: 0,
-    langs: {}, hours: {}, days: {}, skillXp: {}, collectibles: {}, achievements: {}, bestiary: {},
+    langs: {}, hours: {}, days: {}, skillXp: {}, collectibles: {}, wild: [], achievements: {}, bestiary: {},
     questDay: "", quests: [], repoHeads: {}, recentFp: [], craftDay: "", craftXpToday: 0, maxMem: 0,
     lastTick: 0, lastLogScanTs: 0, lastBossTs: 0, best: { xpInDay: 0, level: 1, streak: 1 },
     stats: emptyStats(), projects: {}, langsDeep: {},
@@ -102,6 +102,7 @@ export function ensureSkills(s: State) {
   s.skillXp ??= {};
   if (s.skillXp.shipping === undefined && s.lifetimeXp > 0) s.skillXp.shipping = s.lifetimeXp;
   s.collectibles ??= {};
+  s.wild ??= [];
 }
 export function loadState(): State {
   try { const s = JSON.parse(readFileSync(STATE, "utf8")) as State; if (s.v !== STATE_V) throw 0; ensureStats(s); ensureSkills(s); ensureDailyQuests(s); return s; }

@@ -46,6 +46,7 @@ switch (cmd) {
     else console.log(renderCard(generate(arg ?? `renown:${Date.now()}:${Math.random()}`)));
     break;
   }
+  case "menagerie": { const { renderMenagerie } = await import("../core/procgen.ts"); console.log(renderMenagerie(loadState().wild ?? [])); break; }
   case "recap": { process.env.DQ_TAB = "5"; process.env.DQ_ONESHOT = "1"; const { runTui } = await import("./quest.ts"); await runTui(); break; }
   case "watch": { const { runDaemon } = await import("../core/daemon.ts"); await runDaemon(); break; }
   case undefined: case "": { const { runTui } = await import("./quest.ts"); await runTui(); break; }

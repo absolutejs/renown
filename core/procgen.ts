@@ -139,6 +139,27 @@ const renderCreature = (c: Creature): string => {
   return out.join("\n");
 };
 
+// Wild find: a commit deterministically either yields a procedural creature or not
+// (the roll AND the creature are seeded by the commit SHA → provenance, not gameable).
+const WILD_MAX_CHANCE = 0.06;
+export const rollWild = (xp: number, repoKey: string, sha: string): Creature | null => {
+  if (!sha) return null;
+  const chance = Math.min(WILD_MAX_CHANCE, xp / 5000);
+  if (makeRng(`wildroll:${sha}`)() >= chance) return null;
+  return generate(`wild:${repoKey}:${sha}`);
+};
+export const wildCelebrationTier = (tier: Tier) => (tier === "Mythic" || tier === "Legendary" ? 4 : tier === "Epic" || tier === "Rare" ? 3 : tier === "Uncommon" ? 2 : 1);
+
+// the `renown menagerie` sheet — your wild finds, rarest first (top 3 rendered)
+export const renderMenagerie = (seeds: string[]): string => {
+  if (!seeds.length) return `${fg(135, 135, 160)}No wild finds yet — they drop from real commits.${R}`;
+  const cs = [...new Set(seeds)].map(generate).sort((a, b) => b.score - a.score);
+  const head = `${fg(196, 181, 253)}Menagerie — ${cs.length} wild ${cs.length === 1 ? "find" : "finds"}${R}  ${fg(135, 135, 160)}rarest: ${cs[0].name}${R}`;
+  const top = cs.slice(0, 3).map(renderCard).join("\n\n");
+  const rest = cs.slice(3).map((c) => `  ${fg(...TIER_RGB[c.tier])}◆ ${c.tier}${R}  ${c.name}`).join("\n");
+  return [head, "", top, rest].filter(Boolean).join("\n");
+};
+
 // a full terminal "card" for a creature: tier badge, name, sprite, rarity + traits
 export const renderCard = (c: Creature): string => {
   const tc = TIER_RGB[c.tier];

@@ -21,6 +21,8 @@ export interface State {
   langs: Record<string, number>; hours: Record<string, number>; days: Record<string, number>;
   skillXp: Record<string, number>;
   collectibles: Record<string, { at: number; count: number }>;
+  wild: string[];                 // seeds of procedurally-generated wild creatures found
+
   achievements: Record<string, number>; bestiary: Record<string, Boss>;
   questDay: string; quests: Quest[]; repoHeads: Record<string, string>;
   recentFp: string[]; craftDay: string; craftXpToday: number; maxMem: number;
