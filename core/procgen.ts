@@ -63,7 +63,7 @@ const NOUN: Record<string, string[]> = {
 };
 
 export interface Creature {
-  seed: string; traits: Traits; tier: Tier; score: number; rarestTrait: string;
+  seed: string; traits: Traits; tier: Tier; score: number; statRarity: number; rarestTrait: string;
   oneOfOne: boolean; mythicAura: boolean; name: string; palette: [RGB, RGB]; eyeColor: RGB;
   sprite: () => string;
 }
@@ -75,7 +75,7 @@ const MYTHIC_PREDICATE = 0x37;   // hidden "shiny" combo on the seed hash (~1/25
 const EYE: Record<string, string> = { dot: "•", round: "o", sleepy: "‿", fierce: ">", star: "*", void: "◦", cyclops: "O", many: "∷" };
 const MOUTH: Record<string, [string, number]> = { smile: ["‿", 1], neutral: ["—", 1], fangs: ["ᴥ", 1], agape: ["o", 1], none: ["", 0], grin: ["▿", 1], tongue: ["ᵕ", 1] };
 
-const renderCreature = (c: Creature): string => {
+const renderCreature = (c: Creature, frame = 0): string => {
   const rng = makeRng(c.seed + ":sprite");
   const size = c.traits.size;
   const H = size === "tiny" ? 4 : size === "small" ? 5 : size === "large" ? 7 : size === "huge" ? 8 : 6;
@@ -108,6 +108,10 @@ const renderCreature = (c: Creature): string => {
   const eyeRow = Math.max(0, Math.floor(H * 0.35)), mouthRow = Math.min(H - 1, eyeRow + 1);
   const eyeGlyph = EYE[c.traits.eyes] ?? "•", [mGlyph] = MOUTH[c.traits.mouth] ?? ["—", 1];
   const dense = c.traits.pattern === "scales" ? "▓" : c.traits.pattern === "cosmic" ? "█" : "█";
+  // animation: everyone blinks + breathes; legendary shimmers; mythic rainbow-cycles
+  const blink = frame % 7 === 4;
+  const pulse = 0.82 + 0.18 * Math.sin(frame * 0.6);
+  const shimmerCol = c.tier === "Legendary" ? frame % W : -99;
   const out: string[] = [];
   for (let y = 0; y < H; y++) {
     let line = "";
@@ -115,12 +119,13 @@ const renderCreature = (c: Creature): string => {
       const on = body[y][x];
       if (!on) { line += " "; continue; }
       const t = H > 1 ? y / (H - 1) : 0;
-      const col: RGB = c.mythicAura ? hsvToRgb(((x / W) + (y * 0.07)) % 1, 0.9, 1) : [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
+      let col: RGB = c.mythicAura ? hsvToRgb(((x / W) + (y * 0.07) + frame * 0.05) % 1, 0.9, 1) : [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
+      if (!c.mythicAura) { const k = Math.abs(x - shimmerCol) <= 1 ? 1.6 : pulse; col = [Math.min(255, col[0] * k), Math.min(255, col[1] * k), Math.min(255, col[2] * k)]; }
       // eyes: two symmetric cells on the eye row; mouth: center on the mouth row
       const isEye = y === eyeRow && (x === Math.floor(W * 0.3) || x === Math.ceil(W * 0.7) - 1) && c.traits.eyes !== "cyclops";
       const isCyclops = y === eyeRow && c.traits.eyes === "cyclops" && x === Math.floor(W / 2);
       const isMouth = y === mouthRow && mGlyph && x === Math.floor(W / 2);
-      if (isEye || isCyclops) line += fg(...c.eyeColor) + eyeGlyph;
+      if (isEye || isCyclops) line += fg(...c.eyeColor) + (blink ? "-" : eyeGlyph);
       else if (isMouth) line += fg(20, 20, 30) + mGlyph;
       else { const speckle = (c.traits.pattern === "spots" || c.traits.pattern === "runes") && rng() < 0.18; line += fg(...col) + (speckle ? "·" : dense); }
     }
@@ -136,7 +141,17 @@ const renderCreature = (c: Creature): string => {
     out[0] = `${fg(255, 240, 160)}✦${R} ` + out[0];                  // prepend (don't slice into escapes)
     out[out.length - 1] = out[out.length - 1] + `${fg(255, 240, 160)} ✦${R}`;
   }
-  return out.join("\n");
+  return (frame % 4 >= 2 ? "\n" : "") + out.join("\n");              // gentle vertical bob
+};
+
+// animation frames for a living creature (everyone moves; rarer tiers move more)
+export const frames = (c: Creature, count = 16) => Array.from({ length: count }, (_, i) => renderCreature(c, i));
+// a one-line "chibi" face for compact spots (status line / lists)
+const FACE_MOUTH: Record<string, string> = { smile: "ᵕ", neutral: "–", fangs: "ᴥ", agape: "o", none: "·", grin: "▿", tongue: "ᵕ" };
+export const face = (c: Creature) => {
+  const eye = EYE[c.traits.eyes] ?? "•", m = FACE_MOUTH[c.traits.mouth] ?? "–";
+  const inner = c.traits.eyes === "cyclops" ? ` ${eye} ` : `${eye}${m}${eye}`;
+  return c.mythicAura ? `(${inner})` : `${fg(...c.palette[0])}(${inner})${R}`;
 };
 
 // Wild find: a commit deterministically either yields a procedural creature or not
@@ -161,11 +176,34 @@ export const renderMenagerie = (seeds: string[]): string => {
 };
 
 // a full terminal "card" for a creature: tier badge, name, sprite, rarity + traits
+// empirical score CDF (from sampling) → a relative rarity, not the misleading exact-combo odds
+const MAX_SCORE = 28;
+const CDF: [number, number][] = [[9.73, 0], [15.45, 0.52], [18.14, 0.82], [20.31, 0.94], [22.34, 0.982], [24.36, 0.996], [33.41, 1]];
+export const rarerThan = (score: number) => {                    // fraction of pulls THIS one beats (0..1)
+  let pctile = 1;
+  for (let i = 0; i < CDF.length - 1; i++) { const [s0, p0] = CDF[i], [s1, p1] = CDF[i + 1]; if (score <= s1) { pctile = score <= s0 ? p0 : p0 + (p1 - p0) * ((score - s0) / (s1 - s0)); break; } }
+  return Math.max(0.0001, 1 - pctile);                           // fraction RARER (floored so 1-in-N is finite)
+};
+export const rarityLabel = (c: Creature) => {
+  if (c.oneOfOne) return "THE ONLY ONE — 1 of 1";
+  if (c.mythicAura) return "mythic aura · ≈ 1 in 256";
+  const frac = rarerThan(c.score);                               // fraction this-rare-or-rarer
+  const beats = (1 - frac) * 100;                                // % of pulls it beats
+  return `rarer than ${beats.toFixed(beats > 99 ? 2 : 0)}% · ≈ 1 in ${Math.round(1 / frac).toLocaleString()}`;
+};
 export const renderCard = (c: Creature): string => {
   const tc = TIER_RGB[c.tier];
   const badge = `${fg(...tc)}◆ ${c.tier.toUpperCase()}${c.oneOfOne ? " · 1-OF-1" : c.mythicAura ? " · MYTHIC AURA" : ""}${R}`;
+  const filled = Math.max(1, Math.min(10, Math.round((c.score / MAX_SCORE) * 10)));
+  const meter = `${fg(...tc)}${"▰".repeat(filled)}${fg(70, 70, 90)}${"▱".repeat(10 - filled)}${R}`;
   const traits = Object.entries(c.traits).map(([k, v]) => `${k}:${v}`).join("  ");
-  return [`${badge}  ${fg(...tc)}${c.name}${R}`, "", c.sprite(), "", `${fg(135, 135, 160)}rarity ${c.score} bits · rarest: ${c.rarestTrait}${R}`, `${fg(135, 135, 160)}${traits}${R}`, `${fg(95, 95, 115)}seed: ${c.seed}${R}`].join("\n");
+  return [
+    `${badge}  ${fg(...tc)}${c.name}${R}`, "",
+    c.sprite(), "",
+    `${meter}  ${fg(...tc)}${rarityLabel(c)}${R}  ${fg(135, 135, 160)}· rarest: ${c.rarestTrait}${R}`,
+    `${fg(135, 135, 160)}${traits}${R}`,
+    `${fg(95, 95, 115)}seed: ${c.seed}${R}`
+  ].join("\n");
 };
 
 export const generate = (seed: string): Creature => {
@@ -173,8 +211,9 @@ export const generate = (seed: string): Creature => {
   const traits: Traits = {};
   for (const slot of SLOTS) traits[slot.key] = draw(rng, slot.opts);
   // OpenRarity-style information content: Σ -log2(P(trait)); rarer traits dominate
-  let score = 0, rarest = SLOTS[0].key, rarestP = 1;
-  for (const slot of SLOTS) { const p = freq(slot, traits[slot.key]); score += -Math.log2(p); if (p < rarestP) { rarestP = p; rarest = `${traits[slot.key]} ${slot.key}`; } }
+  let score = 0, prod = 1, rarest = SLOTS[0].key, rarestP = 1;
+  for (const slot of SLOTS) { const p = freq(slot, traits[slot.key]); score += -Math.log2(p); prod *= p; if (p < rarestP) { rarestP = p; rarest = `${traits[slot.key]} ${slot.key}`; } }
+  const statRarity = Math.round(1 / prod);   // "≈ 1 in N" — probability of this exact combination
   const hashRng = makeRng(seed + ":gate");
   const mythicAura = traits.aura === "rainbow" || (rint(hashRng, 256) === MYTHIC_PREDICATE);
   const oneOfOne = hashRng() < ONE_OF_ONE;
@@ -189,7 +228,7 @@ export const generate = (seed: string): Creature => {
   const eyeColor = hsvToRgb((baseHue + 0.5) % 1, 0.9, 1);
   const noun = NOUN[traits.species] ?? ["Thing"];
   const name = `${PREFIX[rint(rng, PREFIX.length)]} ${noun[rint(rng, noun.length)]} ${SUFFIX[rint(rng, SUFFIX.length)]}`;
-  const creature: Creature = { seed, traits, tier, score: +score.toFixed(2), rarestTrait: rarest, oneOfOne, mythicAura, name, palette, eyeColor, sprite: () => "" };
-  creature.sprite = () => renderCreature(creature);
+  const creature: Creature = { seed, traits, tier, score: +score.toFixed(2), statRarity, rarestTrait: rarest, oneOfOne, mythicAura, name, palette, eyeColor, sprite: () => "" };
+  creature.sprite = () => renderCreature(creature, 0);
   return creature;
 };

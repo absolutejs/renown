@@ -22,6 +22,7 @@ export interface State {
   skillXp: Record<string, number>;
   collectibles: Record<string, { at: number; count: number }>;
   wild: string[];                 // seeds of procedurally-generated wild creatures found
+  companion?: string;             // seed of the wild creature you've adopted as your pet
 
   achievements: Record<string, number>; bestiary: Record<string, Boss>;
   questDay: string; quests: Quest[]; repoHeads: Record<string, string>;

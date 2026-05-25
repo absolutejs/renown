@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { type Boss, type Quest, type State, type Stats, levelInfo } from "./state.ts";
 import { MAX_TOTAL_LEVEL, SKILLS, fmtBig, maxedCount, skillProgress, topSkills, totalLevel } from "./skills.ts";
 import { gradientBar, rainbow } from "./shiny.ts";
+import { face, generate } from "./procgen.ts";
 
 export const HOME = process.env.HOME ?? "/home/alexkahn";
 export const RDIR = `${HOME}/.renown`;
@@ -132,7 +133,8 @@ export function renderHud(s: State): string {
   // base HUD only; celebrations are drained separately by the status line (see celebrate.ts).
   // a 99 skill earns a rainbow level — the rarest thing on the line.
   const lvlBadge = top.level >= 99 ? rainbow(String(top.level)) : `${C.b}${top.level}${C.r}`;
-  return `${C.b}${C.mag}Lvl${total}${C.r} ${gradientBar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r} ${top.def.icon} ${C.b}${top.def.name}${C.r} ${lvlBadge}`;
+  const pet = s.companion ? `  ${face(generate(s.companion))}` : "";   // your adopted companion, always with you
+  return `${C.b}${C.mag}Lvl${total}${C.r} ${gradientBar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r} ${top.def.icon} ${C.b}${top.def.name}${C.r} ${lvlBadge}${pet}`;
 }
 
 // A one-line "welcome back" for session start (streak lives here now, not the status line).
@@ -144,7 +146,8 @@ export function renderGreet(s: State): string {
   const lvl = `${C.mag}Lvl ${totalLevel(skx)}${C.r}`;
   const best = `top ${top.def.icon} ${top.def.name} ${top.level}`;
   const xp = today > 0 ? ` ${C.dim}·${C.r} ${C.yel}+${today} XP today${C.r}` : "";
-  return `${streak} ${C.dim}·${C.r} ${lvl} ${C.dim}·${C.r} ${best}${xp}`;
+  const pet = s.companion ? ` ${C.dim}·${C.r} ${face(generate(s.companion))} ${generate(s.companion).name}` : "";
+  return `${streak} ${C.dim}·${C.r} ${lvl} ${C.dim}·${C.r} ${best}${xp}${pet}`;
 }
 
 // Full skill sheet for `renown skills` — every discipline, highest first.
