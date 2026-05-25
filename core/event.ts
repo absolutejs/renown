@@ -12,6 +12,7 @@ import { applyGains, awardCraft, skillById, totalLevel } from "./skills.ts";
 import { type Celebration, achievementUp, bossUp, enqueue, skillUp, totalUp } from "./celebrate.ts";
 import { addCollectible, dropCelebration, rollDrop } from "./collectibles.ts";
 import { rollWild, wildCelebrationTier } from "./procgen.ts";
+import { isOwnable } from "./trust.ts";
 import { recordActivity, recordCommit } from "./stats.ts";
 import { submit } from "./leaderboard.ts";
 
@@ -57,7 +58,7 @@ async function reconcile(s: State, repo: string) {
     for (const u of applyGains(s.skillXp, awardCraft(r))) { const sk = skillById(u.id); if (sk) { ev(`${C.b}${C.grn}${sk.icon} ${sk.name} Lv${u.to}!${C.r}`); cels.push(skillUp(sk.icon, sk.name, u.to)); } }
     const drop = rollDrop(r.xp, r.oss, s.collectibles, new Date(r.committedAt || Date.now()));
     if (drop) { const isNew = addCollectible(s.collectibles, drop); ev(`${C.b}${C.mag}📦 ${drop.icon} ${drop.name}${isNew ? " (new!)" : ""}${C.r}`); cels.push(dropCelebration(drop, isNew)); }
-    const wild = rollWild(r.xp, key, c);   // a unique procedural creature, seeded by this very commit
+    const wild = isOwnable(r) ? rollWild(r.xp, key, c) : null;   // ownable creatures require genuine (public/validated) work
     if (wild) { if (!s.wild.includes(wild.seed)) s.wild = [...s.wild, wild.seed].slice(-300); ev(`${C.b}${C.mag}🥚 wild ${wild.tier}: ${wild.name}${C.r}`); cels.push({ tier: wildCelebrationTier(wild.tier), text: `🥚 Wild ${wild.tier}: ${wild.name}` }); }
     progress(s, "earn150", r.xp); progress(s, "lines200", r.lines);
     if (r.oss) progress(s, "oss1", 1); if (r.hasTests) progress(s, "tests", 1);

@@ -45,7 +45,7 @@ function classify(path: string) {
 const JUNK = /^(wip|\.+|update|fixes?|asdf|stuff|temp|tmp|test|x+|foo|bar|changes?|misc|minor|cleanup|format|prettier|lint)$/i;
 const CONV = /^(feat|fix|refactor|perf|test|docs|build|ci|style|revert)(\(.+\))?!?:/i;
 
-export interface CraftResult { xp: number; lines: number; oss: boolean; ext: boolean; stars: number; langs: string[]; paths: string[]; hasTests: boolean; subject: string; committedAt: number; breakdown: string[] }
+export interface CraftResult { xp: number; lines: number; oss: boolean; ext: boolean; stars: number; langs: string[]; paths: string[]; hasTests: boolean; subject: string; committedAt: number; breakdown: string[]; repoPublic?: boolean }
 
 export async function scoreCommit(s: State, cfg: Config, repo: string, sha: string): Promise<CraftResult | null> {
   const raw = await $`git -C ${repo} show --no-color --no-renames --format=%ae%x00%P%x00%ct%x00%s --numstat ${sha}`.text().catch(() => "");
@@ -88,5 +88,5 @@ export async function scoreCommit(s: State, cfg: Config, repo: string, sha: stri
   let xp = sub * craft * dup * proj * diminish;
   if (sub < 4) xp = Math.min(xp, 2);
   xp = Math.min(Math.round(xp), 300);
-  return { xp, lines, oss: !!meta?.oss, ext, stars: meta?.stars ?? 0, langs: [...langs], paths, hasTests, subject: subj, committedAt, breakdown };
+  return { xp, lines, oss: !!meta?.oss, ext, stars: meta?.stars ?? 0, langs: [...langs], paths, hasTests, subject: subj, committedAt, breakdown, repoPublic: !!meta && !meta.private && !meta.fork };
 }
