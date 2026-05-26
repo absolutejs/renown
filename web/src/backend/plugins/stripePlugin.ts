@@ -39,15 +39,34 @@ const applyTier = async (db: NeonHttpDatabase<SchemaType>, opts: { userSub: stri
   if (login) await gameDb.update(players).set({ tier: opts.tier }).where(eq(players.githubLogin, login));
 };
 
+// Real price amounts, fetched once from Stripe and cached for the process (so the pricing UI
+// shows live dollars instead of hardcoded labels — edit the price in the dashboard, it follows).
+let amountCache: Record<string, { amount: number | null; currency: string; interval?: string }> | null = null;
+const loadAmounts = async () => {
+  if (!stripe) return {};
+  if (amountCache) return amountCache;
+  const out: NonNullable<typeof amountCache> = {};
+  for (const [tier, id] of [["supporter", process.env.STRIPE_PRICE_SUPPORTER], ["pro", process.env.STRIPE_PRICE_PRO]] as const) {
+    if (!id) continue;
+    try {
+      const p = await stripe.prices.retrieve(id);
+      out[tier] = { amount: p.unit_amount, currency: p.currency, interval: p.recurring?.interval };
+    } catch { /* ignore — UI falls back to no amount */ }
+  }
+  amountCache = out;
+  return out;
+};
+
 export const stripePlugin = ({ authSessionStore, db }: Deps) =>
   new Elysia({ name: "renown-stripe" })
     .use(protectRoutePlugin<User>({ authSessionStore }))
     // Public: what the client needs to render pricing. Safe with or without keys.
-    .get("/stripe/config", () => ({
+    .get("/stripe/config", async () => ({
       configured: Boolean(stripe),
       publishableKey: PUBLISHABLE,
       tiers: TIER_INFO,
       prices: { supporter: process.env.STRIPE_PRICE_SUPPORTER ?? null, pro: process.env.STRIPE_PRICE_PRO ?? null },
+      amounts: await loadAmounts(),
     }))
     // Start a subscription: hosted Stripe Checkout. Requires sign-in.
     .post("/billing/checkout", ({ body, protectRoute, request, status }) =>
