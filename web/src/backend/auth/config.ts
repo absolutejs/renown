@@ -16,7 +16,7 @@ import {
   instantiateUserSession,
   resolveOAuthAuthorization,
 } from "@absolutejs/auth";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { SchemaType, User } from "../../../db/schema";
 import { players } from "../../../../db/schema.ts";
@@ -32,10 +32,18 @@ import { providersConfiguration } from "./providersConfiguration";
 
 // On a verified GitHub login, bind + verify the canonical player row (keyed by the login
 // under OAuth control, so nobody can impersonate someone's login) and recompute their score.
+// Same formula for everyone: verified_score = base_recompute + accumulated attribution credit.
+// The default `attribution_query = author:<login>` gives every user credit for commits they
+// authored across GitHub — same rule as everyone, no special carve-outs.
 const onGithubVerified = async (login: string) => {
   const id = `gh:${login}`;
-  await gameDb.insert(players).values({ id, handle: login.slice(0, 40), githubLogin: login, githubVerified: true })
-    .onConflictDoUpdate({ target: players.id, set: { githubVerified: true, githubLogin: login } });
+  await gameDb.insert(players).values({
+    attributionQuery: `author:${login}`,
+    githubLogin: login, githubVerified: true,
+    handle: login.slice(0, 40), id,
+  }).onConflictDoUpdate({ target: players.id, set: { githubVerified: true, githubLogin: login } });
+  // Backfill the default query for an existing row that pre-dates this column (was null).
+  await gameDb.execute(sql`UPDATE players SET attribution_query = ${`author:${login}`} WHERE id = ${id} AND attribution_query IS NULL`);
   const v = await verifyGithub(login);
   if (v) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, id));
 };

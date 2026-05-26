@@ -2,7 +2,7 @@ import { Head } from "@absolutejs/absolute/react/components";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 type Tier = "free" | "supporter" | "pro";
-type Entry = { id?: string; name: string; login?: string; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier };
+type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier };
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
@@ -49,7 +49,7 @@ const Board = ({ top, sel, setSel, sheet }: { top: Entry[]; sel: string | null; 
     <>
       <section className="card">
         <h2>Global leaderboard</h2>
-        <p className="muted hint">Ranked by GitHub-verified score — real, meritorious work only. Free for everyone.</p>
+        <p className="muted hint">Ranked by <strong>Score</strong> — same formula for everyone: GitHub-verified base + windowed Co-Authored-By attribution. Lvl is your CLI's local total, shown for context.</p>
         {top.length === 0 ? (
           <p className="muted">No players yet — be the first.</p>
         ) : (
@@ -58,9 +58,8 @@ const Board = ({ top, sel, setSel, sheet }: { top: Entry[]; sel: string | null; 
               <li key={e.id ?? i} className={e.id === sel ? "sel" : ""} onClick={() => e.id && setSel(e.id)}>
                 <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
                 <span className="who">{e.name}<TierBadge tier={e.tier} /></span>
-                <span className="lvl">Lvl {e.totalLevel ?? e.level}</span>
-                <span className="xp">{e.xp.toLocaleString()} XP</span>
-                <span className="muted">🔥{e.streak} · {e.ach}🏆</span>
+                <span className="score">{(e.score ?? 0).toLocaleString()}</span>
+                <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
               </li>
             ))}
           </ol>

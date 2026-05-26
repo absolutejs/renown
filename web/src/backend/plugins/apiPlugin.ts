@@ -85,9 +85,11 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const login = (await r.json() as { login?: string }).login;
       if (!login) return { error: "could not read github login" };
       const handle = login.slice(0, 40);
-      await gameDb.insert(players).values({ id: playerId, handle, githubLogin: login, githubVerified: true })
+      await gameDb.insert(players).values({ id: playerId, handle, githubLogin: login, githubVerified: true, attributionQuery: `author:${login}` })
         .onConflictDoUpdate({ target: players.id, set: { githubLogin: login, githubVerified: true } });
       await gameDb.delete(players).where(and(eq(players.githubLogin, login), ne(players.id, playerId)));  // one verified row per login
+      // Backfill default query for an existing pre-attribution row.
+      await gameDb.execute(sql`UPDATE players SET attribution_query = ${`author:${login}`} WHERE id = ${playerId} AND attribution_query IS NULL`);
       const v = await verifyGithub(login);
       if (v) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, playerId));
       return { ok: true, login, verifiedScore: v?.score ?? 0 };

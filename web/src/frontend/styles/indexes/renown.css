@@ -171,3 +171,7 @@ a:hover { text-decoration: underline; }
 /* ── CLI sync command box ──────────────────────────────────── */
 .cliBox { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(255,255,255,.02); border: 1px solid var(--line); border-radius: 9px; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
 .cliBox code { flex: 1; color: var(--accent); font-size: 14px; }
+
+/* Leaderboard score (the ranked number) */
+.score { color: var(--accent); font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
+.ranks li { grid-template-columns: 30px 1fr auto auto; }
