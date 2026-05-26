@@ -39,7 +39,7 @@ export const users = pgTable("users", {
   stripe_customer_id: varchar("stripe_customer_id", { length: 255 }),
   stripe_subscription_id: varchar("stripe_subscription_id", { length: 255 }),
   sub: varchar("sub", { length: 36 }).primaryKey(),
-  subscription_status: varchar("subscription_status", { length: 32 }),
+  subscription_status: varchar("subscription_status", { length: 64 }),
   tier: varchar("tier", { length: 32 }).notNull().default("free"),
 });
 

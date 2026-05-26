@@ -91,7 +91,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       const target = (await db.select().from(schema.users).where(eq(schema.users.sub, params.sub)))[0];
       if (!target) { set.status = 404; return { error: "user not found" }; }
       const tier = body.tier as Tier;
-      await db.update(schema.users).set({ tier, subscription_status: tier === "free" ? null : `admin_granted_by:${admin.email}` })
+      await db.update(schema.users).set({ tier, subscription_status: tier === "free" ? null : "admin_granted" })
         .where(eq(schema.users.sub, target.sub));
       // Mirror onto the player row by github login (if linked) so the leaderboard badge follows.
       const gh = (await db.select().from(schema.authIdentities).where(and(eq(schema.authIdentities.user_sub, target.sub), eq(schema.authIdentities.auth_provider, "github"))))[0];
