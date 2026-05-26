@@ -3,16 +3,82 @@
 // + shimmer, Mythic → distort + rainbow). Drei: OrbitControls/Float/Environment/Sparkles.
 // react-spring/three: entry scale animation. Same seeded procgen — server and client render
 // the SAME creature from the SAME commit SHA.
-import { Float, OrbitControls, Sparkles, Stars, Trail } from "@react-three/drei";
+import { Float, MeshReflectorMaterial, MeshTransmissionMaterial, OrbitControls, Sparkles, Stars, Trail } from "@react-three/drei";
 import { Canvas, useFrame, type ThreeElements } from "@react-three/fiber";
 import { Bloom, ChromaticAberration, EffectComposer, Noise, Vignette } from "@react-three/postprocessing";
 import { animated, useSpring } from "@react-spring/three";
 import { BlendFunction, KernelSize } from "postprocessing";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Group } from "three";
-import { Vector2 } from "three";
+import { ExtrudeGeometry, type Group, Shape, Vector2 } from "three";
 import { type Creature, generate, type RGB, voxelize } from "../../../../../core/procgen";
 import { ProceduralMat } from "./petMaterials";
+
+// 5-pointed star geometry — the eye for "star" trait creatures. Built once, shared.
+const STAR_GEOM = (() => {
+  const shape = new Shape();
+  const outer = 0.55, inner = 0.22;
+  for (let i = 0; i < 10; i++) {
+    const angle = (i / 10) * Math.PI * 2 - Math.PI / 2;
+    const r = i % 2 === 0 ? outer : inner;
+    const x = Math.cos(angle) * r, y = Math.sin(angle) * r;
+    if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return new ExtrudeGeometry(shape, { bevelEnabled: true, bevelSegments: 2, bevelSize: 0.04, bevelThickness: 0.04, depth: 0.12 });
+})();
+
+// Eye component — geometry + material both branch on the eye trait so each kind is unique:
+//   star    = extruded 5-pointed star, glows brightly
+//   void    = matte black core + emissive accretion ring (torus) around it
+//   many    = a constellation cluster of 5 small spheres
+//   cyclops = single big sphere
+//   others  = single sphere sized by trait
+const Eye = ({ pos, color, trait, mythic }: { pos: [number, number, number]; color: string; trait: string; mythic: boolean }) => {
+  const intensity = mythic ? 1.8 : trait === "void" ? 0.2 : trait === "star" ? 1.6 : trait === "fierce" ? 1.2 : 1.0;
+  if (trait === "star") {
+    return (
+      <mesh position={pos} rotation={[0, 0, 0]}>
+        <primitive object={STAR_GEOM} attach="geometry" />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={intensity} roughness={0.15} metalness={0.4} />
+      </mesh>
+    );
+  }
+  if (trait === "void") {
+    return (
+      <group position={pos}>
+        <mesh>
+          <sphereGeometry args={[0.4, 18, 18]} />
+          <meshStandardMaterial color="#000" emissive="#000" />
+        </mesh>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.5, 0.06, 12, 32]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.5} />
+        </mesh>
+      </group>
+    );
+  }
+  if (trait === "many") {
+    // Constellation — 5 small spheres in a + plus pattern. Eye color, all emissive.
+    const offsets: [number, number][] = [[0, 0], [0.22, 0], [-0.22, 0], [0, 0.22], [0, -0.22]];
+    return (
+      <group position={pos}>
+        {offsets.map((o, i) => (
+          <mesh key={i} position={[o[0], o[1], 0]}>
+            <sphereGeometry args={[0.12, 10, 10]} />
+            <meshStandardMaterial color={color} emissive={color} emissiveIntensity={intensity} roughness={0.1} />
+          </mesh>
+        ))}
+      </group>
+    );
+  }
+  const radius = trait === "cyclops" ? 0.55 : trait === "fierce" ? 0.42 : 0.38;
+  return (
+    <mesh position={pos}>
+      <sphereGeometry args={[radius, 18, 18]} />
+      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={intensity} roughness={0.1} metalness={0.4} />
+    </mesh>
+  );
+};
 
 const css = ([r, g, b]: RGB) => `rgb(${r},${g},${b})`;
 
@@ -50,19 +116,7 @@ const Pet = ({ seed }: { seed: string }) => {
           const x = v.x + offsetX;
           const y = -v.y + offsetY;
           const color = css(v.color);
-          if (v.kind === "eye") {
-            // Eye scale + intensity reads from the eye trait — fierce/star/void/cyclops
-            // each get their own treatment. Mythic eyes brightest of all.
-            const trait = c.traits.eyes;
-            const radius = trait === "cyclops" ? 0.55 : trait === "many" ? 0.25 : trait === "fierce" ? 0.42 : 0.38;
-            const intensity = c.mythicAura ? 1.6 : trait === "void" ? 0.4 : trait === "star" ? 1.4 : trait === "fierce" ? 1.1 : 0.85;
-            return (
-              <mesh key={i} position={[x, y, 0.5]}>
-                <sphereGeometry args={[radius, 18, 18]} />
-                <meshStandardMaterial color={color} emissive={color} emissiveIntensity={intensity} roughness={trait === "void" ? 1 : 0.1} metalness={trait === "void" ? 0 : 0.4} />
-              </mesh>
-            );
-          }
+          if (v.kind === "eye") return <Eye key={i} pos={[x, y, 0.5]} color={color} trait={c.traits.eyes} mythic={c.mythicAura} />;
           if (v.kind === "mouth") {
             return (
               <mesh key={i} position={[x, y, 0.42]}>
@@ -161,11 +215,34 @@ export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creatur
       <directionalLight position={[-3, -2, 4]} intensity={0.55} color="#5fbeeb" />
       {dramatic && <Stars radius={50} depth={30} count={900} factor={3} fade speed={0.5} />}
       <Pet seed={seed} />
+      {/* Glass aura sphere — only for frost / void creatures. Real refraction via drei's
+          MeshTransmissionMaterial. Sized to wrap the whole pet so the body is seen "through"
+          a colored glass shell. Heavy effect, gated to these auras only. */}
+      {(creature.traits.aura === "frost" || creature.traits.aura === "void") && (
+        <mesh scale={Math.max(creature.sizeN * 0.045 + 4, 5)}>
+          <sphereGeometry args={[1, 48, 48]} />
+          <MeshTransmissionMaterial
+            transmission={1} thickness={0.6} roughness={0.05} ior={1.4}
+            chromaticAberration={0.06} distortion={creature.traits.aura === "void" ? 0.4 : 0.15}
+            color={creature.traits.aura === "frost" ? "#a8def0" : "#3d0a45"}
+          />
+        </mesh>
+      )}
       {/* Orbiting trail satellites — rare-pet flourish. Three different orbits in the pet's
           palette colors so each pet's accents follow its own theme. */}
       {dramatic && <OrbitingTrail color={css(creature.eyeColor)} radius={4.5} speed={0.9} phase={0} height={1.6} />}
       {wild && <OrbitingTrail color={css(creature.palette[0])} radius={5.4} speed={-0.7} phase={2.1} height={1.3} />}
       {wild && <OrbitingTrail color={css(creature.palette[1])} radius={3.8} speed={1.4} phase={4.2} height={2.0} />}
+      {/* Reflective floor — catches the pet's bloom + creates a real "stage" feel. Blurred
+          mirror so it reads as polished obsidian rather than a literal mirror. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -Math.max(5, creature.sizeN * 0.06), 0]}>
+        <planeGeometry args={[42, 42]} />
+        <MeshReflectorMaterial
+          mirror={0.55} blur={[280, 90]} resolution={768} mixBlur={1.4} mixStrength={32}
+          roughness={1} depthScale={1.1} minDepthThreshold={0.4} maxDepthThreshold={1.4}
+          color="#050505" metalness={0.4}
+        />
+      </mesh>
       <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={wild ? 1.3 : 0.5} />
       <EffectComposer>
         <Bloom intensity={wild ? 1.7 : 1.15} luminanceThreshold={0.45} luminanceSmoothing={0.5} kernelSize={KernelSize.HUGE} mipmapBlur />
