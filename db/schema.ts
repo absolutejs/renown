@@ -2,7 +2,7 @@
 // Cloud holds the competitive truth: players, the achievement catalog (with global
 // unlock counts → rarity %), per-player unlocks (with date achieved), and per-project
 // boards. Rich local activity/recap data stays on-device; only scores/unlocks sync.
-import { bigint, boolean, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, integer, jsonb, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
 
 export const players = pgTable("players", {
   id: text("id").primaryKey(),                                  // client-generated player id
@@ -30,6 +30,16 @@ export const players = pgTable("players", {
   // Wild creature seeds (each = a real commit SHA you authored/co-authored). Procedurally
   // generates a unique 1/1 creature via core/procgen.ts. Capped to the 100 rarest.
   wild: jsonb("wild").$type<string[]>().notNull().default([]),
+  // Denormalized pet aggregates — recomputed on every /api/verify after wild updates so the
+  // pet leaderboards (most/rarest/biggest) can sort by a simple indexed column.
+  petsCount: integer("pets_count").notNull().default(0),
+  rarestPetScore: real("rarest_pet_score").notNull().default(0),
+  biggestPetSize: integer("biggest_pet_size").notNull().default(0),
+  // Avatar = the one pet shown on profile + (later) in the header. Default = rarest wild.
+  avatarSeed: text("avatar_seed"),
+  // Showcase = curated pets shown on public profile. Length capped by billing tier (free 2,
+  // supporter 4, pro 8). Default = top-N by score.
+  showcaseSeeds: jsonb("showcase_seeds").$type<string[]>().notNull().default([]),
   // Billing tier, denormalized from the auth `users` row (by github login) so the public board
   // can show a supporter badge and the CLI can read its tier. Cosmetic/convenience only — never
   // affects verified_score or rank. Set by the Stripe webhook.

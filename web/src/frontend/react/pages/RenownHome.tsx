@@ -1,15 +1,17 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { PetViewer } from "../components/PetViewer";
+import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
-type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier };
+type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; petsCount?: number; rarestPetScore?: number; biggestPetSize?: number; avatarSeed?: string | null };
+type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet";
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
-type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[] };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
@@ -44,22 +46,37 @@ const Logomark = ({ size = 22 }: { size?: number }) => (
 );
 
 // ── Leaderboard ────────────────────────────────────────────────────────────
-const Board = ({ top, sel, setSel, sheet }: { top: Entry[]; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null }) => {
+const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => string }[] = [
+  { id: "score", label: "Score", hint: "GitHub-verified base + windowed Co-Authored-By attribution.", statOf: (e) => (e.score ?? 0).toLocaleString() },
+  { id: "pets-count", label: "Most pets", hint: "Total unique 1/1 creatures collected from your attributed commits.", statOf: (e) => `${e.petsCount ?? 0} pets` },
+  { id: "rarest-pet", label: "Rarest pet", hint: "OpenRarity score of the rarest pet in your menagerie.", statOf: (e) => `${(e.rarestPetScore ?? 0).toFixed(2)} rarity` },
+  { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}` },
+];
+
+const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile }:
+  { top: Entry[]; board: Board; setBoard: (b: Board) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void }) => {
   const skills = (sheet?.skills ?? []).slice().sort((a, b) => b.level - a.level || b.xp - a.xp);
+  const meta = BOARDS.find((b) => b.id === board) ?? BOARDS[0];
   return (
     <>
       <section className="card">
         <h2>Global leaderboard</h2>
-        <p className="muted hint">Ranked by <strong>Score</strong> — same formula for everyone: GitHub-verified base + windowed Co-Authored-By attribution. Lvl is your CLI's local total, shown for context.</p>
+        <p className="muted hint">{meta.hint} Same formula for everyone. <em>Click any player</em> to see their profile.</p>
+        <div className="boardTabs">
+          {BOARDS.map((b) => (
+            <button key={b.id} className={b.id === board ? "on" : ""} onClick={() => setBoard(b.id)}>{b.label}</button>
+          ))}
+        </div>
         {top.length === 0 ? (
           <p className="muted">No players yet — be the first.</p>
         ) : (
           <ol className="ranks">
             {top.map((e, i) => (
-              <li key={e.id ?? i} className={e.id === sel ? "sel" : ""} onClick={() => e.id && setSel(e.id)}>
+              <li key={e.id ?? i} className={e.id === sel ? "sel" : ""}
+                onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
                 <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
                 <span className="who">{e.name}<TierBadge tier={e.tier} /></span>
-                <span className="score">{(e.score ?? 0).toLocaleString()}</span>
+                <span className="score">{meta.statOf(e)}</span>
                 <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
               </li>
             ))}
@@ -241,9 +258,17 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
       <GithubSyncCard gh={account.github} refresh={refresh} onBanner={onBanner} />
       {account.github && account.github.wild.length > 0 && (
         <section className="card">
-          <h2>Your menagerie</h2>
-          <p className="hint">Each pet is a unique 1/1, procedurally generated from a <strong>real commit SHA</strong> you're attributed in — deterministic, ungameable, the seed IS the asset. Same creature anywhere. Drag to spin.</p>
-          <PetViewer seeds={account.github.wild} />
+          <h2>Your menagerie <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {account.github.petsCount} owned · rarest {account.github.rarestPetScore.toFixed(1)} · biggest size {account.github.biggestPetSize}</span></h2>
+          <p className="hint">Each pet is a unique 1/1, procedurally generated from a <strong>real commit SHA</strong> you're attributed in — deterministic, ungameable, the seed IS the asset. Tap ☆ to set as your avatar. Drag to spin.</p>
+          <PetViewer
+            seeds={account.github.wild}
+            avatarSeed={account.github.avatarSeed}
+            onSetAvatar={(seed) => act(async () => {
+              const r = await post("/api/account/avatar", { seed });
+              if (r.ok) onBanner({ kind: "ok", text: "✓ Avatar updated." });
+              return r;
+            })}
+          />
         </section>
       )}
       <CliSyncCard onBanner={onBanner} />
@@ -370,6 +395,8 @@ const App = () => {
   const [view, setView] = useState<"board" | "pricing" | "account" | "auth" | "reset">("board");
   const [authMode, setAuthMode] = useState<"login" | "register" | "forgot">("login");
   const [resetToken, setResetToken] = useState<string | null>(null);
+  const [board, setBoard] = useState<Board>("score");
+  const [profileLogin, setProfileLogin] = useState<string | null>(null);
   const [top, setTop] = useState<Entry[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SkillSheet | null>(null);
@@ -386,14 +413,14 @@ const App = () => {
     else setUser(null);
   }, []);
 
-  // leaderboard — hydrate once, then refetch when the hub says "top" changed (no polling)
+  // leaderboard — hydrate + refetch on hub change. Board switching re-runs the fetch.
   useEffect(() => {
-    const load = () => fetch("/api/top?n=10").then((r) => r.json()).then((d: Entry[]) => { setTop(d); setSel((cur) => cur ?? d[0]?.id ?? null); }).catch(() => {});
+    const load = () => fetch(`/api/top?n=10&board=${board}`).then((r) => r.json()).then((d: Entry[]) => { setTop(d); setSel((cur) => cur ?? d[0]?.id ?? null); }).catch(() => {});
     load();
     const es = new EventSource("/sync?topics=top");
     es.onmessage = load;
     return () => es.close();
-  }, []);
+  }, [board]);
 
   // selected player's full skill sheet — live on that player's topic (and any "top" change)
   useEffect(() => {
@@ -479,7 +506,7 @@ const App = () => {
               </div>
             </section>
           )}
-          <Board top={top} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} />
+          <Board top={top} board={board} setBoard={setBoard} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} />
         </>
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}
@@ -488,6 +515,7 @@ const App = () => {
         : <section className="card"><h2>Account</h2><p className="muted">Log in to manage your account and subscription.</p><div className="cta"><button className="btn solid" onClick={() => { setAuthMode("login"); setView("auth"); }}>Log in</button><button className="btn ghost" onClick={() => { setAuthMode("register"); setView("auth"); }}>Sign up</button></div></section>)}
       {view === "auth" && <AuthView initial={authMode} onAuthed={() => { loadAccount(); setView("account"); setBanner({ kind: "ok", text: "Welcome back." }); }} onBanner={setBanner} />}
       {view === "reset" && resetToken && <ResetView token={resetToken} onDone={(ok, msg) => { setBanner({ kind: ok ? "ok" : "warn", text: msg }); setView("auth"); setResetToken(null); }} />}
+      {profileLogin && <ProfileModal login={profileLogin} onClose={() => setProfileLogin(null)} />}
 
       <footer className="foot">by AbsoluteJS · <a href="https://github.com/absolutejs/renown">github.com/absolutejs/renown</a></footer>
     </main>

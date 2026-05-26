@@ -86,9 +86,11 @@ const Pet = ({ seed }: { seed: string }) => {
   );
 };
 
-// The Canvas needs a DOM/WebGL context, so skip it during SSR and hydrate on mount.
-const StageCanvas = ({ seed, tier }: { seed: string; tier: Creature["tier"] }) => {
-  const cam = { fov: 36, position: [0, 0, 11] as [number, number, number] };
+// The Canvas needs a DOM/WebGL context, so skip it during SSR and hydrate on mount. Camera
+// distance autoscales to sizeN so big pets don't clip out of frame.
+export const PetCanvas = ({ seed, tier, sizeN }: { seed: string; tier: Creature["tier"]; sizeN: number }) => {
+  const z = 7 + sizeN * 0.06;   // bigger pets pulled back so they fit the viewport
+  const cam = { fov: 36, position: [0, 0, z] as [number, number, number] };
   return (
     <Canvas camera={cam} dpr={[1, 1.6]} gl={{ antialias: true }}>
       <color attach="background" args={["#0a0a0a"]} />
@@ -102,7 +104,16 @@ const StageCanvas = ({ seed, tier }: { seed: string; tier: Creature["tier"] }) =
   );
 };
 
-export const PetViewer = ({ seeds, limit = 6 }: { seeds: string[]; limit?: number }) => {
+// One pet, used for avatars and other single-pet displays (mounted-gated so SSR is safe).
+export const SinglePet = ({ seed }: { seed: string }) => {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const c = useMemo(() => generate(seed), [seed]);
+  if (!mounted) return <div className="petCanvas" />;
+  return <div className="petCanvas"><PetCanvas seed={seed} tier={c.tier} sizeN={c.sizeN} /></div>;
+};
+
+export const PetViewer = ({ seeds, limit = 6, avatarSeed, onSetAvatar }: { seeds: string[]; limit?: number; avatarSeed?: string | null; onSetAvatar?: (seed: string) => void }) => {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   // Top N by rarity score (rarest first), unique seeds only.
@@ -115,15 +126,24 @@ export const PetViewer = ({ seeds, limit = 6 }: { seeds: string[]; limit?: numbe
 
   return (
     <div className="petStage">
-      {top.map(({ c, seed }) => (
-        <div className={`petCard tier-${c.tier.toLowerCase()}`} key={seed}>
-          <div className="petCanvas">{mounted && <StageCanvas seed={seed} tier={c.tier} />}</div>
-          <div className="petLabel">
-            <span className={`tierTag t-${c.tier.toLowerCase()}`}>{c.tier}</span>
-            <span className="petName" title={c.name}>{c.name}</span>
+      {top.map(({ c, seed }) => {
+        const isAvatar = seed === avatarSeed;
+        return (
+          <div className={`petCard tier-${c.tier.toLowerCase()}${isAvatar ? " isAvatar" : ""}`} key={seed}>
+            <div className="petCanvas">{mounted && <PetCanvas seed={seed} tier={c.tier} sizeN={c.sizeN} />}</div>
+            {onSetAvatar && (
+              <button className={`avatarBtn${isAvatar ? " on" : ""}`} title={isAvatar ? "Your avatar" : "Set as avatar"} onClick={() => !isAvatar && onSetAvatar(seed)}>
+                {isAvatar ? "★" : "☆"}
+              </button>
+            )}
+            <div className="petLabel">
+              <span className={`tierTag t-${c.tier.toLowerCase()}`}>{c.tier}</span>
+              <span className="petName" title={c.name}>{c.name}</span>
+              <span className="petSize" title="size">{c.sizeN}</span>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };

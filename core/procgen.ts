@@ -65,8 +65,28 @@ const NOUN: Record<string, string[]> = {
 export interface Creature {
   seed: string; traits: Traits; tier: Tier; score: number; statRarity: number; rarestTrait: string;
   oneOfOne: boolean; mythicAura: boolean; name: string; palette: [RGB, RGB]; eyeColor: RGB;
+  // Continuous size (1-100), biased smoothly within the categorical size trait. Drives the
+  // voxel grid dimensions — bigger sizeN = more pixels/voxels = a physically bigger creature.
+  // Sortable: "biggest" leaderboard ranks by max(sizeN) across a player's wild.
+  sizeN: number;
   sprite: () => string;
 }
+
+// sizeN derives a continuous number from the categorical size trait — each category gets a
+// sub-range so a 'huge' is always > 'large', but within a category two creatures can be
+// slightly different sizes. Distribution: ~10% tiny up to ~3% huge.
+const SIZE_BANDS: Record<string, [number, number]> = { tiny: [1, 15], small: [16, 30], medium: [31, 50], large: [51, 75], huge: [76, 100] };
+const computeSizeN = (rng: Rng, sizeCat: string) => {
+  const [lo, hi] = SIZE_BANDS[sizeCat] ?? [25, 50];
+  return Math.round(lo + rng() * (hi - lo));
+};
+// Voxel grid dimensions as a function of sizeN. Smooth scaling: size 1 → H≈4, size 100 → H≈15.
+export const dimsFor = (sizeN: number) => {
+  const H = Math.max(3, Math.round(3.5 + sizeN * 0.115));
+  const halfW = Math.max(3, Math.round(H * 0.9));
+  const fillP = 0.44 + sizeN * 0.0026;   // size 1→0.44, size 100→0.70
+  return { H, halfW, fillP };
+};
 
 const ONE_OF_ONE = 1 / 250000;   // ultra-rare flag (true uniqueness is enforced by the chain layer)
 const MYTHIC_PREDICATE = 0x37;   // hidden "shiny" combo on the seed hash (~1/256)
@@ -77,10 +97,7 @@ const MOUTH: Record<string, [string, number]> = { smile: ["‿", 1], neutral: ["
 
 const renderCreature = (c: Creature, frame = 0): string => {
   const rng = makeRng(c.seed + ":sprite");
-  const size = c.traits.size;
-  const H = size === "tiny" ? 4 : size === "small" ? 5 : size === "large" ? 7 : size === "huge" ? 8 : 6;
-  const halfW = Math.max(3, Math.round(H * 0.9));
-  const fillP = size === "huge" ? 0.62 : size === "tiny" ? 0.46 : 0.54;
+  const { H, halfW, fillP } = dimsFor(c.sizeN);
   // 1) random half-grid
   let half: boolean[][] = Array.from({ length: H }, () => Array.from({ length: halfW }, () => rng() < fillP));
   // 2) cellular-automata smoothing → organic blob
@@ -153,10 +170,7 @@ export type Voxel = { x: number; y: number; color: RGB; kind: "body" | "eye" | "
 export interface VoxelGrid { w: number; h: number; voxels: Voxel[]; aura: boolean; mythicAura: boolean; tier: Tier }
 export const voxelize = (c: Creature, frame = 0): VoxelGrid => {
   const rng = makeRng(c.seed + ":sprite");
-  const size = c.traits.size;
-  const H = size === "tiny" ? 4 : size === "small" ? 5 : size === "large" ? 7 : size === "huge" ? 8 : 6;
-  const halfW = Math.max(3, Math.round(H * 0.9));
-  const fillP = size === "huge" ? 0.62 : size === "tiny" ? 0.46 : 0.54;
+  const { H, halfW, fillP } = dimsFor(c.sizeN);
   let half: boolean[][] = Array.from({ length: H }, () => Array.from({ length: halfW }, () => rng() < fillP));
   const neighbors = (g: boolean[][], y: number, x: number) => {
     let n = 0;
@@ -285,7 +299,10 @@ export const generate = (seed: string): Creature => {
   const eyeColor = hsvToRgb((baseHue + 0.5) % 1, 0.9, 1);
   const noun = NOUN[traits.species] ?? ["Thing"];
   const name = `${PREFIX[rint(rng, PREFIX.length)]} ${noun[rint(rng, noun.length)]} ${SUFFIX[rint(rng, SUFFIX.length)]}`;
-  const creature: Creature = { seed, traits, tier, score: +score.toFixed(2), statRarity, rarestTrait: rarest, oneOfOne, mythicAura, name, palette, eyeColor, sprite: () => "" };
+  // Numerical size (continuous 1-100) — a separate RNG stream so changing other generation
+  // logic in the future doesn't shift sizeN for existing seeds.
+  const sizeN = computeSizeN(makeRng(seed + ":size"), traits.size);
+  const creature: Creature = { seed, traits, tier, score: +score.toFixed(2), statRarity, rarestTrait: rarest, oneOfOne, mythicAura, name, palette, eyeColor, sizeN, sprite: () => "" };
   creature.sprite = () => renderCreature(creature, 0);
   return creature;
 };

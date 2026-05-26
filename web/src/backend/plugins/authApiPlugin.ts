@@ -59,6 +59,11 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       playerId: player?.id ?? null,
       // Pet seeds (real commit SHAs) — each renders as a deterministic procgen creature.
       wild: Array.isArray(player?.wild) ? (player!.wild as string[]) : [],
+      avatarSeed: player?.avatarSeed ?? null,
+      showcaseSeeds: Array.isArray(player?.showcaseSeeds) ? (player!.showcaseSeeds as string[]) : [],
+      petsCount: player?.petsCount ?? 0,
+      rarestPetScore: player?.rarestPetScore ?? 0,
+      biggestPetSize: player?.biggestPetSize ?? 0,
     } : null,
     identities: identities.map((i) => ({
       id: i.id,
@@ -112,6 +117,25 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const payload = await accountPayload(db, user.sub);
         if (!payload.mergeRequests.find((m) => m.id === params.id)) return status("Not Found", "merge request not found");
         await deleteDBAuthIdentityMergeRequest({ db, id: params.id });
+        return { ok: true, ...(await accountPayload(db, user.sub)) };
+      }),
+    )
+    // Pick which pet is your avatar (shown on your profile + leaderboard hover, etc). Must be
+    // a seed you actually own (i.e., present in your wild). Idempotent.
+    .post("/avatar", ({ body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const seed = (body as { seed?: string })?.seed;
+        if (!seed) return status("Bad Request", "seed required");
+        // Resolve the player row by github_login (via auth_identities).
+        const rows = await db.select().from(schema.authIdentities).where(eq(schema.authIdentities.user_sub, user.sub));
+        const ghLogin = (rows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const p = playerRows[0];
+        if (!p) return status("Not Found", "player not found");
+        const wild = Array.isArray(p.wild) ? (p.wild as string[]) : [];
+        if (!wild.includes(seed)) return status("Bad Request", "you don't own that pet");
+        await gameDb.update(players).set({ avatarSeed: seed }).where(eq(players.id, p.id));
         return { ok: true, ...(await accountPayload(db, user.sub)) };
       }),
     );

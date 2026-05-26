@@ -4,6 +4,7 @@
 import { createNeonAccessTokenStore, hasScopes, resolveApiPrincipal } from "@absolutejs/auth";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
+import { generate } from "../../../../core/procgen.ts";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
 import { achievements, playerProjects, players } from "../../../../db/schema.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
@@ -36,10 +37,28 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
           .where(eq(playerProjects.projectKey, String(query.project))).orderBy(desc(playerProjects.xp)).limit(n);
         return rows.map((r) => ({ key: query.project, ...r }));
       }
-      // THE authoritative leaderboard: only GitHub-verified players, ranked by the
-      // server-recomputed verifiedScore — client-submitted xp NEVER affects the ranking.
-      const rows = await gameDb.select().from(players).where(eq(players.githubVerified, true)).orderBy(desc(players.verifiedScore)).limit(n);
-      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec }));
+      // Boarded leaderboards: same player pool (github_verified), different sort. Same formula
+      // for everyone, no special carve-outs — just a different axis of "best."
+      const board = String(query.board ?? "score");
+      const orderCol = board === "pets-count" ? players.petsCount
+        : board === "rarest-pet" ? players.rarestPetScore
+        : board === "biggest-pet" ? players.biggestPetSize
+        : players.verifiedScore;
+      const rows = await gameDb.select().from(players).where(eq(players.githubVerified, true)).orderBy(desc(orderCol)).limit(n);
+      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, biggestPetSize: p.biggestPetSize, avatarSeed: p.avatarSeed }));
+    })
+    // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
+    // the same public facts already on the leaderboard, plus the curated 3D showcase.
+    .get("/profile/:login", async ({ params }) => {
+      const rows = await gameDb.select().from(players).where(and(eq(players.githubLogin, params.login), eq(players.githubVerified, true)));
+      const p = rows[0];
+      if (!p) return { error: "not found" };
+      return {
+        login: p.githubLogin, handle: p.handle, tier: normalizeTier(p.tier),
+        score: p.verifiedScore, totalLevel: p.totalLevel,
+        petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, biggestPetSize: p.biggestPetSize,
+        avatarSeed: p.avatarSeed, showcaseSeeds: Array.isArray(p.showcaseSeeds) ? p.showcaseSeeds : [],
+      };
     })
     // Recompute a player's authoritative score from GitHub. Safe to call by anyone (it only
     // pulls from GitHub — no client data is trusted) but only stores for an OAuth-verified
@@ -72,11 +91,26 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // Append new SHAs to the player's wild; cap at the 100 newest so it doesn't grow forever.
       const wild: string[] = Array.isArray(row.wild) ? row.wild : [];
       const mergedWild = Array.from(new Set([...newShas, ...wild])).slice(0, 100);
+      // Recompute denormalized pet aggregates for the leaderboards (cheap pure generate calls).
+      const creatures = mergedWild.map((s) => ({ s, c: generate(s) }));
+      const sortedByScore = [...creatures].sort((a, b) => b.c.score - a.c.score);
+      const rarestPetScore = sortedByScore[0]?.c.score ?? 0;
+      const biggestPetSize = Math.max(0, ...creatures.map(({ c }) => c.sizeN));
+      // Avatar: keep the player's pick if still owned, else default to the rarest.
+      const currentAvatar = row.avatarSeed && mergedWild.includes(row.avatarSeed) ? row.avatarSeed : (sortedByScore[0]?.s ?? null);
+      // Showcase: tier-gated slot count, defaulted to top-N by score. Honors a player's explicit
+      // pick if they've curated one (length-trimmed to current tier slots).
+      const slots = normalizeTier(row.tier) === "pro" ? 8 : normalizeTier(row.tier) === "supporter" ? 4 : 2;
+      const currentShowcase: string[] = Array.isArray(row.showcaseSeeds) ? row.showcaseSeeds : [];
+      const curated = currentShowcase.filter((s) => mergedWild.includes(s)).slice(0, slots);
+      const showcase = curated.length > 0 ? curated : sortedByScore.slice(0, slots).map((x) => x.s);
       await gameDb.update(players).set({
-        attributionScore, lastAttributionSyncAt: row.attributionQuery ? new Date() : row.lastAttributionSyncAt,
-        verifiedAt: new Date(), verifiedScore: score, wild: mergedWild,
+        attributionScore, avatarSeed: currentAvatar, biggestPetSize,
+        lastAttributionSyncAt: row.attributionQuery ? new Date() : row.lastAttributionSyncAt,
+        petsCount: mergedWild.length, rarestPetScore,
+        showcaseSeeds: showcase, verifiedAt: new Date(), verifiedScore: score, wild: mergedWild,
       }).where(eq(players.id, row.id));
-      return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, newPets: newShas.length, totalPets: mergedWild.length, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
+      return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, newPets: newShas.length, totalPets: mergedWild.length, rarestPetScore, biggestPetSize, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
     })
     // Browserless CLI link: the CLI presents its existing GitHub OAuth token (gh auth token).
     // We verify it against GitHub (GET /user) — which PROVES the caller owns that login, no
