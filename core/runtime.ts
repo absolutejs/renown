@@ -24,7 +24,7 @@ export const paint = (s: string, c: string) => `${c}${s}${C.r}`;
 export const strip = (x: string) => x.replace(/\x1b\[[0-9;]*m/g, "");
 export const hash = (s: string) => { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 
-export interface Config { playerName: string; playerId: string; myEmails: string[]; myOwners: string[]; leaderboardEndpoint: string; bossLogDir: string; codeRoots: string[] }
+export interface Config { playerName: string; playerId: string; myEmails: string[]; myOwners: string[]; leaderboardEndpoint: string; bossLogDir: string; codeRoots: string[]; clientId?: string; clientSecret?: string }
 const uuid = () => "xxxxxxxxxxxx".replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
 const sh = (cmd: string[]) => { try { return (Bun.spawnSync(cmd, { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim(); } catch { return ""; } };
 export function loadConfig(): Config {

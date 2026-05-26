@@ -36,7 +36,8 @@ export const selfEntry = (s: State): Entry => ({
 const base = (cfg: Config) => cfg.leaderboardEndpoint.replace(/\/$/, "");
 export async function submit(s: State, cfg: Config) {
   if (!cfg.leaderboardEndpoint) return;
-  try { await fetch(`${base(cfg)}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(selfEntry(s)), signal: AbortSignal.timeout(4000) }); } catch {}
+  const { authHeaders } = await import("./m2m.ts");   // present a trusted-client token iff configured (no-op otherwise)
+  try { await fetch(`${base(cfg)}/submit`, { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders(cfg)) }, body: JSON.stringify(selfEntry(s)), signal: AbortSignal.timeout(4000) }); } catch {}
 }
 export async function fetchBoard(s: State, cfg: Config): Promise<{ entries: Entry[]; live: boolean }> {
   if (cfg.leaderboardEndpoint) {

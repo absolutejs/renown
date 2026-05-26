@@ -1,6 +1,7 @@
 // Renown API. Reads hit Neon directly (cheap selects); the write path (/submit) goes
 // through the write-behind cache + reactive hub in ../sync.ts so we never hammer Neon
 // on the per-tick hot path. Skill levels are computed from the shared core/skills.ts.
+import { createNeonAccessTokenStore, hasScopes, resolveApiPrincipal } from "@absolutejs/auth";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
@@ -10,8 +11,15 @@ import { verifyGithub } from "../verify.ts";
 
 const TOP_MAX = 100, ACH_MAX = 2000, REVERIFY_MS = 10 * 60 * 1000;
 
-export const apiPlugin = () =>
-  new Elysia({ prefix: "/api" })
+type ApiDeps = { accessTokenStore: ReturnType<typeof createNeonAccessTokenStore> };
+
+export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
+  // Resolve an M2M principal from a Bearer access token (minted at /oauth2/token via
+  // client_credentials). Cheap: only hits the store when a token is actually presented.
+  const principal = (authorization?: string) =>
+    authorization ? resolveApiPrincipal({ accessTokenStore, authorization }) : Promise.resolve(undefined);
+
+  return new Elysia({ prefix: "/api" })
     .get("/top", async ({ query }) => {
       const n = Math.min(TOP_MAX, Number(query.n ?? 20));
       if (query.skill) {
@@ -81,9 +89,31 @@ export const apiPlugin = () =>
       const rows = await gameDb.select().from(achievements).orderBy(desc(achievements.unlockCount)).limit(n);
       return { players: tp, achievements: rows.map((r) => ({ id: r.id, name: r.name, tier: r.tier, unlocks: r.unlockCount, rarity: tp ? +((r.unlockCount / tp) * 100).toFixed(1) : 0 })) };
     })
-    .post("/submit", ({ body }) => {
+    .post("/submit", async ({ body, headers }) => {
       const e = body as PlayerSnapshot;
       if (!e?.id) return { error: "bad request" };
+      // Open by design — client xp NEVER ranks (only github_verified rows do), so an
+      // unauthenticated submit can't game anything. A valid M2M token (renown:submit)
+      // just marks the write as first-party-trusted for a caller's own bookkeeping.
+      const trusted = hasScopes(await principal(headers.authorization), ["renown:submit"]);
       submitPlayer(e);   // synchronous hot write + live push; Neon persist coalesced behind it
-      return { ok: true };
+      return { ok: true, trusted };
+    })
+    // Trusted server-to-server recompute (no per-call throttle, unlike /verify). For first-
+    // party services / partner backends that hold a renown M2M client; requires a Bearer
+    // access token with the renown:verify scope. Still only pulls from GitHub (authoritative).
+    .post("/m2m/recompute", async ({ body, headers, set }) => {
+      if (!hasScopes(await principal(headers.authorization), ["renown:verify"])) {
+        set.status = 401;
+        return { error: "missing M2M token with renown:verify scope" };
+      }
+      const login = String((body as { login?: string })?.login ?? "");
+      if (!login) return { error: "login required" };
+      const row = (await gameDb.select().from(players).where(eq(players.githubLogin, login)))[0];
+      if (!row?.githubVerified) return { error: "login not github-verified" };
+      const v = await verifyGithub(login);
+      if (!v) return { error: "github verification failed" };
+      await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, row.id));
+      return { ok: true, login, score: v.score };
     });
+};

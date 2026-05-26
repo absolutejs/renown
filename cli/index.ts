@@ -66,7 +66,8 @@ switch (cmd) {
     if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
     const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
     if (!token) { console.log("No GitHub token — run `gh auth login` first, then `renown link`."); break; }
-    const res = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/cli/link`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ playerId: cfg.playerId, token }) }).catch(() => null);
+    const { authHeaders } = await import("../core/m2m.ts");   // also present a trusted-client token iff configured
+    const res = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/cli/link`, { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders(cfg)) }, body: JSON.stringify({ playerId: cfg.playerId, token }) }).catch(() => null);
     const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
     if (j.ok) console.log(`✓ Linked to GitHub @${j.login} — verified score ${j.verifiedScore}. Your progress is now on the real leaderboard.`);
     else console.log("link failed:", j.error);

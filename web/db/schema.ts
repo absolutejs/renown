@@ -127,7 +127,32 @@ export const linkedProviderBindings = pgTable("linked_provider_bindings", {
   username: varchar("username", { length: 255 }),
 });
 
+// M2M (client_credentials) tables. Defined locally — NOT imported from @absolutejs/auth —
+// because drizzle-kit runs under CJS and can't load the package's ESM-only export. Column
+// names/types mirror the package's Neon apikeys stores exactly (table names auth_api_clients /
+// auth_access_tokens, all varchars length 255), so createNeon{ApiClient,AccessToken}Store work.
+export const authApiClients = pgTable("auth_api_clients", {
+  client_id: varchar("client_id", { length: 255 }).primaryKey(),
+  created_at_ms: bigint("created_at_ms", { mode: "number" }).notNull(),
+  hashed_secret: varchar("hashed_secret", { length: 255 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  owner_id: varchar("owner_id", { length: 255 }),
+  scopes: text("scopes").array().notNull(),
+});
+
+export const authAccessTokens = pgTable("auth_access_tokens", {
+  client_id: varchar("client_id", { length: 255 }).notNull(),
+  created_at_ms: bigint("created_at_ms", { mode: "number" }).notNull(),
+  expires_at_ms: bigint("expires_at_ms", { mode: "number" }).notNull(),
+  hashed_token: varchar("hashed_token", { length: 255 }).notNull(),
+  owner_id: varchar("owner_id", { length: 255 }),
+  scopes: text("scopes").array().notNull(),
+  token_id: varchar("token_id", { length: 255 }).primaryKey(),
+});
+
 export const schema = {
+  authAccessTokens,
+  authApiClients,
   authIdentities,
   authIdentityMergeRequests,
   authSessions,
