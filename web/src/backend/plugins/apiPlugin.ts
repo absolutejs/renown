@@ -1,7 +1,7 @@
 // Renown API. Reads hit Neon directly (cheap selects); the write path (/submit) goes
 // through the write-behind cache + reactive hub in ../sync.ts so we never hammer Neon
 // on the per-tick hot path. Skill levels are computed from the shared core/skills.ts.
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
 import { achievements, playerProjects, players } from "../../../../db/schema.ts";
@@ -44,6 +44,26 @@ export const apiPlugin = () =>
       if (!v) return { error: "github verification failed" };
       await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, row.id));
       return { ok: true, score: v.score, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
+    })
+    // Browserless CLI link: the CLI presents its existing GitHub OAuth token (gh auth token).
+    // We verify it against GitHub (GET /user) — which PROVES the caller owns that login, no
+    // redirect — then make the caller's own player row the canonical verified entry (carrying
+    // its local progress) and recompute the authoritative score. This links the renown CLI to
+    // a verified identity directly. The token is only used to read the login; it isn't stored.
+    .post("/cli/link", async ({ body }) => {
+      const { playerId, token } = body as { playerId?: string; token?: string };
+      if (!playerId || !token) return { error: "playerId + token required" };
+      const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+      if (!r?.ok) return { error: "invalid or expired github token" };
+      const login = (await r.json() as { login?: string }).login;
+      if (!login) return { error: "could not read github login" };
+      const handle = login.slice(0, 40);
+      await gameDb.insert(players).values({ id: playerId, handle, githubLogin: login, githubVerified: true })
+        .onConflictDoUpdate({ target: players.id, set: { githubLogin: login, githubVerified: true } });
+      await gameDb.delete(players).where(and(eq(players.githubLogin, login), ne(players.id, playerId)));  // one verified row per login
+      const v = await verifyGithub(login);
+      if (v) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, playerId));
+      return { ok: true, login, verifiedScore: v?.score ?? 0 };
     })
     .get("/skills", async ({ query }) => {
       const id = String(query.id ?? "");
