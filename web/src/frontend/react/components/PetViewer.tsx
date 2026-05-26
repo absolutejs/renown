@@ -3,12 +3,13 @@
 // + shimmer, Mythic → distort + rainbow). Drei: OrbitControls/Float/Environment/Sparkles.
 // react-spring/three: entry scale animation. Same seeded procgen — server and client render
 // the SAME creature from the SAME commit SHA.
-import { Environment, Float, OrbitControls, Sparkles } from "@react-three/drei";
+import { Float, OrbitControls, Sparkles } from "@react-three/drei";
 import { Canvas, useFrame, type ThreeElements } from "@react-three/fiber";
 import { animated, useSpring } from "@react-spring/three";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Group } from "three";
 import { type Creature, generate, type RGB, voxelize } from "../../../../../core/procgen";
+import { ProceduralMat } from "./petMaterials";
 
 const css = ([r, g, b]: RGB) => `rgb(${r},${g},${b})`;
 
@@ -39,36 +40,31 @@ const Pet = ({ seed }: { seed: string }) => {
           const y = -v.y + offsetY;
           const color = css(v.color);
           if (v.kind === "eye") {
-            // Eyes pop out + glow — the "soul" of the creature.
+            // Eye scale + intensity reads from the eye trait — fierce/star/void/cyclops
+            // each get their own treatment. Mythic eyes brightest of all.
+            const trait = c.traits.eyes;
+            const radius = trait === "cyclops" ? 0.55 : trait === "many" ? 0.25 : trait === "fierce" ? 0.42 : 0.38;
+            const intensity = c.mythicAura ? 1.6 : trait === "void" ? 0.4 : trait === "star" ? 1.4 : trait === "fierce" ? 1.1 : 0.85;
             return (
-              <mesh key={i} position={[x, y, 0.45]}>
-                <sphereGeometry args={[0.35, 16, 16]} />
-                <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.8} roughness={0.15} />
+              <mesh key={i} position={[x, y, 0.5]}>
+                <sphereGeometry args={[radius, 18, 18]} />
+                <meshStandardMaterial color={color} emissive={color} emissiveIntensity={intensity} roughness={trait === "void" ? 1 : 0.1} metalness={trait === "void" ? 0 : 0.4} />
               </mesh>
             );
           }
           if (v.kind === "mouth") {
             return (
-              <mesh key={i} position={[x, y, 0.4]}>
-                <boxGeometry args={[0.6, 0.2, 0.3]} />
-                <meshStandardMaterial color={color} roughness={0.5} />
+              <mesh key={i} position={[x, y, 0.42]}>
+                <boxGeometry args={[0.55, 0.18, 0.25]} />
+                <meshStandardMaterial color={color} roughness={0.4} emissive={color} emissiveIntensity={0.25} />
               </mesh>
             );
           }
-          // Body voxel — Legendary gets metallic shimmer, Mythic gets rainbow + emissive,
-          // everyone else gets a clean matte material that reads the procgen palette.
-          const isLegendary = grid.tier === "Legendary";
-          const isMythic = grid.mythicAura;
+          // Body voxel — fully procedural shader: pattern + aura + tier all baked in.
           return (
             <mesh key={i} position={[x, y, 0]}>
-              <boxGeometry args={[0.92, 0.92, 0.92]} />
-              <meshStandardMaterial
-                color={color}
-                roughness={isMythic ? 0.2 : isLegendary ? 0.35 : 0.85}
-                metalness={isMythic ? 0.5 : isLegendary ? 0.65 : 0}
-                emissive={color}
-                emissiveIntensity={isMythic ? 0.5 : isLegendary ? 0.25 : 0.15}
-              />
+              <boxGeometry args={[0.94, 0.94, 0.94]} />
+              <ProceduralMat creature={c} color={v.color} />
             </mesh>
           );
         })}
@@ -87,19 +83,20 @@ const Pet = ({ seed }: { seed: string }) => {
 };
 
 // The Canvas needs a DOM/WebGL context, so skip it during SSR and hydrate on mount. Camera
-// distance autoscales to sizeN so big pets don't clip out of frame.
+// distance autoscales to sizeN so big pets don't clip out of frame. Body voxels are
+// shader-lit (ProceduralMat handles its own diffuse/specular), so scene lights here only
+// hit the eye + mouth standard materials.
 export const PetCanvas = ({ seed, tier, sizeN }: { seed: string; tier: Creature["tier"]; sizeN: number }) => {
-  const z = 7 + sizeN * 0.06;   // bigger pets pulled back so they fit the viewport
+  const z = Math.max(8, 6 + sizeN * 0.10);
   const cam = { fov: 36, position: [0, 0, z] as [number, number, number] };
   return (
     <Canvas camera={cam} dpr={[1, 1.6]} gl={{ antialias: true }}>
       <color attach="background" args={["#0a0a0a"]} />
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[3, 4, 5]} intensity={0.9} />
-      <directionalLight position={[-3, -2, 4]} intensity={0.4} color="#5fbeeb" />
-      {(tier === "Legendary" || tier === "Mythic") && <Environment preset={tier === "Mythic" ? "sunset" : "city"} background={false} environmentIntensity={0.6} />}
+      <ambientLight intensity={0.6} />
+      <directionalLight position={[3, 4, 5]} intensity={1.0} />
+      <directionalLight position={[-3, -2, 4]} intensity={0.5} color="#5fbeeb" />
       <Pet seed={seed} />
-      <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={tier === "Mythic" ? 1.4 : tier === "Legendary" ? 0.9 : 0.5} />
+      <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={tier === "Mythic" ? 1.6 : tier === "Legendary" ? 0.95 : 0.55} />
     </Canvas>
   );
 };
