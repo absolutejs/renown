@@ -4,9 +4,12 @@
 // belonged to another account). Linking a NEW login happens via the OAuth flow itself
 // (visit /oauth2/<provider>/authorization while signed in -> resolveAuthIntent links it).
 import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
+import { eq } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
+import { players } from "../../../../db/schema.ts";
 import { SchemaType, User } from "../../../db/schema";
+import { gameDb } from "../sync.ts";
 import {
   deleteDBAuthIdentityMergeRequest,
   getDBUser,
@@ -27,6 +30,13 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
     listDBAuthIdentityMergeRequestsByTarget({ db, targetUserSub: userSub }),
   ]);
   const primaryId = user?.primary_auth_identity_id ?? null;
+  // GitHub link status — the player row (by github_login) holds the authoritative score, last
+  // verified timestamp, total level. Surfacing it here drives the Sync card in the UI.
+  const ghIdentity = identities.find((i) => i.auth_provider === "github");
+  const ghLogin = (ghIdentity?.metadata as { login?: string } | undefined)?.login ?? ghIdentity?.provider_subject ?? null;
+  const player = ghLogin
+    ? (await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin)))[0] ?? null
+    : null;
   return {
     sub: userSub,
     billing: {
@@ -35,6 +45,14 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       currentPeriodEnd: user?.current_period_end ?? null,
       hasCustomer: Boolean(user?.stripe_customer_id),
     },
+    github: ghLogin ? {
+      login: ghLogin,
+      verified: Boolean(player?.githubVerified),
+      verifiedScore: player?.verifiedScore ?? 0,
+      verifiedAt: player?.verifiedAt ?? null,
+      totalLevel: player?.totalLevel ?? 0,
+      playerId: player?.id ?? null,
+    } : null,
     identities: identities.map((i) => ({
       id: i.id,
       provider: i.auth_provider,

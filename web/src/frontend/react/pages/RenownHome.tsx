@@ -8,7 +8,8 @@ type SkillSheet = { id: string; name: string | null; totalLevel: number; skills:
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
-type Account = { sub: string; billing: Billing; identities: Identity[]; mergeRequests: MergeReq[] };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; verifiedAt: string | null; totalLevel: number; playerId: string | null };
+type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
 type StripeConfig = { configured: boolean; tiers: Record<Tier, TierInfo>; prices: Record<string, string | null>; amounts: Record<string, Amount> };
@@ -125,9 +126,47 @@ const Pricing = ({ cfg, account, onSubscribe, busy, onLogIn }: { cfg: StripeConf
   );
 };
 
+// ── GitHub sync card ───────────────────────────────────────────────────────
+const GithubSyncCard = ({ gh, refresh, onBanner }: { gh: GithubSync | null; refresh: () => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void }) => {
+  const [busy, setBusy] = useState(false);
+  if (!gh) return (
+    <section className="card">
+      <h2>GitHub sync</h2>
+      <p className="hint">Link your GitHub account above to start earning a <strong>verified score</strong> on the leaderboard. We recompute from your real public repos, stars, contributions to others' projects, and account age — never anything you can fake locally.</p>
+    </section>
+  );
+  const sync = async () => {
+    setBusy(true);
+    const r = await post("/api/verify", { login: gh.login });
+    setBusy(false);
+    const j = r.data as { ok?: boolean; score?: number; throttled?: boolean; tier?: string; error?: string } | null;
+    if (!r.ok || j?.error) { onBanner({ kind: "warn", text: j?.error ?? "Sync failed." }); return; }
+    refresh();
+    if (j?.throttled) onBanner({ kind: "info", text: `Sync cooldown hit (${j.tier ?? "your tier"}). Showing the last verified score.` });
+    else onBanner({ kind: "ok", text: `✓ Synced from GitHub — verified score ${j?.score ?? gh.verifiedScore}.` });
+  };
+  return (
+    <section className="card">
+      <div className="acctHead">
+        <div>
+          <h2>GitHub sync</h2>
+          <p className="muted">Linked to <strong>@{gh.login}</strong> {gh.verified ? <span className="primary">verified</span> : <span className="tierBadge supporter">unverified</span>}</p>
+        </div>
+        <button className="btn solid" disabled={busy} onClick={sync}>{busy ? "Syncing…" : "Sync now"}</button>
+      </div>
+      <div className="syncStats">
+        <div className="stat"><span className="num">{gh.verifiedScore.toLocaleString()}</span><span className="lbl">verified score</span></div>
+        <div className="stat"><span className="num">{gh.totalLevel.toLocaleString()}</span><span className="lbl">total level</span></div>
+        <div className="stat"><span className="num">{gh.verifiedAt ? when(gh.verifiedAt) : "—"}</span><span className="lbl">last synced</span></div>
+      </div>
+      <p className="hint" style={{ marginTop: 14 }}>Recomputes from GitHub's public API: real stars, repos, ext-contribs, account age. Refresh cadence is tier-based (free 10 min · supporter 2 min · pro ~on demand).</p>
+    </section>
+  );
+};
+
 // ── Account ────────────────────────────────────────────────────────────────
-const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy, act }:
-  { account: Account; cfg: StripeConfig | null; user: { email?: string; first_name?: string } | null; refresh: () => void; onManage: () => void; onSubscribe: (t: Tier) => void; busy: string | null; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {
+const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy, act, onBanner }:
+  { account: Account; cfg: StripeConfig | null; user: { email?: string; first_name?: string } | null; refresh: () => void; onManage: () => void; onSubscribe: (t: Tier) => void; busy: string | null; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void }) => {
   const { billing, identities, mergeRequests } = account;
   const name = user?.first_name || user?.email || "your account";
   const paid = billing.tier !== "free";
@@ -169,6 +208,8 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
           </>
         )}
       </section>
+
+      <GithubSyncCard gh={account.github} refresh={refresh} onBanner={onBanner} />
 
       <section className="card">
         <h2>Your logins</h2>
@@ -406,7 +447,7 @@ const App = () => {
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}
       {view === "account" && (signedIn
-        ? <AccountView account={account!} cfg={cfg} user={user} refresh={loadAccount} onManage={manage} onSubscribe={subscribe} busy={busy} act={act} />
+        ? <AccountView account={account!} cfg={cfg} user={user} refresh={loadAccount} onManage={manage} onSubscribe={subscribe} busy={busy} act={act} onBanner={setBanner} />
         : <section className="card"><h2>Account</h2><p className="muted">Log in to manage your account and subscription.</p><div className="cta"><button className="btn solid" onClick={() => { setAuthMode("login"); setView("auth"); }}>Log in</button><button className="btn ghost" onClick={() => { setAuthMode("register"); setView("auth"); }}>Sign up</button></div></section>)}
       {view === "auth" && <AuthView initial={authMode} onAuthed={() => { loadAccount(); setView("account"); setBanner({ kind: "ok", text: "Welcome back." }); }} onBanner={setBanner} />}
       {view === "reset" && resetToken && <ResetView token={resetToken} onDone={(ok, msg) => { setBanner({ kind: ok ? "ok" : "warn", text: msg }); setView("auth"); setResetToken(null); }} />}
