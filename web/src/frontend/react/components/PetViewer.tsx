@@ -3,15 +3,41 @@
 // + shimmer, Mythic → distort + rainbow). Drei: OrbitControls/Float/Environment/Sparkles.
 // react-spring/three: entry scale animation. Same seeded procgen — server and client render
 // the SAME creature from the SAME commit SHA.
-import { Float, MeshReflectorMaterial, MeshTransmissionMaterial, OrbitControls, Sparkles, Stars, Trail } from "@react-three/drei";
+import { Float, MeshReflectorMaterial, MeshTransmissionMaterial, OrbitControls, Sparkles, Stars, Stats, Trail } from "@react-three/drei";
 import { Canvas, useFrame, type ThreeElements } from "@react-three/fiber";
 import { Bloom, ChromaticAberration, EffectComposer, Noise, Vignette } from "@react-three/postprocessing";
 import { animated, useSpring } from "@react-spring/three";
 import { BlendFunction, KernelSize } from "postprocessing";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ExtrudeGeometry, type Group, Shape, Vector2 } from "three";
+import { BoxGeometry, BufferAttribute, type BufferGeometry, ExtrudeGeometry, Float32BufferAttribute, type Group, Shape, Vector2 } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { type Creature, generate, type RGB, voxelize } from "../../../../../core/procgen";
 import { ProceduralMat } from "./petMaterials";
+
+// One merged BoxGeometry for the whole pet body (per-voxel translation baked in + a custom
+// `voxColor` attribute carrying the procgen gradient color per cube). One draw call per pet
+// instead of N — the biggest single perf win for the menagerie grid.
+const buildBodyGeom = (voxels: { x: number; y: number; color: RGB }[], offsetX: number, offsetY: number): BufferGeometry | null => {
+  if (voxels.length === 0) return null;
+  const geoms = voxels.map((v) => {
+    const g = new BoxGeometry(0.94, 0.94, 0.94);
+    g.translate(v.x + offsetX, -v.y + offsetY, 0);
+    const n = g.attributes.position.count;
+    const arr = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      arr[i * 3] = v.color[0] / 255;
+      arr[i * 3 + 1] = v.color[1] / 255;
+      arr[i * 3 + 2] = v.color[2] / 255;
+    }
+    g.setAttribute("voxColor", new BufferAttribute(arr, 3));
+    return g;
+  });
+  return mergeGeometries(geoms, false);
+};
+
+// Stats overlay (drei wraps three.js Stats.js). Gated to opt-in via `?stats` query so it
+// doesn't show in normal use. Mounts a DOM panel showing FPS / MS / MB / GPU.
+const showStats = () => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("stats");
 
 // 5-pointed star geometry — the eye for "star" trait creatures. Built once, shared.
 const STAR_GEOM = (() => {
@@ -88,6 +114,11 @@ const Pet = ({ seed }: { seed: string }) => {
   const groupRef = useRef<Group>(null);
   const offsetX = -grid.w / 2 + 0.5;
   const offsetY = grid.h / 2 - 0.5;
+  // Merged body geometry — one mesh + one shader program instance per pet.
+  const bodyGeom = useMemo(() => {
+    const bodyVoxels = grid.voxels.filter((v) => v.kind === "body");
+    return buildBodyGeom(bodyVoxels, offsetX, offsetY);
+  }, [grid, offsetX, offsetY]);
 
   // Spring entry: pop into view (different per pet via seed-derived delay)
   const seedHash = useMemo(() => Array.from(seed).reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 0), [seed]);
@@ -112,24 +143,22 @@ const Pet = ({ seed }: { seed: string }) => {
     <animated.group ref={groupRef} scale={scale as unknown as ThreeElements["group"]["scale"]}>
       <group ref={pulseRef}>
       <Float floatIntensity={0.2} rotationIntensity={0.25} speed={1.3}>
-        {grid.voxels.map((v, i) => {
+        {/* Body: one merged mesh + one ShaderMaterial — N voxels collapse to 1 draw call. */}
+        {bodyGeom && (
+          <mesh geometry={bodyGeom}>
+            <ProceduralMat creature={c} color={c.palette[0]} useVertexColor />
+          </mesh>
+        )}
+        {/* Eyes + mouth stay as individual meshes (small count, unique geometries/materials). */}
+        {grid.voxels.filter((v) => v.kind !== "body").map((v, i) => {
           const x = v.x + offsetX;
           const y = -v.y + offsetY;
           const color = css(v.color);
           if (v.kind === "eye") return <Eye key={i} pos={[x, y, 0.5]} color={color} trait={c.traits.eyes} mythic={c.mythicAura} />;
-          if (v.kind === "mouth") {
-            return (
-              <mesh key={i} position={[x, y, 0.42]}>
-                <boxGeometry args={[0.55, 0.18, 0.25]} />
-                <meshStandardMaterial color={color} roughness={0.4} emissive={color} emissiveIntensity={0.25} />
-              </mesh>
-            );
-          }
-          // Body voxel — fully procedural shader: pattern + aura + tier all baked in.
           return (
-            <mesh key={i} position={[x, y, 0]}>
-              <boxGeometry args={[0.94, 0.94, 0.94]} />
-              <ProceduralMat creature={c} color={v.color} />
+            <mesh key={i} position={[x, y, 0.42]}>
+              <boxGeometry args={[0.55, 0.18, 0.25]} />
+              <meshStandardMaterial color={color} roughness={0.4} emissive={color} emissiveIntensity={0.25} />
             </mesh>
           );
         })}
@@ -157,18 +186,19 @@ export const PetCanvas = ({ seed, creature }: { seed: string; creature: Creature
   const z = Math.max(8, 6 + creature.sizeN * 0.10);
   const cam = { fov: 36, position: [0, 0, z] as [number, number, number] };
   const dramatic = creature.tier === "Mythic" || creature.tier === "Legendary" || creature.oneOfOne;
+  // No EffectComposer here — 6 simultaneous bloom passes was the worst frame-time offender.
+  // Hero canvas keeps the full FX stack; menagerie cards stay lean and rely on emissive
+  // materials + bright shader output to read as "glowing."
   return (
-    <Canvas camera={cam} dpr={[1, 1.6]} gl={{ antialias: true, alpha: false }}>
+    <Canvas camera={cam} dpr={[1, 1.2]} gl={{ antialias: true, alpha: false }} frameloop="always">
       <color attach="background" args={["#0a0a0a"]} />
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[3, 4, 5]} intensity={1.0} />
+      <ambientLight intensity={0.7} />
+      <directionalLight position={[3, 4, 5]} intensity={1.1} />
       <directionalLight position={[-3, -2, 4]} intensity={0.5} color="#5fbeeb" />
       {dramatic && <Stars radius={32} depth={20} count={420} factor={2.4} fade speed={0.4} />}
       <Pet seed={seed} />
-      <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={creature.tier === "Mythic" ? 1.6 : creature.tier === "Legendary" ? 0.95 : 0.55} />
-      <EffectComposer>
-        <Bloom intensity={0.9} luminanceThreshold={0.55} luminanceSmoothing={0.4} kernelSize={KernelSize.LARGE} mipmapBlur />
-      </EffectComposer>
+      <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={creature.tier === "Mythic" ? 1.2 : creature.tier === "Legendary" ? 0.7 : 0.4} />
+      {showStats() && <Stats />}
     </Canvas>
   );
 };
@@ -250,6 +280,7 @@ export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creatur
         <Vignette offset={0.15} darkness={0.55} />
         <Noise opacity={0.035} />
       </EffectComposer>
+      {showStats() && <Stats />}
     </Canvas>
   );
 };

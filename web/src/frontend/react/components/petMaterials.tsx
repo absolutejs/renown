@@ -15,15 +15,26 @@ const PATTERN_MAP: Record<string, number> = { plain: 0, spots: 1, stripes: 2, sc
 const AURA_MAP: Record<string, number> = { none: 0, glow: 1, sparkle: 2, flame: 3, frost: 4, void: 5, rainbow: 6 };
 
 // Shared GLSL — uniforms swap per pet, source is one compiled program (three.js dedupes).
+// USE_VCOL define is set when the material is used on a MERGED body geometry (one mesh per
+// pet instead of N per-voxel meshes) — per-voxel base color rides on a `voxColor` attribute.
 const VERT = /* glsl */ `
   uniform float uTime;
   uniform float uDistort;
+  #ifdef USE_VCOL
+    attribute vec3 voxColor;
+  #endif
   varying vec2 vUv;
   varying vec3 vNormal;
   varying vec3 vWorldPos;
+  varying vec3 vBaseColor;
   void main() {
     vUv = uv;
     vNormal = normalize(normalMatrix * normal);
+    #ifdef USE_VCOL
+      vBaseColor = voxColor;
+    #else
+      vBaseColor = vec3(1.0);
+    #endif
     vec3 pos = position;
     if (uDistort > 0.0) {
       // Mythic / Eldritch / 1-of-1 — surface ripples on top of the voxel cubes.
@@ -39,15 +50,17 @@ const VERT = /* glsl */ `
 const FRAG = /* glsl */ `
   precision highp float;
   uniform float uTime;
-  uniform vec3  uColor;
+  uniform vec3  uColor;          // fallback if not using vertex colors
   uniform vec3  uColor2;
   uniform int   uPattern;
   uniform int   uAura;
   uniform float uEmissive;
   uniform float uMetal;
+  uniform float uUseVcol;        // 1.0 = use the per-voxel base color from the vertex stream
   varying vec2 vUv;
   varying vec3 vNormal;
   varying vec3 vWorldPos;
+  varying vec3 vBaseColor;
 
   // hash + 2D value noise — cheap, dependency-free.
   float hash21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -65,7 +78,7 @@ const FRAG = /* glsl */ `
   }
 
   void main() {
-    vec3 col = uColor;
+    vec3 col = mix(uColor, vBaseColor, uUseVcol);
 
     // ── Pattern (uPattern 0-6) ───────────────────────────────────
     if (uPattern == 1) {                                       // spots
@@ -172,7 +185,7 @@ const FRAG = /* glsl */ `
 
 const cssToVec = (rgb: RGB) => new THREE.Color(`rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
 
-export const ProceduralMat = ({ creature, color }: { creature: Creature; color: RGB }) => {
+export const ProceduralMat = ({ creature, color, useVertexColor = false }: { creature: Creature; color: RGB; useVertexColor?: boolean }) => {
   const matRef = useRef<THREE.ShaderMaterial>(null);
   // Trait → uniform mapping is deterministic. 1-of-1 hijacks to "chromatic"; a few species
   // claim signature shaders (Eldritch=voronoi cells, Construct=holographic foil, Sprite=neon
@@ -207,11 +220,13 @@ export const ProceduralMat = ({ creature, color }: { creature: Creature; color: 
     uMetal: { value: metal },
     uPattern: { value: pattern },
     uTime: { value: 0 },
-  }), [color, creature.palette, aura, distort, emissive, metal, pattern]);
+    uUseVcol: { value: useVertexColor ? 1.0 : 0.0 },
+  }), [color, creature.palette, aura, distort, emissive, metal, pattern, useVertexColor]);
 
   useFrame((state) => {
     if (matRef.current) matRef.current.uniforms.uTime.value = state.clock.elapsedTime;
   });
 
-  return <shaderMaterial ref={matRef} vertexShader={VERT} fragmentShader={FRAG} uniforms={uniforms} />;
+  const defines = useMemo(() => (useVertexColor ? { USE_VCOL: "" } : undefined), [useVertexColor]);
+  return <shaderMaterial ref={matRef} vertexShader={VERT} fragmentShader={FRAG} uniforms={uniforms} defines={defines} />;
 };
