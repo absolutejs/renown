@@ -50,7 +50,7 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
             </div>
             <div className="profileAvatar">
               {profile.avatarSeed
-                ? <SinglePet seed={profile.avatarSeed} />
+                ? <SinglePet seed={profile.avatarSeed} hero />
                 : <div className="petCanvas profileAvatarEmpty"><span className="muted">no avatar pet yet</span></div>}
             </div>
             <div className="profileStats">

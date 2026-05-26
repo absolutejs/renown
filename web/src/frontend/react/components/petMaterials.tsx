@@ -85,12 +85,33 @@ const FRAG = /* glsl */ `
       col = uColor * 0.25 + uColor2 * 0.25 * (1.0 - vUv.y);
       float h = hash21(floor(vUv * 14.0 + vWorldPos.xy * 8.0));
       if (h > 0.86) col += vec3(0.5 + 0.5 * sin(uTime * 3.0 + h * 6.28));
-    } else if (uPattern == 6) {                                // chromatic — reserved for 1-of-1
+    } else if (uPattern == 6) {                                // chromatic — reserved for 1-of-1, wild
       vec2 q = vUv - 0.5;
       float r = length(q);
       float a = atan(q.y, q.x);
-      col = hsv2rgb(a * 0.159 + uTime * 0.2 + r * 1.2, 1.0, 1.0);
-      col *= 1.0 - r * 0.35;
+      // base rainbow swirl pulled outward by radius
+      col = hsv2rgb(a * 0.159 + uTime * 0.3 + r * 1.5, 1.0, 1.0);
+      // iridescent fresnel layered on
+      float fres = pow(1.0 - max(0.0, dot(vNormal, vec3(0.0, 0.0, 1.0))), 1.8);
+      col += hsv2rgb(uTime * 0.45 + fres, 0.9, 1.0) * fres * 0.7;
+      // CRT-style scanline glitch
+      float glitch = step(0.96, fract(vUv.y * 32.0 + uTime * 9.0));
+      col = mix(col, vec3(1.0) - col, glitch * 0.6);
+      // hot edge ring around the center
+      col += vec3(smoothstep(0.45, 0.5, r) * 0.6);
+    } else if (uPattern == 7) {                                // voronoi — alien cell pattern
+      vec2 vq = vUv * 5.0;
+      vec2 vi = floor(vq), vf = fract(vq);
+      float minD = 8.0;
+      for (int yy = -1; yy <= 1; yy++) for (int xx = -1; xx <= 1; xx++) {
+        vec2 n = vec2(float(xx), float(yy));
+        vec2 pp = vec2(hash21(vi + n), hash21(vi + n + vec2(11.0, 17.0)));
+        pp = 0.5 + 0.5 * sin(uTime * 0.6 + 6.28 * pp);
+        minD = min(minD, length(n + pp - vf));
+      }
+      col = mix(uColor2 * 0.45, uColor, smoothstep(0.0, 0.5, minD));
+      // bright edge glow at cell boundaries
+      col += uColor2 * (1.0 - smoothstep(0.0, 0.06, minD)) * 0.8;
     }
 
     // ── Aura overlay (uAura 0-6) ─────────────────────────────────
@@ -134,8 +155,11 @@ const cssToVec = (rgb: RGB) => new THREE.Color(`rgb(${rgb[0]},${rgb[1]},${rgb[2]
 
 export const ProceduralMat = ({ creature, color }: { creature: Creature; color: RGB }) => {
   const matRef = useRef<THREE.ShaderMaterial>(null);
-  // Trait → uniform mapping is deterministic; 1-of-1 hijacks pattern to "chromatic".
-  const pattern = creature.oneOfOne ? 6 : PATTERN_MAP[creature.traits.pattern] ?? 0;
+  // Trait → uniform mapping is deterministic. 1-of-1 hijacks to "chromatic" (the wild one);
+  // Eldritch species default to voronoi cells; otherwise the pattern trait wins.
+  const pattern = creature.oneOfOne ? 6
+    : creature.traits.species === "Eldritch" ? 7
+    : PATTERN_MAP[creature.traits.pattern] ?? 0;
   // Mythic forces rainbow aura on top of whatever the trait was — keeps the existing
   // "mythic = rainbow" feel from the ASCII renderer.
   const aura = creature.mythicAura ? 6 : AURA_MAP[creature.traits.aura] ?? 0;
