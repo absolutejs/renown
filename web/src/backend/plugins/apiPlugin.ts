@@ -45,7 +45,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         : board === "biggest-pet" ? players.biggestPetSize
         : players.verifiedScore;
       const rows = await gameDb.select().from(players).where(eq(players.githubVerified, true)).orderBy(desc(orderCol)).limit(n);
-      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, biggestPetSize: p.biggestPetSize, avatarSeed: p.avatarSeed }));
+      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed }));
     })
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.
@@ -56,7 +56,9 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       return {
         login: p.githubLogin, handle: p.handle, tier: normalizeTier(p.tier),
         score: p.verifiedScore, totalLevel: p.totalLevel,
-        petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, biggestPetSize: p.biggestPetSize,
+        petsCount: p.petsCount,
+        rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed,
+        biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed,
         avatarSeed: p.avatarSeed, showcaseSeeds: Array.isArray(p.showcaseSeeds) ? p.showcaseSeeds : [],
       };
     })
@@ -95,7 +97,12 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const creatures = mergedWild.map((s) => ({ s, c: generate(s) }));
       const sortedByScore = [...creatures].sort((a, b) => b.c.score - a.c.score);
       const rarestPetScore = sortedByScore[0]?.c.score ?? 0;
-      const biggestPetSize = Math.max(0, ...creatures.map(({ c }) => c.sizeN));
+      const rarestPetSeed = sortedByScore[0]?.s ?? null;
+      // Biggest by sizeN (the numeric voxel-driving size). Tie-break by score so the bigger pet
+      // shown is also the more interesting one when several share a size cap.
+      const sortedBySize = [...creatures].sort((a, b) => b.c.sizeN - a.c.sizeN || b.c.score - a.c.score);
+      const biggestPetSize = sortedBySize[0]?.c.sizeN ?? 0;
+      const biggestPetSeed = sortedBySize[0]?.s ?? null;
       // Avatar: keep the player's pick if still owned, else default to the rarest.
       const currentAvatar = row.avatarSeed && mergedWild.includes(row.avatarSeed) ? row.avatarSeed : (sortedByScore[0]?.s ?? null);
       // Showcase: tier-gated slot count, defaulted to top-N by score. Honors a player's explicit
@@ -105,9 +112,9 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const curated = currentShowcase.filter((s) => mergedWild.includes(s)).slice(0, slots);
       const showcase = curated.length > 0 ? curated : sortedByScore.slice(0, slots).map((x) => x.s);
       await gameDb.update(players).set({
-        attributionScore, avatarSeed: currentAvatar, biggestPetSize,
+        attributionScore, avatarSeed: currentAvatar, biggestPetSeed, biggestPetSize,
         lastAttributionSyncAt: row.attributionQuery ? new Date() : row.lastAttributionSyncAt,
-        petsCount: mergedWild.length, rarestPetScore,
+        petsCount: mergedWild.length, rarestPetScore, rarestPetSeed,
         showcaseSeeds: showcase, verifiedAt: new Date(), verifiedScore: score, wild: mergedWild,
       }).where(eq(players.id, row.id));
       return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, newPets: newShas.length, totalPets: mergedWild.length, rarestPetScore, biggestPetSize, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };

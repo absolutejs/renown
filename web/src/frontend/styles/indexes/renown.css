@@ -81,10 +81,16 @@ a:hover { text-decoration: underline; }
 
 /* ── leaderboard ───────────────────────────────────────────── */
 .ranks { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-.ranks li { display: grid; grid-template-columns: 30px 1fr auto auto auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.02); cursor: pointer; transition: background .12s; }
+.ranks li { display: grid; grid-template-columns: 30px 56px 1fr auto auto auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.02); cursor: pointer; transition: background .12s; }
 .ranks li:hover { background: var(--card); }
 .ranks li.sel { background: var(--accent-soft); outline: 1px solid var(--accent-line); }
 .rank { font-size: 17px; text-align: center; }
+/* Mini-pet next to each leaderboard row. Sized once here so the shared MenagerieCanvas
+   has a stable rect to scissor into per row. Empty placeholder keeps grid alignment when
+   a player hasn't earned a pet yet on this board. */
+.rankPet { width: 56px; height: 56px; display: block; }
+.rankPet .petCanvas { width: 56px; height: 56px; aspect-ratio: auto; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.rankPetEmpty { display: block; opacity: .35; }
 .who { font-weight: 600; color: var(--text); }
 .lvl { color: var(--accent); font-weight: 600; }
 .xp { color: var(--ink); }
@@ -174,7 +180,7 @@ a:hover { text-decoration: underline; }
 
 /* Leaderboard score (the ranked number) */
 .score { color: var(--accent); font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
-.ranks li { grid-template-columns: 30px 1fr auto auto; }
+.ranks li { grid-template-columns: 30px 56px 1fr auto auto; }
 
 /* ── Menagerie (3D pets) ───────────────────────────────────── */
 .petStage { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }

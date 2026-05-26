@@ -1,11 +1,11 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
-import { PetViewer } from "../components/PetViewer";
+import { PetViewer, SinglePet } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
-type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; petsCount?: number; rarestPetScore?: number; biggestPetSize?: number; avatarSeed?: string | null };
+type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null };
 type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet";
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
@@ -47,11 +47,15 @@ const Logomark = ({ size = 22 }: { size?: number }) => (
 );
 
 // ── Leaderboard ────────────────────────────────────────────────────────────
-const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => string }[] = [
-  { id: "score", label: "Score", hint: "GitHub-verified base + windowed Co-Authored-By attribution.", statOf: (e) => (e.score ?? 0).toLocaleString() },
-  { id: "pets-count", label: "Most pets", hint: "Total unique 1/1 creatures collected from your attributed commits.", statOf: (e) => `${e.petsCount ?? 0} pets` },
-  { id: "rarest-pet", label: "Rarest pet", hint: "OpenRarity score of the rarest pet in your menagerie.", statOf: (e) => `${(e.rarestPetScore ?? 0).toFixed(2)} rarity` },
-  { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}` },
+// seedOf: which pet renders next to each row on this board. For Score and Most-pets we
+// show the player's chosen avatar (their identity pet); for Rarest/Biggest boards we show
+// the specific pet the board is ranking by — so the picture under the rank IS the thing
+// they're #1 at.
+const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => string; seedOf: (e: Entry) => string | null | undefined }[] = [
+  { id: "score", label: "Score", hint: "GitHub-verified base + windowed Co-Authored-By attribution.", statOf: (e) => (e.score ?? 0).toLocaleString(), seedOf: (e) => e.avatarSeed },
+  { id: "pets-count", label: "Most pets", hint: "Total unique 1/1 creatures collected from your attributed commits.", statOf: (e) => `${e.petsCount ?? 0} pets`, seedOf: (e) => e.avatarSeed },
+  { id: "rarest-pet", label: "Rarest pet", hint: "OpenRarity score of the rarest pet in your menagerie.", statOf: (e) => `${(e.rarestPetScore ?? 0).toFixed(2)} rarity`, seedOf: (e) => e.rarestPetSeed ?? e.avatarSeed },
+  { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
 ];
 
 const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile }:
@@ -72,15 +76,19 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile }:
           <p className="muted">No players yet — be the first.</p>
         ) : (
           <ol className="ranks">
-            {top.map((e, i) => (
-              <li key={e.id ?? i} className={e.id === sel ? "sel" : ""}
-                onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
-                <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
-                <span className="who">{e.name}<TierBadge tier={e.tier} /></span>
-                <span className="score">{meta.statOf(e)}</span>
-                <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
-              </li>
-            ))}
+            {top.map((e, i) => {
+              const seed = meta.seedOf(e);
+              return (
+                <li key={e.id ?? i} className={e.id === sel ? "sel" : ""}
+                  onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
+                  <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
+                  <span className="rankPet">{seed ? <SinglePet seed={seed} /> : <span className="petCanvas rankPetEmpty" />}</span>
+                  <span className="who">{e.name}<TierBadge tier={e.tier} /></span>
+                  <span className="score">{meta.statOf(e)}</span>
+                  <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
+                </li>
+              );
+            })}
           </ol>
         )}
       </section>
@@ -517,12 +525,12 @@ const App = () => {
       {view === "auth" && <AuthView initial={authMode} onAuthed={() => { loadAccount(); setView("account"); setBanner({ kind: "ok", text: "Welcome back." }); }} onBanner={setBanner} />}
       {view === "reset" && resetToken && <ResetView token={resetToken} onDone={(ok, msg) => { setBanner({ kind: ok ? "ok" : "warn", text: msg }); setView("auth"); setResetToken(null); }} />}
       {profileLogin && <ProfileModal login={profileLogin} onClose={() => setProfileLogin(null)} />}
-      {/* One shared WebGL context for all menagerie pet cards. Mount whenever something is
-          actually using <View> on this page: the Account view (menagerie grid) or the
-          ProfileModal (showcase row's non-hero SinglePets). Leaderboard/pricing/auth alone
-          skip WebGL entirely. drei View also auto-pauses individual scrolled-out cards via
-          scissor, so the cost when mounted is bounded by what's visible. */}
-      {(view === "account" || profileLogin !== null) && <MenagerieCanvas />}
+      {/* One shared WebGL context for all <View>-based pets on the page: the Board view (one
+          mini-pet per row), the Account view (menagerie grid), or the ProfileModal (showcase
+          row's non-hero SinglePets). Pricing / auth / reset stay text-only and skip WebGL
+          entirely. drei View auto-pauses individual scrolled-out cards via scissor, so the
+          per-frame cost is bounded to what's actually visible. */}
+      {(view === "board" || view === "account" || profileLogin !== null) && <MenagerieCanvas />}
 
       <footer className="foot">by AbsoluteJS · <a href="https://github.com/absolutejs/renown">github.com/absolutejs/renown</a></footer>
     </main>

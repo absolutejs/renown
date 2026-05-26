@@ -31,10 +31,14 @@ export const players = pgTable("players", {
   // generates a unique 1/1 creature via core/procgen.ts. Capped to the 100 rarest.
   wild: jsonb("wild").$type<string[]>().notNull().default([]),
   // Denormalized pet aggregates — recomputed on every /api/verify after wild updates so the
-  // pet leaderboards (most/rarest/biggest) can sort by a simple indexed column.
+  // pet leaderboards (most/rarest/biggest) can sort by a simple indexed column. The *Seed
+  // columns let the leaderboard render the actual pet next to its stat (the rarest pet on the
+  // rarest-pet board, etc.) without the client having to know the wild set.
   petsCount: integer("pets_count").notNull().default(0),
   rarestPetScore: real("rarest_pet_score").notNull().default(0),
+  rarestPetSeed: text("rarest_pet_seed"),
   biggestPetSize: integer("biggest_pet_size").notNull().default(0),
+  biggestPetSeed: text("biggest_pet_seed"),
   // Avatar = the one pet shown on profile + (later) in the header. Default = rarest wild.
   avatarSeed: text("avatar_seed"),
   // Showcase = curated pets shown on public profile. Length capped by billing tier (free 2,
