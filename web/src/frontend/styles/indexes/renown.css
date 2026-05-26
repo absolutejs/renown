@@ -249,3 +249,8 @@ a:hover { text-decoration: underline; }
   0% { background-position: 0% 0%, 0% 0%; }
   100% { background-position: 0% 0%, 400% 0%; }
 }
+
+/* ── Shared menagerie WebGL viewport ───────────────────────── */
+/* Fixed full-viewport canvas; pet cards register drei <View>s tracking their own DOM rects */
+.viewportCanvas { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+.viewportCanvas canvas { width: 100% !important; height: 100% !important; }

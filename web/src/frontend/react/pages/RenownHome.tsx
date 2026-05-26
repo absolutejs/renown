@@ -1,5 +1,6 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { PetViewer } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
 
@@ -516,6 +517,9 @@ const App = () => {
       {view === "auth" && <AuthView initial={authMode} onAuthed={() => { loadAccount(); setView("account"); setBanner({ kind: "ok", text: "Welcome back." }); }} onBanner={setBanner} />}
       {view === "reset" && resetToken && <ResetView token={resetToken} onDone={(ok, msg) => { setBanner({ kind: ok ? "ok" : "warn", text: msg }); setView("auth"); setResetToken(null); }} />}
       {profileLogin && <ProfileModal login={profileLogin} onClose={() => setProfileLogin(null)} />}
+      {/* One shared WebGL context for all menagerie pet cards (each card renders a drei <View>
+          inside this canvas). Mount-gated so SSR doesn't try to create GL. */}
+      <MenagerieCanvas />
 
       <footer className="foot">by AbsoluteJS · <a href="https://github.com/absolutejs/renown">github.com/absolutejs/renown</a></footer>
     </main>

@@ -3,7 +3,7 @@
 // + shimmer, Mythic → distort + rainbow). Drei: OrbitControls/Float/Environment/Sparkles.
 // react-spring/three: entry scale animation. Same seeded procgen — server and client render
 // the SAME creature from the SAME commit SHA.
-import { Float, MeshReflectorMaterial, MeshTransmissionMaterial, OrbitControls, Sparkles, Stars, Stats, Trail } from "@react-three/drei";
+import { Float, MeshReflectorMaterial, MeshTransmissionMaterial, OrbitControls, PerspectiveCamera, Sparkles, Stars, Stats, Trail, View } from "@react-three/drei";
 import { Canvas, useFrame, type ThreeElements } from "@react-three/fiber";
 import { Bloom, ChromaticAberration, EffectComposer, Noise, Vignette } from "@react-three/postprocessing";
 import { animated, useSpring } from "@react-spring/three";
@@ -108,7 +108,7 @@ const Eye = ({ pos, color, trait, mythic }: { pos: [number, number, number]; col
 
 const css = ([r, g, b]: RGB) => `rgb(${r},${g},${b})`;
 
-const Pet = ({ seed }: { seed: string }) => {
+const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) => {
   const c = useMemo(() => generate(seed), [seed]);
   const grid = useMemo(() => voxelize(c, 0), [c]);
   const groupRef = useRef<Group>(null);
@@ -120,17 +120,29 @@ const Pet = ({ seed }: { seed: string }) => {
     return buildBodyGeom(bodyVoxels, offsetX, offsetY);
   }, [grid, offsetX, offsetY]);
 
-  // Spring entry: pop into view (different per pet via seed-derived delay)
+  // Imperative entry spring (function form). Function runs once at mount; the initial
+  // config has from/to so the animation kicks off immediately — no useEffect needed.
+  // `api` is here for future hover/state-driven animations (always use api.start, never
+  // declarative re-runs against changing state).
   const seedHash = useMemo(() => Array.from(seed).reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 0), [seed]);
-  const { scale } = useSpring({ config: { friction: 14, tension: 180 }, delay: Math.abs(seedHash) % 220, from: { scale: 0 }, to: { scale: 1 } });
+  const [{ scale }] = useSpring(() => ({
+    config: { friction: 14, tension: 180 },
+    delay: Math.abs(seedHash) % 220,
+    from: { scale: 0 },
+    to: { scale: 1 },
+  }));
 
-  // Gentle bob + heartbeat pulse. Rarer tiers move more (matches the CLI philosophy).
+  // Gentle bob + heartbeat pulse + (if requested) y-rotation — all in one useFrame, all
+  // mutating refs directly. Rarer tiers bob more and beat faster (matches the CLI philosophy).
   const intensity = c.tier === "Mythic" ? 0.22 : c.tier === "Legendary" ? 0.16 : c.tier === "Epic" ? 0.12 : 0.08;
   const bpm = c.oneOfOne ? 3.2 : c.tier === "Mythic" ? 2.4 : c.tier === "Legendary" ? 1.8 : 1.2;
   const pulseRef = useRef<Group>(null);
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const t = state.clock.getElapsedTime();
-    if (groupRef.current) groupRef.current.position.y = Math.sin(t * 1.4 + seedHash * 0.01) * intensity;
+    if (groupRef.current) {
+      groupRef.current.position.y = Math.sin(t * 1.4 + seedHash * 0.01) * intensity;
+      if (autoRotate) groupRef.current.rotation.y += autoRotate * delta;   // delta-based so framerate-independent
+    }
     if (pulseRef.current) {
       // Heartbeat: a brief expansion every beat, otherwise flat — feels alive vs sine bob.
       const phase = (t * bpm) % 1;
@@ -177,29 +189,23 @@ const Pet = ({ seed }: { seed: string }) => {
   );
 };
 
-// The Canvas needs a DOM/WebGL context, so skip it during SSR and hydrate on mount. Camera
-// distance autoscales to sizeN so big pets don't clip out of frame. Body voxels are
-// shader-lit (ProceduralMat handles its own diffuse/specular), so scene lights here only
-// hit the eye + mouth standard materials. Bloom on the emissive parts is the magic that
-// makes eyes + auras feel alive.
-export const PetCanvas = ({ seed, creature }: { seed: string; creature: Creature }) => {
+// Pet card content — drei's <View>, when used outside a Canvas, RENDERS ITS OWN DOM element
+// and ignores the `track` prop. So the View IS the petCanvas div (className routes our CSS).
+// The shared MenagerieCanvas picks up the View through tunnel-rat and scissor-renders the
+// scene at this div's rect.
+const PetCardView = ({ seed, creature }: { seed: string; creature: Creature }) => {
   const z = Math.max(8, 6 + creature.sizeN * 0.10);
-  const cam = { fov: 36, position: [0, 0, z] as [number, number, number] };
   const dramatic = creature.tier === "Mythic" || creature.tier === "Legendary" || creature.oneOfOne;
-  // No EffectComposer here — 6 simultaneous bloom passes was the worst frame-time offender.
-  // Hero canvas keeps the full FX stack; menagerie cards stay lean and rely on emissive
-  // materials + bright shader output to read as "glowing."
+  const rate = creature.tier === "Mythic" ? 0.5 : creature.tier === "Legendary" ? 0.3 : 0.18;   // rad/sec
   return (
-    <Canvas camera={cam} dpr={[1, 1.2]} gl={{ antialias: true, alpha: false }} frameloop="always">
-      <color attach="background" args={["#0a0a0a"]} />
+    <View className="petCanvas">
+      <PerspectiveCamera makeDefault position={[0, 0, z]} fov={36} />
       <ambientLight intensity={0.7} />
       <directionalLight position={[3, 4, 5]} intensity={1.1} />
       <directionalLight position={[-3, -2, 4]} intensity={0.5} color="#5fbeeb" />
       {dramatic && <Stars radius={32} depth={20} count={420} factor={2.4} fade speed={0.4} />}
-      <Pet seed={seed} />
-      <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={creature.tier === "Mythic" ? 1.2 : creature.tier === "Legendary" ? 0.7 : 0.4} />
-      {showStats() && <Stats />}
-    </Canvas>
+      <Pet seed={seed} autoRotate={rate} />
+    </View>
   );
 };
 
@@ -294,6 +300,26 @@ export const SinglePet = ({ seed, hero = false }: { seed: string; hero?: boolean
   return <div className="petCanvas">{hero ? <HeroCanvas seed={seed} creature={c} /> : <PetCanvas seed={seed} creature={c} />}</div>;
 };
 
+// One card. The PetCardView IS the visible canvas region (it renders a div internally and
+// the shared MenagerieCanvas scissor-renders the pet to its rect via tunnel-rat).
+const PetCard = ({ seed, creature, isAvatar, onSetAvatar, mounted }: { seed: string; creature: Creature; isAvatar: boolean; onSetAvatar?: (seed: string) => void; mounted: boolean }) => {
+  return (
+    <div className={`petCard tier-${creature.tier.toLowerCase()}${isAvatar ? " isAvatar" : ""}`}>
+      {mounted ? <PetCardView seed={seed} creature={creature} /> : <div className="petCanvas" />}
+      {onSetAvatar && (
+        <button className={`avatarBtn${isAvatar ? " on" : ""}`} title={isAvatar ? "Your avatar" : "Set as avatar"} onClick={() => !isAvatar && onSetAvatar(seed)}>
+          {isAvatar ? "★" : "☆"}
+        </button>
+      )}
+      <div className="petLabel">
+        <span className={`tierTag t-${creature.tier.toLowerCase()}`}>{creature.tier}</span>
+        <span className="petName" title={creature.name}>{creature.name}</span>
+        <span className="petSize" title="size">{creature.sizeN}</span>
+      </div>
+    </div>
+  );
+};
+
 export const PetViewer = ({ seeds, limit = 6, avatarSeed, onSetAvatar }: { seeds: string[]; limit?: number; avatarSeed?: string | null; onSetAvatar?: (seed: string) => void }) => {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -307,24 +333,9 @@ export const PetViewer = ({ seeds, limit = 6, avatarSeed, onSetAvatar }: { seeds
 
   return (
     <div className="petStage">
-      {top.map(({ c, seed }) => {
-        const isAvatar = seed === avatarSeed;
-        return (
-          <div className={`petCard tier-${c.tier.toLowerCase()}${isAvatar ? " isAvatar" : ""}`} key={seed}>
-            <div className="petCanvas">{mounted && <PetCanvas seed={seed} creature={c} />}</div>
-            {onSetAvatar && (
-              <button className={`avatarBtn${isAvatar ? " on" : ""}`} title={isAvatar ? "Your avatar" : "Set as avatar"} onClick={() => !isAvatar && onSetAvatar(seed)}>
-                {isAvatar ? "★" : "☆"}
-              </button>
-            )}
-            <div className="petLabel">
-              <span className={`tierTag t-${c.tier.toLowerCase()}`}>{c.tier}</span>
-              <span className="petName" title={c.name}>{c.name}</span>
-              <span className="petSize" title="size">{c.sizeN}</span>
-            </div>
-          </div>
-        );
-      })}
+      {top.map(({ c, seed }) => (
+        <PetCard key={seed} seed={seed} creature={c} isAvatar={seed === avatarSeed} onSetAvatar={onSetAvatar} mounted={mounted} />
+      ))}
     </div>
   );
 };
