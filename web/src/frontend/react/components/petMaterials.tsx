@@ -99,7 +99,7 @@ const FRAG = /* glsl */ `
       col = mix(col, vec3(1.0) - col, glitch * 0.6);
       // hot edge ring around the center
       col += vec3(smoothstep(0.45, 0.5, r) * 0.6);
-    } else if (uPattern == 7) {                                // voronoi — alien cell pattern
+    } else if (uPattern == 7) {                                // voronoi — alien cell pattern (Eldritch)
       vec2 vq = vUv * 5.0;
       vec2 vi = floor(vq), vf = fract(vq);
       float minD = 8.0;
@@ -110,8 +110,27 @@ const FRAG = /* glsl */ `
         minD = min(minD, length(n + pp - vf));
       }
       col = mix(uColor2 * 0.45, uColor, smoothstep(0.0, 0.5, minD));
-      // bright edge glow at cell boundaries
-      col += uColor2 * (1.0 - smoothstep(0.0, 0.06, minD)) * 0.8;
+      col += uColor2 * (1.0 - smoothstep(0.0, 0.06, minD)) * 0.8;   // bright cell-edge glow
+    } else if (uPattern == 8) {                                // HOLOGRAPHIC FOIL — Construct
+      // angle-dependent iridescence: facets shift color as the camera moves.
+      float angle = dot(vNormal, vec3(0.4, 0.8, 0.6));
+      vec3 iri = hsv2rgb(angle * 0.6 + uTime * 0.15 + vUv.y * 0.3, 0.85, 1.0);
+      col = mix(uColor * 0.4, iri, 0.85);
+      float g = step(0.5, fract(vUv.x * 12.0 + uTime * 0.2)) * step(0.5, fract(vUv.y * 12.0));
+      col += g * 0.35;                                          // foil grid overlay
+    } else if (uPattern == 9) {                                // NEON GRID — Sprite
+      vec2 g = abs(fract(vUv * 9.0) - 0.5);
+      float line = min(g.x, g.y);
+      float glow = exp(-line * 28.0);
+      col = uColor * 0.18;
+      vec3 neon = hsv2rgb(0.55 + sin(uTime * 0.6) * 0.1, 1.0, 1.0);
+      col += neon * glow * 1.8;                                 // bright grid lines for bloom to catch
+    } else if (uPattern == 10) {                               // OIL SLICK — Slime
+      float fres = pow(1.0 - max(0.0, dot(vNormal, vec3(0.0, 0.0, 1.0))), 2.2);
+      float n = noise(vUv * 3.5 + uTime * 0.18);
+      float h = fract(fres + n * 0.5 + uTime * 0.08);
+      col = hsv2rgb(h, 0.85, 0.95);
+      col = mix(col, uColor, 0.18);                             // tint toward palette
     }
 
     // ── Aura overlay (uAura 0-6) ─────────────────────────────────
@@ -155,10 +174,14 @@ const cssToVec = (rgb: RGB) => new THREE.Color(`rgb(${rgb[0]},${rgb[1]},${rgb[2]
 
 export const ProceduralMat = ({ creature, color }: { creature: Creature; color: RGB }) => {
   const matRef = useRef<THREE.ShaderMaterial>(null);
-  // Trait → uniform mapping is deterministic. 1-of-1 hijacks to "chromatic" (the wild one);
-  // Eldritch species default to voronoi cells; otherwise the pattern trait wins.
+  // Trait → uniform mapping is deterministic. 1-of-1 hijacks to "chromatic"; a few species
+  // claim signature shaders (Eldritch=voronoi cells, Construct=holographic foil, Sprite=neon
+  // grid, Slime=oil-slick iridescence). Otherwise the creature's pattern trait wins.
   const pattern = creature.oneOfOne ? 6
     : creature.traits.species === "Eldritch" ? 7
+    : creature.traits.species === "Construct" ? 8
+    : creature.traits.species === "Sprite" ? 9
+    : creature.traits.species === "Slime" ? 10
     : PATTERN_MAP[creature.traits.pattern] ?? 0;
   // Mythic forces rainbow aura on top of whatever the trait was — keeps the existing
   // "mythic = rainbow" feel from the ASCII renderer.

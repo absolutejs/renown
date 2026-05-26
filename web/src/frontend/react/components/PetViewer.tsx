@@ -3,9 +3,9 @@
 // + shimmer, Mythic → distort + rainbow). Drei: OrbitControls/Float/Environment/Sparkles.
 // react-spring/three: entry scale animation. Same seeded procgen — server and client render
 // the SAME creature from the SAME commit SHA.
-import { Float, OrbitControls, Sparkles, Stars } from "@react-three/drei";
+import { Float, OrbitControls, Sparkles, Stars, Trail } from "@react-three/drei";
 import { Canvas, useFrame, type ThreeElements } from "@react-three/fiber";
-import { Bloom, ChromaticAberration, EffectComposer } from "@react-three/postprocessing";
+import { Bloom, ChromaticAberration, EffectComposer, Noise, Vignette } from "@react-three/postprocessing";
 import { animated, useSpring } from "@react-spring/three";
 import { BlendFunction, KernelSize } from "postprocessing";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -119,6 +119,30 @@ export const PetCanvas = ({ seed, creature }: { seed: string; creature: Creature
   );
 };
 
+// A glowing point that orbits the pet on its own loop, leaving a Drei <Trail> behind it.
+// Pure visual flourish for the hero canvas on rare pets — feels like the pet has its own
+// little ecosystem of energy circling it.
+const OrbitingTrail = ({ color, radius, speed, phase, height }: { color: string; radius: number; speed: number; phase: number; height: number }) => {
+  const ref = useRef<Group>(null);
+  useFrame((state) => {
+    if (!ref.current) return;
+    const t = state.clock.getElapsedTime() * speed + phase;
+    ref.current.position.x = Math.cos(t) * radius;
+    ref.current.position.z = Math.sin(t) * radius;
+    ref.current.position.y = Math.sin(t * 1.7) * height;
+  });
+  return (
+    <Trail width={0.25} length={5} color={color} decay={1.2} attenuation={(t) => t * t}>
+      <group ref={ref}>
+        <mesh>
+          <sphereGeometry args={[0.12, 10, 10]} />
+          <meshBasicMaterial color={color} toneMapped={false} />
+        </mesh>
+      </group>
+    </Trail>
+  );
+};
+
 // HERO canvas for big single-pet displays (avatar in profile modal) — adds chromatic
 // aberration on the rarest pets + denser stars + a slightly slower auto-rotate so it
 // reads as a presentation piece, not a thumbnail.
@@ -137,10 +161,17 @@ export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creatur
       <directionalLight position={[-3, -2, 4]} intensity={0.55} color="#5fbeeb" />
       {dramatic && <Stars radius={50} depth={30} count={900} factor={3} fade speed={0.5} />}
       <Pet seed={seed} />
+      {/* Orbiting trail satellites — rare-pet flourish. Three different orbits in the pet's
+          palette colors so each pet's accents follow its own theme. */}
+      {dramatic && <OrbitingTrail color={css(creature.eyeColor)} radius={4.5} speed={0.9} phase={0} height={1.6} />}
+      {wild && <OrbitingTrail color={css(creature.palette[0])} radius={5.4} speed={-0.7} phase={2.1} height={1.3} />}
+      {wild && <OrbitingTrail color={css(creature.palette[1])} radius={3.8} speed={1.4} phase={4.2} height={2.0} />}
       <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={wild ? 1.3 : 0.5} />
       <EffectComposer>
-        <Bloom intensity={wild ? 1.6 : 1.1} luminanceThreshold={0.45} luminanceSmoothing={0.5} kernelSize={KernelSize.HUGE} mipmapBlur />
+        <Bloom intensity={wild ? 1.7 : 1.15} luminanceThreshold={0.45} luminanceSmoothing={0.5} kernelSize={KernelSize.HUGE} mipmapBlur />
         {wild && <ChromaticAberration offset={caOffset} blendFunction={BlendFunction.NORMAL} radialModulation={false} modulationOffset={0} />}
+        <Vignette offset={0.15} darkness={0.55} />
+        <Noise opacity={0.035} />
       </EffectComposer>
     </Canvas>
   );
