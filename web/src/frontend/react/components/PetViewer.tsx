@@ -108,9 +108,67 @@ const Eye = ({ pos, color, trait, mythic }: { pos: [number, number, number]; col
 
 const css = ([r, g, b]: RGB) => `rgb(${r},${g},${b})`;
 
+// Per-creature movement personality, derived deterministically from species + tier. Species
+// sets the baseline (Slime squashes, Sprite hovers, Wyrm undulates, Construct is rigid…) —
+// tier escalates intensity, with Mythic/1-of-1 unlocking vertex chaos + ghost mirror copies.
+type MovementProfile = {
+  bobAmp: number; bobFreq: number;
+  spin: number;                                       // rad/sec added to autoRotate
+  tiltAmp: number; tiltFreq: number;                  // x/z rotation sway
+  squashAmp: number; squashFreq: number;              // squash-and-stretch y vs x/z
+  warpMode: number;                                   // shader vertex displacement: 0/1/2/3
+  ghostCount: number;                                 // additional translucent copies orbiting through it
+};
+const movementFor = (c: Creature): MovementProfile => {
+  // Base profile per species — each one moves differently.
+  const sp = c.traits.species;
+  let p: MovementProfile = { bobAmp: 0.10, bobFreq: 1.5, spin: 0.18, tiltAmp: 0.05, tiltFreq: 1.0, squashAmp: 0.02, squashFreq: 1.4, warpMode: 0, ghostCount: 0 };
+  if (sp === "Slime")     p = { ...p, squashAmp: 0.14, squashFreq: 1.8, bobAmp: 0.18 };
+  if (sp === "Critter")   p = { ...p, bobAmp: 0.06, bobFreq: 3.5, tiltAmp: 0.10, tiltFreq: 3.2 };
+  if (sp === "Beast")     p = { ...p, bobAmp: 0.05, bobFreq: 0.7, spin: 0.08, tiltAmp: 0.03 };
+  if (sp === "Construct") p = { ...p, bobAmp: 0,    spin: 0.45, tiltAmp: 0,    squashAmp: 0 };
+  if (sp === "Drake")     p = { ...p, bobAmp: 0.12, bobFreq: 1.0, spin: 0.35, tiltAmp: 0.10 };
+  if (sp === "Sprite")    p = { ...p, bobAmp: 0.08, bobFreq: 4.0, spin: 1.20, tiltAmp: 0,    squashAmp: 0.04 };
+  if (sp === "Wyrm")      p = { ...p, bobAmp: 0.22, bobFreq: 1.1, tiltAmp: 0.18, tiltFreq: 0.8, squashAmp: 0.06, squashFreq: 1.1 };
+  if (sp === "Eldritch")  p = { ...p, tiltAmp: 0.22, tiltFreq: 0.6, squashAmp: 0.10, warpMode: 1 };
+  if (sp === "Celestial") p = { ...p, bobAmp: 0.10, bobFreq: 0.8, spin: 0.25, tiltAmp: 0.04 };
+  // Tier escalation — rarer tiers unlock vertex chaos + ghost copies.
+  if (c.tier === "Legendary") p = { ...p, warpMode: Math.max(p.warpMode, 1), spin: p.spin * 1.3 };
+  if (c.mythicAura) p = { ...p, warpMode: 2, spin: p.spin * 1.6, tiltAmp: p.tiltAmp + 0.08, ghostCount: 1 };
+  if (c.oneOfOne) p = { ...p, warpMode: 3, spin: p.spin * 2.0, squashAmp: 0.20, squashFreq: 2.2, ghostCount: 2 };
+  return p;
+};
+
+// Translucent mirror of the body geometry that orbits around the pet's center. Stacks well
+// for ghostCount > 1 (each copy phase-offset). Same merged geometry, additive blend implied
+// by emissive shader + a small transparent material on top.
+const GhostCopy = ({ geom, creature, warpMode, index, count }: { geom: BufferGeometry; creature: Creature; warpMode: number; index: number; count: number }) => {
+  const ref = useRef<Group>(null);
+  const radius = 0.45;
+  useFrame((state) => {
+    if (!ref.current) return;
+    const t = state.clock.getElapsedTime();
+    const phase = (index / (count + 1)) * Math.PI * 2;
+    const speed = creature.oneOfOne ? 1.6 : 1.0;
+    ref.current.position.x = Math.cos(t * speed + phase) * radius;
+    ref.current.position.z = Math.sin(t * speed + phase) * radius;
+    ref.current.rotation.y = t * speed + phase;
+    const breathe = 0.85 + Math.sin(t * 2 + phase) * 0.1;
+    ref.current.scale.setScalar(breathe);
+  });
+  return (
+    <group ref={ref}>
+      <mesh geometry={geom}>
+        <ProceduralMat creature={creature} color={creature.eyeColor} useVertexColor={false} warpMode={warpMode} />
+      </mesh>
+    </group>
+  );
+};
+
 const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) => {
   const c = useMemo(() => generate(seed), [seed]);
   const grid = useMemo(() => voxelize(c, 0), [c]);
+  const mp = useMemo(() => movementFor(c), [c]);
   const groupRef = useRef<Group>(null);
   const offsetX = -grid.w / 2 + 0.5;
   const offsetY = grid.h / 2 - 0.5;
@@ -120,10 +178,9 @@ const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) =>
     return buildBodyGeom(bodyVoxels, offsetX, offsetY);
   }, [grid, offsetX, offsetY]);
 
-  // Imperative entry spring (function form). Function runs once at mount; the initial
-  // config has from/to so the animation kicks off immediately — no useEffect needed.
-  // `api` is here for future hover/state-driven animations (always use api.start, never
-  // declarative re-runs against changing state).
+  // Imperative entry spring (function form). Function runs once at mount; initial config
+  // has from/to so the animation kicks off — no useEffect needed. `api` available in scope
+  // for future event-driven .start()/.set() calls.
   const seedHash = useMemo(() => Array.from(seed).reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 0), [seed]);
   const [{ scale }] = useSpring(() => ({
     config: { friction: 14, tension: 180 },
@@ -132,16 +189,22 @@ const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) =>
     to: { scale: 1 },
   }));
 
-  // Gentle bob + heartbeat pulse + (if requested) y-rotation — all in one useFrame, all
-  // mutating refs directly. Rarer tiers bob more and beat faster (matches the CLI philosophy).
-  const intensity = c.tier === "Mythic" ? 0.22 : c.tier === "Legendary" ? 0.16 : c.tier === "Epic" ? 0.12 : 0.08;
+  // Movement: bob + tilt + squash + spin per species/tier — every pet has a personality.
+  // Heartbeat sits on a separate inner pulse group.
   const bpm = c.oneOfOne ? 3.2 : c.tier === "Mythic" ? 2.4 : c.tier === "Legendary" ? 1.8 : 1.2;
   const pulseRef = useRef<Group>(null);
   useFrame((state, delta) => {
     const t = state.clock.getElapsedTime();
     if (groupRef.current) {
-      groupRef.current.position.y = Math.sin(t * 1.4 + seedHash * 0.01) * intensity;
-      if (autoRotate) groupRef.current.rotation.y += autoRotate * delta;   // delta-based so framerate-independent
+      groupRef.current.position.y = Math.sin(t * mp.bobFreq + seedHash * 0.01) * mp.bobAmp;
+      groupRef.current.rotation.y += (autoRotate + mp.spin) * delta;
+      groupRef.current.rotation.x = Math.sin(t * mp.tiltFreq) * mp.tiltAmp;
+      groupRef.current.rotation.z = Math.cos(t * mp.tiltFreq * 0.7) * mp.tiltAmp * 0.6;
+      // Squash-and-stretch: y stretches up while x/z compress, conserving volume.
+      const s = Math.sin(t * mp.squashFreq) * mp.squashAmp;
+      groupRef.current.scale.x = 1 - s * 0.5;
+      groupRef.current.scale.y = 1 + s;
+      groupRef.current.scale.z = 1 - s * 0.5;
     }
     if (pulseRef.current) {
       // Heartbeat: a brief expansion every beat, otherwise flat — feels alive vs sine bob.
@@ -158,9 +221,15 @@ const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) =>
         {/* Body: one merged mesh + one ShaderMaterial — N voxels collapse to 1 draw call. */}
         {bodyGeom && (
           <mesh geometry={bodyGeom}>
-            <ProceduralMat creature={c} color={c.palette[0]} useVertexColor />
+            <ProceduralMat creature={c} color={c.palette[0]} useVertexColor warpMode={mp.warpMode} />
           </mesh>
         )}
+        {/* Ghost copies — translucent phasing duplicates orbiting through the body. Reserved
+            for Mythic (1 copy) and 1-of-1 (2 copies). Same merged geometry, transparent,
+            offset by an angle that animates → looks like the pet is phasing through reality. */}
+        {bodyGeom && mp.ghostCount > 0 && Array.from({ length: mp.ghostCount }, (_, gi) => (
+          <GhostCopy key={gi} geom={bodyGeom} creature={c} warpMode={mp.warpMode} index={gi + 1} count={mp.ghostCount} />
+        ))}
         {/* Eyes + mouth stay as individual meshes (small count, unique geometries/materials). */}
         {grid.voxels.filter((v) => v.kind !== "body").map((v, i) => {
           const x = v.x + offsetX;

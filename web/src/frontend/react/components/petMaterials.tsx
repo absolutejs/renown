@@ -20,6 +20,7 @@ const AURA_MAP: Record<string, number> = { none: 0, glow: 1, sparkle: 2, flame: 
 const VERT = /* glsl */ `
   uniform float uTime;
   uniform float uDistort;
+  uniform int   uWarpMode;     // 0=none 1=breathing 2=wave 3=chaos
   #ifdef USE_VCOL
     attribute vec3 voxColor;
   #endif
@@ -36,10 +37,26 @@ const VERT = /* glsl */ `
       vBaseColor = vec3(1.0);
     #endif
     vec3 pos = position;
+    // Light per-voxel ripple — applies on top of warp modes for any pet with distort > 0.
     if (uDistort > 0.0) {
-      // Mythic / Eldritch / 1-of-1 — surface ripples on top of the voxel cubes.
       float w = sin(uTime * 2.4 + position.x * 4.0 + position.y * 3.3 + position.z * 2.0);
       pos += normal * w * 0.06 * uDistort;
+    }
+    // Tier-escalating vertex displacement: Legendary breathes, Mythic waves, 1-of-1 chaos.
+    if (uWarpMode == 1) {
+      // BREATHING — slow normal-direction expansion in waves
+      pos += normal * sin(uTime * 1.4 + position.y * 2.5) * 0.05;
+    } else if (uWarpMode == 2) {
+      // WAVE — orthogonal sine waves on each axis, pronounced
+      pos.x += sin(uTime * 2.0 + position.y * 3.5) * 0.08;
+      pos.y += sin(uTime * 1.7 + position.x * 3.0 + position.z * 2.0) * 0.08;
+      pos.z += sin(uTime * 2.3 + position.x * 2.7) * 0.06;
+    } else if (uWarpMode == 3) {
+      // CHAOS — multiple high-freq sines + normal-direction noise. Body LITERALLY morphs.
+      pos += normal * sin(uTime * 4.5 + position.x * 5.0 + position.y * 3.0) * 0.14;
+      pos.x += cos(uTime * 3.7 + position.y * 6.0) * 0.10;
+      pos.y += sin(uTime * 4.1 + position.x * 5.5 + position.z * 4.0) * 0.10;
+      pos.z += cos(uTime * 3.3 + position.y * 7.0 + position.x * 3.0) * 0.08;
     }
     vec4 world = modelMatrix * vec4(pos, 1.0);
     vWorldPos = world.xyz;
@@ -185,7 +202,7 @@ const FRAG = /* glsl */ `
 
 const cssToVec = (rgb: RGB) => new THREE.Color(`rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
 
-export const ProceduralMat = ({ creature, color, useVertexColor = false }: { creature: Creature; color: RGB; useVertexColor?: boolean }) => {
+export const ProceduralMat = ({ creature, color, useVertexColor = false, warpMode = 0 }: { creature: Creature; color: RGB; useVertexColor?: boolean; warpMode?: number }) => {
   const matRef = useRef<THREE.ShaderMaterial>(null);
   // Trait → uniform mapping is deterministic. 1-of-1 hijacks to "chromatic"; a few species
   // claim signature shaders (Eldritch=voronoi cells, Construct=holographic foil, Sprite=neon
@@ -221,7 +238,8 @@ export const ProceduralMat = ({ creature, color, useVertexColor = false }: { cre
     uPattern: { value: pattern },
     uTime: { value: 0 },
     uUseVcol: { value: useVertexColor ? 1.0 : 0.0 },
-  }), [color, creature.palette, aura, distort, emissive, metal, pattern, useVertexColor]);
+    uWarpMode: { value: warpMode },
+  }), [color, creature.palette, aura, distort, emissive, metal, pattern, useVertexColor, warpMode]);
 
   useFrame((state) => {
     if (matRef.current) matRef.current.uniforms.uTime.value = state.clock.elapsedTime;
