@@ -175,3 +175,20 @@ a:hover { text-decoration: underline; }
 /* Leaderboard score (the ranked number) */
 .score { color: var(--accent); font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
 .ranks li { grid-template-columns: 30px 1fr auto auto; }
+
+/* ── Menagerie (3D pets) ───────────────────────────────────── */
+.petStage { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
+.petCard { background: rgba(255,255,255,.02); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; transition: transform .2s, border-color .2s; }
+.petCard:hover { transform: translateY(-2px); border-color: var(--accent-line); }
+.petCanvas { aspect-ratio: 1 / 1; background: linear-gradient(180deg, #0e1218, #060608); }
+.petLabel { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; gap: 8px; border-top: 1px solid var(--line); }
+.tierTag { font-size: 9px; font-weight: 800; padding: 3px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: .5px; flex: none; }
+.tierTag.t-common { background: rgba(255,255,255,.1); color: var(--ink); }
+.tierTag.t-uncommon { background: rgba(134,239,172,.18); color: var(--ok); }
+.tierTag.t-rare { background: rgba(96,165,250,.2); color: #93c5fd; }
+.tierTag.t-epic { background: rgba(196,181,253,.22); color: #c4b5fd; }
+.tierTag.t-legendary { background: rgba(251,191,36,.25); color: var(--warn); border: 1px solid rgba(251,191,36,.4); }
+.tierTag.t-mythic { background: linear-gradient(90deg, #f0abfc, #fbbf24); color: #1a1024; }
+.petName { font-size: 12px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; flex: 1; min-width: 0; }
+.petCard.tier-legendary { box-shadow: inset 0 0 0 1px rgba(251,191,36,.25); }
+.petCard.tier-mythic { box-shadow: inset 0 0 0 1px rgba(240,171,252,.4); }

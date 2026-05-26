@@ -146,6 +146,63 @@ const renderCreature = (c: Creature, frame = 0): string => {
 
 // animation frames for a living creature (everyone moves; rarer tiers move more)
 export const frames = (c: Creature, count = 16) => Array.from({ length: count }, (_, i) => renderCreature(c, i));
+
+// Structured 3D-friendly view of the same creature: a grid of voxels (one per filled ASCII
+// cell) with rgb color + kind. Same algorithm as renderCreature, sans ANSI — for R3F.
+export type Voxel = { x: number; y: number; color: RGB; kind: "body" | "eye" | "mouth" };
+export interface VoxelGrid { w: number; h: number; voxels: Voxel[]; aura: boolean; mythicAura: boolean; tier: Tier }
+export const voxelize = (c: Creature, frame = 0): VoxelGrid => {
+  const rng = makeRng(c.seed + ":sprite");
+  const size = c.traits.size;
+  const H = size === "tiny" ? 4 : size === "small" ? 5 : size === "large" ? 7 : size === "huge" ? 8 : 6;
+  const halfW = Math.max(3, Math.round(H * 0.9));
+  const fillP = size === "huge" ? 0.62 : size === "tiny" ? 0.46 : 0.54;
+  let half: boolean[][] = Array.from({ length: H }, () => Array.from({ length: halfW }, () => rng() < fillP));
+  const neighbors = (g: boolean[][], y: number, x: number) => {
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dy && !dx) continue;
+      const ny = y + dy, nx = x + dx;
+      if (ny < 0 || ny >= H || nx < 0) n++;
+      else if (nx >= halfW) continue;
+      else if (g[ny][nx]) n++;
+    }
+    return n;
+  };
+  for (let pass = 0; pass < 3; pass++) {
+    half = half.map((row, y) => row.map((on, x) => { const n = neighbors(half, y, x); return n >= 5 ? true : n <= 2 ? false : on; }));
+  }
+  half.forEach((row) => { row[0] = row[0] || row[1]; });
+  const W = halfW * 2;
+  const body: boolean[][] = half.map((row) => [...row, ...[...row].reverse()]);
+  const [c1, c2] = c.palette;
+  const lerp = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
+  const eyeRow = Math.max(0, Math.floor(H * 0.35)), mouthRow = Math.min(H - 1, eyeRow + 1);
+  const hasMouth = (MOUTH[c.traits.mouth]?.[1] ?? 0) > 0;
+  const pulse = 0.82 + 0.18 * Math.sin(frame * 0.6);
+  const shimmerCol = c.tier === "Legendary" ? frame % W : -99;
+  const voxels: Voxel[] = [];
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (!body[y][x]) continue;
+      const t = H > 1 ? y / (H - 1) : 0;
+      let col: RGB = c.mythicAura
+        ? hsvToRgb(((x / W) + (y * 0.07) + frame * 0.05) % 1, 0.9, 1)
+        : [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
+      if (!c.mythicAura) {
+        const k = Math.abs(x - shimmerCol) <= 1 ? 1.6 : pulse;
+        col = [Math.min(255, col[0] * k), Math.min(255, col[1] * k), Math.min(255, col[2] * k)];
+      }
+      const isEye = y === eyeRow && (x === Math.floor(W * 0.3) || x === Math.ceil(W * 0.7) - 1) && c.traits.eyes !== "cyclops";
+      const isCyclops = y === eyeRow && c.traits.eyes === "cyclops" && x === Math.floor(W / 2);
+      const isMouth = y === mouthRow && hasMouth && x === Math.floor(W / 2);
+      if (isEye || isCyclops) voxels.push({ color: c.eyeColor, kind: "eye", x, y });
+      else if (isMouth) voxels.push({ color: [20, 20, 30], kind: "mouth", x, y });
+      else voxels.push({ color: col, kind: "body", x, y });
+    }
+  }
+  return { aura: c.traits.aura === "sparkle" || c.traits.aura === "rainbow", h: H, mythicAura: c.mythicAura, tier: c.tier, voxels, w: W };
+};
 // a one-line "chibi" face for compact spots (status line / lists)
 const FACE_MOUTH: Record<string, string> = { smile: "ᵕ", neutral: "–", fangs: "ᴥ", agape: "o", none: "·", grin: "▿", tongue: "ᵕ" };
 export const face = (c: Creature) => {

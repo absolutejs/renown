@@ -57,6 +57,8 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       verifiedAt: player?.verifiedAt ?? null,
       totalLevel: player?.totalLevel ?? 0,
       playerId: player?.id ?? null,
+      // Pet seeds (real commit SHAs) — each renders as a deterministic procgen creature.
+      wild: Array.isArray(player?.wild) ? (player!.wild as string[]) : [],
     } : null,
     identities: identities.map((i) => ({
       id: i.id,

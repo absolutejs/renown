@@ -1,5 +1,6 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { PetViewer } from "../components/PetViewer";
 
 type Tier = "free" | "supporter" | "pro";
 type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier };
@@ -8,7 +9,7 @@ type SkillSheet = { id: string; name: string | null; totalLevel: number; skills:
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
-type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[] };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
@@ -238,6 +239,13 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
       </section>
 
       <GithubSyncCard gh={account.github} refresh={refresh} onBanner={onBanner} />
+      {account.github && account.github.wild.length > 0 && (
+        <section className="card">
+          <h2>Your menagerie</h2>
+          <p className="hint">Each pet is a unique 1/1, procedurally generated from a <strong>real commit SHA</strong> you're attributed in — deterministic, ungameable, the seed IS the asset. Same creature anywhere. Drag to spin.</p>
+          <PetViewer seeds={account.github.wild} />
+        </section>
+      )}
       <CliSyncCard onBanner={onBanner} />
 
       <section className="card">

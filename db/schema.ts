@@ -27,6 +27,9 @@ export const players = pgTable("players", {
   attributionScore: bigint("attribution_score", { mode: "number" }).notNull().default(0),
   lastAttributionSyncAt: timestamp("last_attribution_sync_at"),
   attributionQuery: text("attribution_query"),
+  // Wild creature seeds (each = a real commit SHA you authored/co-authored). Procedurally
+  // generates a unique 1/1 creature via core/procgen.ts. Capped to the 100 rarest.
+  wild: jsonb("wild").$type<string[]>().notNull().default([]),
   // Billing tier, denormalized from the auth `users` row (by github login) so the public board
   // can show a supporter badge and the CLI can read its tier. Cosmetic/convenience only — never
   // affects verified_score or rank. Set by the Stripe webhook.

@@ -6,7 +6,7 @@ import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
 import { achievements, playerProjects, players } from "../../../../db/schema.ts";
-import { searchAttributions } from "../attribution.ts";
+import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
 import { gameDb, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";
@@ -60,17 +60,23 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // Attribution: count NEW commits since max(account_created, last_attribution_sync). The
       // window cap guarantees a resync never double-counts; a long absence backfills correctly.
       let attrDelta = 0;
+      let newShas: string[] = [];
       if (row.attributionQuery) {
         const since = row.lastAttributionSyncAt ?? row.createdAt;
         attrDelta = await searchAttributions(row.attributionQuery, since);
+        // Pet seeds: pull up to 30 fresh SHAs from this window. Each = a unique procgen 1/1.
+        if (attrDelta > 0) newShas = await fetchAttributionShas(row.attributionQuery, since, 30);
       }
       const attributionScore = Number(row.attributionScore) + attrDelta;
       const score = v.score + attributionScore;
+      // Append new SHAs to the player's wild; cap at the 100 newest so it doesn't grow forever.
+      const wild: string[] = Array.isArray(row.wild) ? row.wild : [];
+      const mergedWild = Array.from(new Set([...newShas, ...wild])).slice(0, 100);
       await gameDb.update(players).set({
         attributionScore, lastAttributionSyncAt: row.attributionQuery ? new Date() : row.lastAttributionSyncAt,
-        verifiedAt: new Date(), verifiedScore: score,
+        verifiedAt: new Date(), verifiedScore: score, wild: mergedWild,
       }).where(eq(players.id, row.id));
-      return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
+      return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, newPets: newShas.length, totalPets: mergedWild.length, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
     })
     // Browserless CLI link: the CLI presents its existing GitHub OAuth token (gh auth token).
     // We verify it against GitHub (GET /user) — which PROVES the caller owns that login, no
