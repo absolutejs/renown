@@ -3,7 +3,7 @@
 // + shimmer, Mythic → distort + rainbow). Drei: OrbitControls/Float/Environment/Sparkles.
 // react-spring/three: entry scale animation. Same seeded procgen — server and client render
 // the SAME creature from the SAME commit SHA.
-import { Float, MeshReflectorMaterial, MeshTransmissionMaterial, OrbitControls, PerspectiveCamera, Sparkles, Stars, Stats, Trail, View } from "@react-three/drei";
+import { Environment, Float, MeshReflectorMaterial, MeshTransmissionMaterial, OrbitControls, PerspectiveCamera, Sparkles, Stars, Stats, Trail, View } from "@react-three/drei";
 import { Canvas, useFrame, type ThreeElements } from "@react-three/fiber";
 import { Bloom, ChromaticAberration, EffectComposer, Noise, Vignette } from "@react-three/postprocessing";
 import { animated, useSpring } from "@react-spring/three";
@@ -165,7 +165,7 @@ const GhostCopy = ({ geom, creature, warpMode, index, count, burstRef }: { geom:
   );
 };
 
-const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) => {
+const Pet = ({ seed, autoRotate = 0, entranceBurst = false }: { seed: string; autoRotate?: number; entranceBurst?: boolean }) => {
   const c = useMemo(() => generate(seed), [seed]);
   const grid = useMemo(() => voxelize(c, 0), [c]);
   const mp = useMemo(() => movementFor(c), [c]);
@@ -180,14 +180,12 @@ const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) =>
 
   // Imperative entry spring (function form). Function runs once at mount; initial config
   // has from/to so the animation kicks off — no useEffect needed. `api` available in scope
-  // for future event-driven .start()/.set() calls.
+  // for future event-driven .start()/.set() calls. entranceBurst variant overshoots a bit
+  // so newcomer pets visibly "land" on the board rather than just appearing.
   const seedHash = useMemo(() => Array.from(seed).reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) | 0, 0), [seed]);
-  const [{ scale }] = useSpring(() => ({
-    config: { friction: 14, tension: 180 },
-    delay: Math.abs(seedHash) % 220,
-    from: { scale: 0 },
-    to: { scale: 1 },
-  }));
+  const [{ scale }] = useSpring(() => entranceBurst
+    ? { config: { friction: 10, tension: 220 }, delay: 0, from: { scale: 0 }, to: { scale: 1 } }
+    : { config: { friction: 14, tension: 180 }, delay: Math.abs(seedHash) % 220, from: { scale: 0 }, to: { scale: 1 } });
 
   // Movement: bob + tilt + squash + spin per species/tier — every pet has a personality.
   // Heartbeat sits on a separate inner pulse group. Bursts are tier-gated flourish moments
@@ -196,27 +194,35 @@ const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) =>
   const bpm = c.oneOfOne ? 3.2 : c.tier === "Mythic" ? 2.4 : c.tier === "Legendary" ? 1.8 : 1.2;
   const pulseRef = useRef<Group>(null);
   const burstRef = useRef({ value: 0 });
-  const burstUntilRef = useRef(0);
+  // Sentinel -1 means "fire a one-shot burst on the first frame after mount" — used by the
+  // entranceBurst path so newcomers to the leaderboard land with a flourish, regardless of
+  // tier (the periodic burst system below only fires for Legendary+). The useFrame loop
+  // converts -1 to a real `t + 0.4` window on the very next frame.
+  const burstUntilRef = useRef(entranceBurst ? -1 : 0);
   const nextBurstRef = useRef(2 + Math.random() * 4);
   // Average burst interval per tier (seconds between flourishes); 0 = never.
   const burstInterval = c.oneOfOne ? 4 : c.mythicAura ? 7.5 : c.tier === "Legendary" ? 12 : 0;
 
   useFrame((state, delta) => {
     const t = state.clock.getElapsedTime();
-    // Burst timer: trigger a 0.4s flourish on schedule for tiers that have one. Eased
-    // in/out of the burst value via a smooth pulse so the warp lerps rather than snaps.
-    if (burstInterval > 0) {
-      if (t > nextBurstRef.current && t > burstUntilRef.current) {
-        burstUntilRef.current = t + 0.4;
-        nextBurstRef.current = t + burstInterval + (Math.random() - 0.5) * 2;
-      }
-      const remaining = burstUntilRef.current - t;
-      if (remaining > 0) {
-        const phase = 1 - remaining / 0.4;
-        burstRef.current.value = Math.sin(phase * Math.PI);   // 0 → 1 → 0 over the burst
-      } else {
-        burstRef.current.value = 0;
-      }
+    // One-shot entrance burst: convert the -1 sentinel into a real 0.4s window on the
+    // first frame after mount. Independent of tier — even a Common newcomer should
+    // visibly "arrive" on the leaderboard with a flourish.
+    if (burstUntilRef.current === -1) burstUntilRef.current = t + 0.4;
+    // Periodic-burst scheduling — only fires for tiers with burstInterval > 0.
+    if (burstInterval > 0 && t > nextBurstRef.current && t > burstUntilRef.current) {
+      burstUntilRef.current = t + 0.4;
+      nextBurstRef.current = t + burstInterval + (Math.random() - 0.5) * 2;
+    }
+    // Burst easing — runs regardless of tier so an entrance burst on a Common pet still
+    // gets the smooth 0→1→0 pulse. Clamped to a 0.5s window so a stale/misconfigured
+    // burstUntilRef can't pin the value at >1 indefinitely.
+    const remaining = burstUntilRef.current - t;
+    if (remaining > 0 && remaining < 0.5) {
+      const phase = 1 - remaining / 0.4;
+      burstRef.current.value = Math.sin(phase * Math.PI);
+    } else {
+      burstRef.current.value = 0;
     }
     const burst = burstRef.current.value;
     if (groupRef.current) {
@@ -279,11 +285,37 @@ const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) =>
   );
 };
 
+// Big shared View for the leaderboard hover spotlight (one mount per page, fed by whichever
+// row is currently hovered/selected). Uses the same shared MenagerieCanvas, so it costs one
+// extra scissor-rect rather than another WebGL context. Auto-rotate is slow + zoomable so the
+// viewer can read the pet's geometry without it spinning out of frame.
+export const SpotlightView = ({ seed }: { seed: string | null }) => {
+  // Hooks must run unconditionally; build the creature even when seed is null so render
+  // order is stable across mounts (cheap — generate is pure).
+  const c = useMemo(() => generate(seed ?? "spotlight-empty"), [seed]);
+  if (!seed) return <View className="rankSpotlight"><ambientLight intensity={0.4} /></View>;
+  const z = Math.max(10, 7 + c.sizeN * 0.10);
+  const dramatic = c.tier === "Mythic" || c.tier === "Legendary" || c.oneOfOne;
+  return (
+    // key on seed rebuilds the merged-voxel geom + materials when the spotlight target
+    // changes (cheaper than animating between two distinct procgen shapes).
+    <View key={seed} className="rankSpotlight">
+      <PerspectiveCamera makeDefault position={[0, 0, z]} fov={34} />
+      <color attach="background" args={[dramatic ? "#0a0a14" : "#0a0a0a"]} />
+      <ambientLight intensity={0.7} />
+      <directionalLight position={[3, 4, 5]} intensity={1.2} />
+      <directionalLight position={[-3, -2, 4]} intensity={0.55} color="#5fbeeb" />
+      {dramatic && <Stars radius={32} depth={20} count={520} factor={2.6} fade speed={0.45} />}
+      <Pet seed={seed} autoRotate={dramatic ? 0.35 : 0.2} />
+    </View>
+  );
+};
+
 // Pet card content — drei's <View>, when used outside a Canvas, RENDERS ITS OWN DOM element
 // and ignores the `track` prop. So the View IS the petCanvas div (className routes our CSS).
 // The shared MenagerieCanvas picks up the View through tunnel-rat and scissor-renders the
 // scene at this div's rect.
-const PetCardView = ({ seed, creature }: { seed: string; creature: Creature }) => {
+const PetCardView = ({ seed, creature, entranceBurst = false }: { seed: string; creature: Creature; entranceBurst?: boolean }) => {
   const z = Math.max(8, 6 + creature.sizeN * 0.10);
   const dramatic = creature.tier === "Mythic" || creature.tier === "Legendary" || creature.oneOfOne;
   const rate = creature.tier === "Mythic" ? 0.5 : creature.tier === "Legendary" ? 0.3 : 0.18;   // rad/sec
@@ -294,7 +326,7 @@ const PetCardView = ({ seed, creature }: { seed: string; creature: Creature }) =
       <directionalLight position={[3, 4, 5]} intensity={1.1} />
       <directionalLight position={[-3, -2, 4]} intensity={0.5} color="#5fbeeb" />
       {dramatic && <Stars radius={32} depth={20} count={420} factor={2.4} fade speed={0.4} />}
-      <Pet seed={seed} autoRotate={rate} />
+      <Pet seed={seed} autoRotate={rate} entranceBurst={entranceBurst} />
     </View>
   );
 };
@@ -339,7 +371,21 @@ export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creatur
       <ambientLight intensity={0.65} />
       <directionalLight position={[3, 4, 5]} intensity={1.1} />
       <directionalLight position={[-3, -2, 4]} intensity={0.55} color="#5fbeeb" />
+      {/* Global IBL — pet materials pick up environment reflections so the metallic / shimmer
+          shaders read as if they're in a real scene rather than against a black void. background
+          is left to our <color> above so the modal stays moody-dark; the IBL is purely lighting. */}
+      <Environment preset={wild ? "night" : "city"} background={false} environmentIntensity={wild ? 0.7 : 0.45} />
       {dramatic && <Stars radius={50} depth={30} count={900} factor={3} fade speed={0.5} />}
+      {/* Presentation Sparkles around the pet — denser than the in-pet sparkle so the avatar
+          reads as "on display." Sized to the pet so it tracks bigger pets. */}
+      <Sparkles
+        count={wild ? 90 : 50}
+        scale={[creature.sizeN * 0.18 + 6, creature.sizeN * 0.18 + 6, 4]}
+        size={wild ? 5 : 3}
+        speed={0.35}
+        color={wild ? "#ffe9b3" : "#9cd6ff"}
+        opacity={0.7}
+      />
       <Pet seed={seed} />
       {/* Glass aura sphere — only for frost / void creatures. Real refraction via drei's
           MeshTransmissionMaterial. Sized to wrap the whole pet so the body is seen "through"
@@ -386,16 +432,18 @@ export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creatur
 // hero=false → drei <View> that scissor-renders into the shared MenagerieCanvas. Callers
 // using non-hero (e.g. ProfileModal's showcase row) MUST ensure MenagerieCanvas is mounted
 // in the page; otherwise the View has nowhere to render and the pet is invisible.
-export const SinglePet = ({ seed, hero = false }: { seed: string; hero?: boolean }) => {
+export const SinglePet = ({ seed, hero = false, entranceBurst = false }: { seed: string; hero?: boolean; entranceBurst?: boolean }) => {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const c = useMemo(() => generate(seed), [seed]);
   if (!mounted) return <div className="petCanvas" />;
   // hero wraps itself in a sized div; PetCardView IS the petCanvas div (View renders the
-  // element itself when used outside a Canvas), so don't double-wrap it.
+  // element itself when used outside a Canvas), so don't double-wrap it. entranceBurst only
+  // flows through the non-hero path — the hero canvas is presentation-only (no leaderboard
+  // newcomer story).
   return hero
     ? <div className="petCanvas"><HeroCanvas seed={seed} creature={c} /></div>
-    : <PetCardView seed={seed} creature={c} />;
+    : <PetCardView seed={seed} creature={c} entranceBurst={entranceBurst} />;
 };
 
 // One card. The PetCardView IS the visible canvas region (it renders a div internally and

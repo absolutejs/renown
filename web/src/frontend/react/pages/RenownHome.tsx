@@ -1,7 +1,7 @@
 import { Head } from "@absolutejs/absolute/react/components";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
-import { PetViewer, SinglePet } from "../components/PetViewer";
+import { PetViewer, SinglePet, SpotlightView } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
@@ -58,15 +58,22 @@ const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => st
   { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
 ];
 
-const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile }:
-  { top: Entry[]; board: Board; setBoard: (b: Board) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void }) => {
+const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds }:
+  { top: Entry[]; board: Board; setBoard: (b: Board) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string> }) => {
   const skills = (sheet?.skills ?? []).slice().sort((a, b) => b.level - a.level || b.xp - a.xp);
   const meta = BOARDS.find((b) => b.id === board) ?? BOARDS[0];
+  // Spotlight target: whichever row the cursor is over, falling back to the selected row,
+  // then the leader. Decoupled from `sel` because hover should be ephemeral (no click cost).
+  const [hovered, setHovered] = useState<string | null>(null);
+  const spotlightEntry = top.find((e) => e.id === hovered)
+    ?? top.find((e) => e.id === sel)
+    ?? top[0];
+  const spotlightSeed = spotlightEntry ? meta.seedOf(spotlightEntry) ?? null : null;
   return (
     <>
-      <section className="card">
+      <section className={`card boardCard board-${board}`}>
         <h2>Global leaderboard</h2>
-        <p className="muted hint">{meta.hint} Same formula for everyone. <em>Click any player</em> to see their profile.</p>
+        <p className="muted hint">{meta.hint} Same formula for everyone. <em>Hover</em> any row to spotlight its pet; <em>click</em> for the player's profile.</p>
         <div className="boardTabs">
           {BOARDS.map((b) => (
             <button key={b.id} className={b.id === board ? "on" : ""} onClick={() => setBoard(b.id)}>{b.label}</button>
@@ -75,21 +82,37 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile }:
         {top.length === 0 ? (
           <p className="muted">No players yet — be the first.</p>
         ) : (
-          <ol className="ranks">
-            {top.map((e, i) => {
-              const seed = meta.seedOf(e);
-              return (
-                <li key={e.id ?? i} className={e.id === sel ? "sel" : ""}
-                  onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
-                  <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
-                  <span className="rankPet">{seed ? <SinglePet seed={seed} /> : <span className="petCanvas rankPetEmpty" />}</span>
-                  <span className="who">{e.name}<TierBadge tier={e.tier} /></span>
-                  <span className="score">{meta.statOf(e)}</span>
-                  <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
-                </li>
-              );
-            })}
-          </ol>
+          <div className="boardLayout">
+            <ol className="ranks">
+              {top.map((e, i) => {
+                const seed = meta.seedOf(e);
+                const fresh = !!e.id && freshIds.has(e.id);
+                return (
+                  <li key={e.id ?? i} className={`${e.id === sel ? "sel" : ""}${fresh ? " fresh" : ""}`}
+                    onMouseEnter={() => { if (e.id) setHovered(e.id); }}
+                    onMouseLeave={() => { if (e.id && hovered === e.id) setHovered(null); }}
+                    onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
+                    <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
+                    <span className="rankPet">{seed ? <SinglePet seed={seed} entranceBurst={fresh} /> : <span className="petCanvas rankPetEmpty" />}</span>
+                    <span className="who">{e.name}<TierBadge tier={e.tier} /></span>
+                    <span className="score">{meta.statOf(e)}</span>
+                    <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
+                  </li>
+                );
+              })}
+            </ol>
+            {/* Spotlight pane: one big View into the shared canvas, swapped by hover. Sticky
+                on desktop so it stays in frame while you scroll the (eventually long) list. */}
+            <aside className="boardSpotlight">
+              <SpotlightView seed={spotlightSeed} />
+              {spotlightEntry && (
+                <div className="boardSpotlightMeta">
+                  <h3>{spotlightEntry.name}<TierBadge tier={spotlightEntry.tier} /></h3>
+                  <p className="muted">{meta.statOf(spotlightEntry)} · Lvl {spotlightEntry.totalLevel ?? spotlightEntry.level}</p>
+                </div>
+              )}
+            </aside>
+          </div>
         )}
       </section>
       {sheet && (
@@ -407,6 +430,11 @@ const App = () => {
   const [board, setBoard] = useState<Board>("score");
   const [profileLogin, setProfileLogin] = useState<string | null>(null);
   const [top, setTop] = useState<Entry[]>([]);
+  // Newcomers: IDs that appeared in the most recent /api/top result but weren't in the
+  // previous one. Their leaderboard row gets a spring zoom + one-shot burst so the entry
+  // is visibly an arrival, not a silent reshuffle. Cleared 2.5s after each refetch.
+  const [freshIds, setFreshIds] = useState<Set<string>>(() => new Set());
+  const prevTopIdsRef = useRef<Set<string> | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SkillSheet | null>(null);
   const [account, setAccount] = useState<Account | null | undefined>(undefined);
@@ -423,8 +451,28 @@ const App = () => {
   }, []);
 
   // leaderboard — hydrate + refetch on hub change. Board switching re-runs the fetch.
+  // After each fetch, diff against the previous top set to surface newcomers (rows that
+  // arrived since the last result). Skipped on first load (prev = null) so we don't burst
+  // every row just because the page is hydrating.
   useEffect(() => {
-    const load = () => fetch(`/api/top?n=10&board=${board}`).then((r) => r.json()).then((d: Entry[]) => { setTop(d); setSel((cur) => cur ?? d[0]?.id ?? null); }).catch(() => {});
+    const load = () => fetch(`/api/top?n=10&board=${board}`).then((r) => r.json()).then((d: Entry[]) => {
+      const ids = new Set(d.map((e) => e.id).filter((id): id is string => !!id));
+      const prev = prevTopIdsRef.current;
+      if (prev) {
+        const fresh = new Set<string>();
+        for (const id of ids) if (!prev.has(id)) fresh.add(id);
+        if (fresh.size > 0) {
+          setFreshIds(fresh);
+          window.setTimeout(() => setFreshIds(new Set()), 2500);
+        }
+      }
+      prevTopIdsRef.current = ids;
+      setTop(d);
+      setSel((cur) => cur ?? d[0]?.id ?? null);
+    }).catch(() => {});
+    // Board switch is a new query, not a leaderboard delta — clear the prev set so the next
+    // result isn't diffed against an apples-to-oranges baseline.
+    prevTopIdsRef.current = null;
     load();
     const es = new EventSource("/sync?topics=top");
     es.onmessage = load;
@@ -515,7 +563,7 @@ const App = () => {
               </div>
             </section>
           )}
-          <Board top={top} board={board} setBoard={setBoard} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} />
+          <Board top={top} board={board} setBoard={setBoard} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} />
         </>
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}

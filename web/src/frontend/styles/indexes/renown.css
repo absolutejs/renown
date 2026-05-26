@@ -84,6 +84,15 @@ a:hover { text-decoration: underline; }
 .ranks li { display: grid; grid-template-columns: 30px 56px 1fr auto auto auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.02); cursor: pointer; transition: background .12s; }
 .ranks li:hover { background: var(--card); }
 .ranks li.sel { background: var(--accent-soft); outline: 1px solid var(--accent-line); }
+/* Newcomer flash — matches the in-canvas entranceBurst on the SinglePet to its left.
+   ~2s pulse so the row reads as having "just arrived" even when the user scans the
+   list quickly. Cleared from React state at 2.5s so the class doesn't linger. */
+.ranks li.fresh { animation: rankFreshPulse 2s ease-out 1; }
+@keyframes rankFreshPulse {
+  0%   { background: rgba(96, 192, 255, .25); box-shadow: 0 0 0 3px rgba(96, 192, 255, .35); }
+  60%  { background: rgba(96, 192, 255, .08); box-shadow: 0 0 0 1px rgba(96, 192, 255, .15); }
+  100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
+}
 .rank { font-size: 17px; text-align: center; }
 /* Mini-pet next to each leaderboard row. Sized once here so the shared MenagerieCanvas
    has a stable rect to scissor into per row. Empty placeholder keeps grid alignment when
@@ -91,6 +100,47 @@ a:hover { text-decoration: underline; }
 .rankPet { width: 56px; height: 56px; display: block; }
 .rankPet .petCanvas { width: 56px; height: 56px; aspect-ratio: auto; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
 .rankPetEmpty { display: block; opacity: .35; }
+
+/* Hover spotlight: ranks on the left, a sticky big preview on the right. The drei View
+   inside SpotlightView renders its own DOM element (.rankSpotlight) which we size here
+   so the shared MenagerieCanvas has a stable rect to scissor into. Collapses to stack
+   on narrow screens. */
+.boardLayout { display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; }
+.boardSpotlight { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 10px; }
+.rankSpotlight { width: 100%; aspect-ratio: 1 / 1; border-radius: 14px; overflow: hidden; border: 1px solid var(--accent-line); background: linear-gradient(180deg, #0e1218, #060608); box-shadow: 0 12px 36px rgba(0,0,0,.45); }
+.boardSpotlightMeta { padding: 4px 6px; }
+.boardSpotlightMeta h3 { margin: 0 0 4px; font-size: 15px; }
+.boardSpotlightMeta p { margin: 0; font-size: 12px; }
+@media (max-width: 720px) {
+  .boardLayout { grid-template-columns: 1fr; }
+  .boardSpotlight { position: static; }
+  .rankSpotlight { aspect-ratio: 4 / 3; }
+}
+
+/* Per-board theming — each leaderboard board gets its own aura tied to what it ranks.
+   Applied via `.boardCard.board-${id}` so the card frame, spotlight border, and tab accent
+   all shift together when the user switches boards. Subtle by default; goes louder for the
+   rare/big boards to match their "trophy case" energy. */
+.boardCard { transition: border-color .25s, box-shadow .25s, background .25s; position: relative; overflow: hidden; }
+.boardCard::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  opacity: .8; transition: opacity .35s, background .35s;
+}
+.boardCard > * { position: relative; z-index: 1; }
+
+.board-score::before          { background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(96,192,255,.10), transparent 70%); }
+.board-pets-count::before     { background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(134,239,172,.10), transparent 70%); }
+.board-rarest-pet::before     { background:
+  radial-gradient(ellipse 90% 70% at 50% 0%, rgba(180,120,255,.22), transparent 65%),
+  radial-gradient(ellipse 70% 50% at 80% 100%, rgba(96,192,255,.12), transparent 60%); }
+.board-biggest-pet::before    { background:
+  radial-gradient(ellipse 70% 50% at 50% 110%, rgba(255,200,80,.22), transparent 65%),
+  linear-gradient(180deg, transparent 60%, rgba(255,200,80,.06) 100%); }
+
+.board-rarest-pet { border-color: rgba(180,120,255,.35); box-shadow: 0 12px 36px rgba(120,60,200,.12); }
+.board-rarest-pet .rankSpotlight { border-color: rgba(180,120,255,.55); box-shadow: 0 12px 36px rgba(120,60,200,.35); }
+.board-biggest-pet { border-color: rgba(255,200,80,.30); box-shadow: 0 12px 36px rgba(180,140,40,.12); }
+.board-biggest-pet .rankSpotlight { border-color: rgba(255,200,80,.55); box-shadow: 0 12px 36px rgba(180,140,40,.30); }
 .who { font-weight: 600; color: var(--text); }
 .lvl { color: var(--accent); font-weight: 600; }
 .xp { color: var(--ink); }
@@ -215,7 +265,18 @@ a:hover { text-decoration: underline; }
 
 /* ── Profile modal ─────────────────────────────────────────── */
 .modalScrim { position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(6px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.modal { background: #0a0a0a; border: 1px solid var(--line); border-radius: 16px; padding: 28px; max-width: 720px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative; box-shadow: var(--shadow); }
+/* Profile modal — animated cosmic gradient backdrop so the hero pet inside reads as "on
+   stage." Conic-gradient drift is slow (24s) and very subtle so it doesn't fight the pet's
+   own animations, but you can tell the modal is alive even before the canvas mounts. */
+.modal { background: radial-gradient(ellipse at 20% 0%, #131726 0%, #060608 55%, #050507 100%); border: 1px solid var(--line); border-radius: 16px; padding: 28px; max-width: 720px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative; box-shadow: var(--shadow); }
+.modal::before {
+  content: ""; position: absolute; inset: 0; border-radius: 16px; pointer-events: none; opacity: .35;
+  background: conic-gradient(from 0deg at 70% 20%, rgba(96,192,255,.18), rgba(180,120,255,.1), rgba(255,210,140,.12), rgba(96,192,255,.18));
+  animation: modalAura 24s linear infinite;
+  mix-blend-mode: screen;
+}
+@keyframes modalAura { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+.modal > * { position: relative; z-index: 1; }   /* sit above the ::before glow */
 .modalClose { position: absolute; top: 12px; right: 12px; background: none; border: 0; color: var(--muted); font-size: 20px; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; }
 .modalClose:hover { color: var(--text); background: var(--card); }
 .profileHead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 14px; }
