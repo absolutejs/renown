@@ -1,5 +1,5 @@
 import { Head } from "@absolutejs/absolute/react/components";
-import { useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 type Tier = "free" | "supporter" | "pro";
 type Entry = { id?: string; name: string; login?: string; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier };
@@ -33,6 +33,13 @@ const post = (url: string, body?: unknown) =>
 
 const TierBadge = ({ tier }: { tier?: Tier }) =>
   tier && tier !== "free" ? <span className={`tierBadge ${tier}`}>{tier === "pro" ? "PRO" : "SUPPORTER"}</span> : null;
+
+// AbsoluteJS logomark — embedded inline so it follows currentColor.
+const Logomark = ({ size = 22 }: { size?: number }) => (
+  <svg className="logo" viewBox="0 0 300 300" width={size} height={size} fill="currentColor" aria-hidden="true">
+    <path fillRule="evenodd" d="M66.4,274.3c68.4,46.3,161.5,28.4,207.8-40,46.3-68.4,28.4-161.5-40-207.8C165.8-19.9,72.7-2,26.4,66.4-19.9,134.9-2,227.9,66.4,274.3ZM48,116.7c-17.1,52.6-11.4,105.2,11.3,139.7C18,217.4,7.3,150.3,36.9,92.3,55.9,55.2,87.6,29.4,122.5,18.3c-31.9,18.4-59.9,53.5-74.5,98.3ZM175.3,283.1c36-10.5,68.9-36.8,88.3-74.8,29.4-57.5,19.1-123.9-21.3-163.1,21.8,34.5,27,86.3,10.2,138-15,46.1-44.2,82-77.3,99.8ZM183.6,266.2c24.3-20.8,44.4-55.6,53.3-97.4,14.1-66.1-4.4-127.6-41.8-148.1,19.9,26.7,29.9,78.6,23.7,136.7-4.7,44.4-18,83.3-35.2,108.9ZM63.7,131.8c-14.2,66.6,4.7,128.5,42.7,148.6-20.4-26.4-30.8-78.9-24.5-137.7,4.7-43.7,17.6-82,34.3-107.6-24,20.9-43.7,55.4-52.5,96.7ZM199.8,149.6c1.1,67.9-20.2,123.3-47.6,123.7-27.4.4-50.4-54.3-51.5-122.2-1.1-67.9,20.2-123.3,47.6-123.7,27.4-.4,50.4,54.3,51.5,122.2Z" />
+  </svg>
+);
 
 // ── Leaderboard ────────────────────────────────────────────────────────────
 const Board = ({ top, sel, setSel, sheet }: { top: Entry[]; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null }) => {
@@ -78,7 +85,7 @@ const Board = ({ top, sel, setSel, sheet }: { top: Entry[]; sel: string | null; 
 };
 
 // ── Pricing ────────────────────────────────────────────────────────────────
-const Pricing = ({ cfg, account, onSubscribe, busy }: { cfg: StripeConfig | null; account: Account | null; onSubscribe: (t: Tier) => void; busy: string | null }) => {
+const Pricing = ({ cfg, account, onSubscribe, busy, onLogIn }: { cfg: StripeConfig | null; account: Account | null; onSubscribe: (t: Tier) => void; busy: string | null; onLogIn: () => void }) => {
   const current = account?.billing.tier ?? "free";
   const info = cfg?.tiers;
   return (
@@ -100,7 +107,7 @@ const Pricing = ({ cfg, account, onSubscribe, busy }: { cfg: StripeConfig | null
               {t === "free" ? (
                 <button className="btn ghost" disabled>{current === "free" ? "Current" : "Included"}</button>
               ) : !account ? (
-                <a className="btn solid" href={PROVIDERS.github.href}>Log in to subscribe</a>
+                <button className="btn solid" onClick={onLogIn}>Log in to subscribe</button>
               ) : isCurrent ? (
                 <button className="btn ghost" disabled>Current plan</button>
               ) : !cfg?.configured ? (
@@ -211,8 +218,80 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
   );
 };
 
+// ── Auth (email + password) ────────────────────────────────────────────────
+const AuthView = ({ initial, onAuthed, onBanner }: { initial: "login" | "register" | "forgot"; onAuthed: () => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void }) => {
+  const [mode, setMode] = useState<"login" | "register" | "forgot">(initial);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setErr(null); setBusy(true);
+    const url = mode === "login" ? "/auth/login" : mode === "register" ? "/auth/register" : "/auth/reset-password/request";
+    const body = mode === "forgot" ? { email } : { email, password };
+    const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    setBusy(false);
+    if (r.ok) {
+      if (mode === "login") { onAuthed(); }
+      else if (mode === "register") { onBanner({ kind: "info", text: "✉ Account created — check the server console for your verify link." }); setMode("login"); }
+      else { onBanner({ kind: "info", text: "Reset link generated — check the server console." }); setMode("login"); }
+    } else {
+      const j = await r.json().catch(() => null) as { error?: string; message?: string } | null;
+      setErr(j?.error ?? j?.message ?? `Failed (${r.status}). ${r.status === 403 ? "Verify your email first." : ""}`);
+    }
+  };
+
+  return (
+    <section className="card" style={{ maxWidth: 460, margin: "20px auto" }}>
+      <div className="tabRow">
+        <button className={mode === "login" ? "on" : ""} onClick={() => { setMode("login"); setErr(null); }}>Log in</button>
+        <button className={mode === "register" ? "on" : ""} onClick={() => { setMode("register"); setErr(null); }}>Sign up</button>
+        <button className={mode === "forgot" ? "on" : ""} onClick={() => { setMode("forgot"); setErr(null); }}>Forgot</button>
+      </div>
+      <form className="form" onSubmit={submit}>
+        <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div>
+        {mode !== "forgot" && (
+          <div className="field"><label>Password</label><input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} /></div>
+        )}
+        {err && <div className="field"><span className="err">{err}</span></div>}
+        <button className="btn solid" type="submit" disabled={busy}>{busy ? "…" : mode === "login" ? "Log in" : mode === "register" ? "Create account" : "Send reset link"}</button>
+      </form>
+      <div className="muted" style={{ textAlign: "center", margin: "12px 0 8px" }}>or</div>
+      <div className="cta">
+        <a className="btn gh" href={PROVIDERS.github.href}>GitHub</a>
+        <a className="btn gg" href={PROVIDERS.google.href}>Google</a>
+      </div>
+    </section>
+  );
+};
+
+// ── Reset password (after clicking the reset link) ────────────────────────
+const ResetView = ({ token, onDone }: { token: string; onDone: (ok: boolean, msg: string) => void }) => {
+  const [pw, setPw] = useState(""); const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setErr(null); setBusy(true);
+    const r = await fetch("/auth/reset-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, password: pw }) });
+    setBusy(false);
+    if (r.ok) onDone(true, "Password updated — please log in.");
+    else { const j = await r.json().catch(() => null) as { error?: string } | null; setErr(j?.error ?? `Failed (${r.status})`); }
+  };
+  return (
+    <section className="card" style={{ maxWidth: 460, margin: "20px auto" }}>
+      <h2>Set a new password</h2>
+      <form className="form" onSubmit={submit}>
+        <div className="field"><label>New password</label><input type="password" required minLength={8} value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" /></div>
+        {err && <div className="field"><span className="err">{err}</span></div>}
+        <button className="btn solid" type="submit" disabled={busy}>{busy ? "…" : "Update password"}</button>
+      </form>
+    </section>
+  );
+};
+
 const App = () => {
-  const [view, setView] = useState<"board" | "pricing" | "account">("board");
+  const [view, setView] = useState<"board" | "pricing" | "account" | "auth" | "reset">("board");
+  const [authMode, setAuthMode] = useState<"login" | "register" | "forgot">("login");
+  const [resetToken, setResetToken] = useState<string | null>(null);
   const [top, setTop] = useState<Entry[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SkillSheet | null>(null);
@@ -254,6 +333,7 @@ const App = () => {
     api("/stripe/config").then((r) => r.ok && setCfg(r.data as StripeConfig));
     const q = new URLSearchParams(window.location.search);
     const billing = q.get("billing"), linked = q.get("linked"), merge = q.get("merge");
+    const verify = q.get("verify"), reset = q.get("reset");
     if (billing === "success") setBanner({ kind: "ok", text: "🎉 Subscription active — thank you for supporting renown!" });
     else if (billing === "cancel") setBanner({ kind: "info", text: "Checkout canceled — no charge made." });
     else if (billing === "portal") setBanner({ kind: "info", text: "Billing updated." });
@@ -261,6 +341,11 @@ const App = () => {
     else if (linked === "already") setBanner({ kind: "info", text: "That login is already on your account." });
     else if (merge === "pending") setBanner({ kind: "warn", text: "That login belongs to another account — see Account to merge." });
     if (billing || linked || merge) { setView("account"); window.history.replaceState({}, "", window.location.pathname); }
+    if (verify) {
+      fetch("/auth/verify-email", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: verify }) })
+        .then((r) => { if (r.ok) { setBanner({ kind: "ok", text: "Email verified — you can log in now." }); setAuthMode("login"); setView("auth"); } else setBanner({ kind: "warn", text: "Verify link is invalid or expired." }); });
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (reset) { setResetToken(reset); setView("reset"); window.history.replaceState({}, "", window.location.pathname); }
   }, [loadAccount]);
 
   const act = useCallback((fn: () => Promise<{ ok: boolean; data: unknown }>) => {
@@ -284,7 +369,7 @@ const App = () => {
   return (
     <main className="wrap">
       <header className="topbar">
-        <div className="brand" onClick={() => setView("board")}>⚔ Renown</div>
+        <div className="brand" onClick={() => setView("board")}><Logomark size={24} /><span>Renown</span></div>
         <nav className="nav">
           <button className={view === "board" ? "on" : ""} onClick={() => setView("board")}>Leaderboard</button>
           <button className={view === "pricing" ? "on" : ""} onClick={() => setView("pricing")}>Plans</button>
@@ -297,7 +382,7 @@ const App = () => {
               <span>{user?.first_name || user?.email || "Account"}</span>
             </button>
           ) : (
-            <a className="btn gh sm" href={PROVIDERS.github.href}>Log in</a>
+            <button className="btn solid sm" onClick={() => { setAuthMode("login"); setView("auth"); }}>Log in</button>
           )}
         </div>
       </header>
@@ -308,21 +393,23 @@ const App = () => {
         <>
           {!signedIn && (
             <section className="hero">
-              <h1>Earn renown for real dev work</h1>
+              <h1>Earn <span className="accent">renown</span> for real dev work</h1>
               <p className="tag">XP, 100 skills, achievements and 1-of-1s for meritorious work — in any editor. Free, forever.</p>
               <div className="cta">
-                <a className="btn gh" href={PROVIDERS.github.href}>Log in with GitHub</a>
-                <a className="btn gg" href={PROVIDERS.google.href}>Log in with Google</a>
+                <button className="btn solid" onClick={() => { setAuthMode("register"); setView("auth"); }}>Get started</button>
+                <button className="btn ghost" onClick={() => { setAuthMode("login"); setView("auth"); }}>I have an account</button>
               </div>
             </section>
           )}
           <Board top={top} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} />
         </>
       )}
-      {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} />}
+      {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}
       {view === "account" && (signedIn
         ? <AccountView account={account!} cfg={cfg} user={user} refresh={loadAccount} onManage={manage} onSubscribe={subscribe} busy={busy} act={act} />
-        : <section className="card"><h2>Account</h2><p className="muted">Log in to manage your account and subscription.</p><div className="cta"><a className="btn gh" href={PROVIDERS.github.href}>Log in with GitHub</a><a className="btn gg" href={PROVIDERS.google.href}>Log in with Google</a></div></section>)}
+        : <section className="card"><h2>Account</h2><p className="muted">Log in to manage your account and subscription.</p><div className="cta"><button className="btn solid" onClick={() => { setAuthMode("login"); setView("auth"); }}>Log in</button><button className="btn ghost" onClick={() => { setAuthMode("register"); setView("auth"); }}>Sign up</button></div></section>)}
+      {view === "auth" && <AuthView initial={authMode} onAuthed={() => { loadAccount(); setView("account"); setBanner({ kind: "ok", text: "Welcome back." }); }} onBanner={setBanner} />}
+      {view === "reset" && resetToken && <ResetView token={resetToken} onDone={(ok, msg) => { setBanner({ kind: ok ? "ok" : "warn", text: msg }); setView("auth"); setResetToken(null); }} />}
 
       <footer className="foot">by AbsoluteJS · <a href="https://github.com/absolutejs/renown">github.com/absolutejs/renown</a></footer>
     </main>

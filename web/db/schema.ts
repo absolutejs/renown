@@ -13,6 +13,18 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
+// Admins live in their OWN table, with their own credentials and their own session cookie
+// (`renown_admin`). Intentionally separate from `users` — admin authority must NOT come from a
+// regular user account (clean blast radius, simpler auditing).
+export const admins = pgTable("admins", {
+  created_at: timestamp("created_at").notNull().defaultNow(),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  last_login_at: timestamp("last_login_at"),
+  name: varchar("name", { length: 255 }),
+  password_hash: text("password_hash").notNull(),
+  sub: varchar("sub", { length: 36 }).primaryKey(),
+});
+
 export const users = pgTable("users", {
   created_at: timestamp("created_at").notNull().defaultNow(),
   // Billing (Stripe). tier is the source of truth for what the account has paid for; it is
@@ -61,7 +73,9 @@ export const authIdentityMergeRequests = pgTable(
 );
 
 export const authSessions = pgTable("auth_sessions", {
-  access_token: text("access_token").notNull(),
+  // Match @absolutejs/auth 0.27+: access_token is nullable; authenticated_at_ms added.
+  access_token: text("access_token"),
+  authenticated_at_ms: bigint("authenticated_at_ms", { mode: "number" }),
   created_at: timestamp("created_at").notNull().defaultNow(),
   expires_at_ms: bigint("expires_at_ms", { mode: "number" }).notNull(),
   id: varchar("id", { length: 255 }).primaryKey(),
@@ -141,6 +155,7 @@ export const linkedProviderBindings = pgTable("linked_provider_bindings", {
 // fail with "relation already exists". Leave them to the stores.
 
 export const schema = {
+  admins,
   authIdentities,
   authIdentityMergeRequests,
   authSessions,
@@ -154,6 +169,8 @@ export type SchemaType = typeof schema;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type Admin = typeof admins.$inferSelect;
+export type NewAdmin = typeof admins.$inferInsert;
 export type AuthIdentity = typeof authIdentities.$inferSelect;
 export type NewAuthIdentity = typeof authIdentities.$inferInsert;
 export type AuthIdentityMergeRequest =
