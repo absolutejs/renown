@@ -7,6 +7,8 @@ import { Elysia } from "elysia";
 import { apiPlugin } from "./plugins/apiPlugin";
 import { authApiPlugin } from "./plugins/authApiPlugin";
 import { pagesPlugin } from "./plugins/pagesPlugin";
+import { stripePlugin } from "./plugins/stripePlugin";
+import { rateLimiting } from "./rateLimit";
 import { hub, playerCache } from "./sync";
 import { schema, type User } from "../../db/schema";
 import { authConfig } from "./auth/config";
@@ -26,11 +28,13 @@ process.on("SIGTERM", flushOnExit);
 
 const server = new Elysia()
   .use(absolutejs)
+  .use(rateLimiting())   // anon/authed buckets + tight limits & bot guard on costly paths (must be early)
   .use(await auth<User>({ ...authConfig(authDb), authSessionStore }))   // /oauth2/<provider>/authorization, /oauth2/callback, /oauth2/status…
   .use(apiKeysRoutes({ accessTokenStore, apiClientStore }))   // POST /oauth2/token (client_credentials grant)
   .use(sync({ hub }))   // live push to browsers: GET /sync?topics=top,player:<id>
   .use(apiPlugin({ accessTokenStore }))
   .use(authApiPlugin({ authSessionStore, db: authDb }))   // /api/account/* — manage your linked logins
+  .use(stripePlugin({ authSessionStore, db: authDb }))   // /stripe/config, /billing/*, /webhooks/stripe (no-op without keys)
   .use(pagesPlugin(manifest))
   .use(networking)
   .onStop(async () => { await playerCache.flush(); })

@@ -20,6 +20,10 @@ export const players = pgTable("players", {
   githubVerified: boolean("github_verified").notNull().default(false),  // OAuth proved login ownership
   verifiedScore: bigint("verified_score", { mode: "number" }).notNull().default(0),  // the only ranked number
   verifiedAt: timestamp("verified_at"),
+  // Billing tier, denormalized from the auth `users` row (by github login) so the public board
+  // can show a supporter badge and the CLI can read its tier. Cosmetic/convenience only — never
+  // affects verified_score or rank. Set by the Stripe webhook.
+  tier: text("tier").notNull().default("free"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

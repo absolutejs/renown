@@ -29,6 +29,12 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
   const primaryId = user?.primary_auth_identity_id ?? null;
   return {
     sub: userSub,
+    billing: {
+      tier: user?.tier ?? "free",
+      status: user?.subscription_status ?? null,
+      currentPeriodEnd: user?.current_period_end ?? null,
+      hasCustomer: Boolean(user?.stripe_customer_id),
+    },
     identities: identities.map((i) => ({
       id: i.id,
       provider: i.auth_provider,

@@ -15,13 +15,20 @@ import {
 
 export const users = pgTable("users", {
   created_at: timestamp("created_at").notNull().defaultNow(),
+  // Billing (Stripe). tier is the source of truth for what the account has paid for; it is
+  // purely revenue/cost-offset — NO gameplay, 1/1s, or leaderboard rank is gated by it.
+  current_period_end: timestamp("current_period_end"),
   email: varchar("email", { length: 320 }),
   first_name: varchar("first_name", { length: 255 }),
   last_name: varchar("last_name", { length: 255 }),
   primary_auth_identity_id: varchar("primary_auth_identity_id", {
     length: 255,
   }),
+  stripe_customer_id: varchar("stripe_customer_id", { length: 255 }),
+  stripe_subscription_id: varchar("stripe_subscription_id", { length: 255 }),
   sub: varchar("sub", { length: 36 }).primaryKey(),
+  subscription_status: varchar("subscription_status", { length: 32 }),
+  tier: varchar("tier", { length: 32 }).notNull().default("free"),
 });
 
 export const authIdentities = pgTable("auth_identities", {
@@ -127,32 +134,13 @@ export const linkedProviderBindings = pgTable("linked_provider_bindings", {
   username: varchar("username", { length: 255 }),
 });
 
-// M2M (client_credentials) tables. Defined locally — NOT imported from @absolutejs/auth —
-// because drizzle-kit runs under CJS and can't load the package's ESM-only export. Column
-// names/types mirror the package's Neon apikeys stores exactly (table names auth_api_clients /
-// auth_access_tokens, all varchars length 255), so createNeon{ApiClient,AccessToken}Store work.
-export const authApiClients = pgTable("auth_api_clients", {
-  client_id: varchar("client_id", { length: 255 }).primaryKey(),
-  created_at_ms: bigint("created_at_ms", { mode: "number" }).notNull(),
-  hashed_secret: varchar("hashed_secret", { length: 255 }).notNull(),
-  name: varchar("name", { length: 255 }).notNull(),
-  owner_id: varchar("owner_id", { length: 255 }),
-  scopes: text("scopes").array().notNull(),
-});
-
-export const authAccessTokens = pgTable("auth_access_tokens", {
-  client_id: varchar("client_id", { length: 255 }).notNull(),
-  created_at_ms: bigint("created_at_ms", { mode: "number" }).notNull(),
-  expires_at_ms: bigint("expires_at_ms", { mode: "number" }).notNull(),
-  hashed_token: varchar("hashed_token", { length: 255 }).notNull(),
-  owner_id: varchar("owner_id", { length: 255 }),
-  scopes: text("scopes").array().notNull(),
-  token_id: varchar("token_id", { length: 255 }).primaryKey(),
-});
+// NOTE: the M2M (client_credentials) tables `auth_api_clients` / `auth_access_tokens` are NOT
+// declared here — the @absolutejs/auth Neon apikeys stores (createNeonApiClientStore /
+// createNeonAccessTokenStore) auto-create + own them at runtime. Declaring them here just makes
+// drizzle-kit (which excludes them via tablesFilter on introspection) try to re-create them and
+// fail with "relation already exists". Leave them to the stores.
 
 export const schema = {
-  authAccessTokens,
-  authApiClients,
   authIdentities,
   authIdentityMergeRequests,
   authSessions,
