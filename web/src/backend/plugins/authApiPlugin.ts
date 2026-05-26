@@ -49,6 +49,11 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       login: ghLogin,
       verified: Boolean(player?.githubVerified),
       verifiedScore: player?.verifiedScore ?? 0,
+      // Split: base recompute vs accumulated attribution (Co-Authored-By windowed credit).
+      baseScore: Number(player?.verifiedScore ?? 0) - Number(player?.attributionScore ?? 0),
+      attributionScore: player?.attributionScore ?? 0,
+      attributionQuery: player?.attributionQuery ?? null,
+      lastAttributionSyncAt: player?.lastAttributionSyncAt ?? null,
       verifiedAt: player?.verifiedAt ?? null,
       totalLevel: player?.totalLevel ?? 0,
       playerId: player?.id ?? null,

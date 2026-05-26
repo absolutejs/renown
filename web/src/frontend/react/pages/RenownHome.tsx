@@ -8,7 +8,7 @@ type SkillSheet = { id: string; name: string | null; totalLevel: number; skills:
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
-type GithubSync = { login: string; verified: boolean; verifiedScore: number; verifiedAt: string | null; totalLevel: number; playerId: string | null };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
@@ -139,11 +139,14 @@ const GithubSyncCard = ({ gh, refresh, onBanner }: { gh: GithubSync | null; refr
     setBusy(true);
     const r = await post("/api/verify", { login: gh.login });
     setBusy(false);
-    const j = r.data as { ok?: boolean; score?: number; throttled?: boolean; tier?: string; error?: string } | null;
+    const j = r.data as { ok?: boolean; score?: number; attributionDelta?: number; throttled?: boolean; tier?: string; error?: string } | null;
     if (!r.ok || j?.error) { onBanner({ kind: "warn", text: j?.error ?? "Sync failed." }); return; }
     refresh();
     if (j?.throttled) onBanner({ kind: "info", text: `Sync cooldown hit (${j.tier ?? "your tier"}). Showing the last verified score.` });
-    else onBanner({ kind: "ok", text: `✓ Synced from GitHub — verified score ${j?.score ?? gh.verifiedScore}.` });
+    else {
+      const delta = j?.attributionDelta ?? 0;
+      onBanner({ kind: "ok", text: `✓ Synced from GitHub — verified score ${(j?.score ?? gh.verifiedScore).toLocaleString()}${delta ? ` (+${delta.toLocaleString()} new attributions)` : ""}.` });
+    }
   };
   return (
     <section className="card">
@@ -155,11 +158,37 @@ const GithubSyncCard = ({ gh, refresh, onBanner }: { gh: GithubSync | null; refr
         <button className="btn solid" disabled={busy} onClick={sync}>{busy ? "Syncing…" : "Sync now"}</button>
       </div>
       <div className="syncStats">
-        <div className="stat"><span className="num">{gh.verifiedScore.toLocaleString()}</span><span className="lbl">verified score</span></div>
+        <div className="stat">
+          <span className="num">{gh.verifiedScore.toLocaleString()}</span>
+          <span className="lbl">verified score</span>
+          {gh.attributionScore > 0 && <span className="muted" style={{ fontSize: 11, marginTop: 4 }}>{gh.baseScore.toLocaleString()} base + {gh.attributionScore.toLocaleString()} attribution</span>}
+        </div>
         <div className="stat"><span className="num">{gh.totalLevel.toLocaleString()}</span><span className="lbl">total level</span></div>
         <div className="stat"><span className="num">{gh.verifiedAt ? when(gh.verifiedAt) : "—"}</span><span className="lbl">last synced</span></div>
       </div>
-      <p className="hint" style={{ marginTop: 14 }}>Recomputes from GitHub's public API: real stars, repos, ext-contribs, account age. Refresh cadence is tier-based (free 10 min · supporter 2 min · pro ~on demand).</p>
+      <p className="hint" style={{ marginTop: 14 }}>
+        Verified score = base (your public repos/stars/ext-contribs/account age){gh.attributionQuery ? <> + attribution (commits where you're credited via <code>{gh.attributionQuery}</code>, counted only since your last sync — never double-counted)</> : null}. Refresh cadence is tier-based (free 10 min · supporter 2 min · pro ~on demand).
+      </p>
+    </section>
+  );
+};
+
+// ── CLI sync (push your local progress to the web) ────────────────────────
+const CliSyncCard = ({ onBanner }: { onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void }) => {
+  const CMD = "renown sync";
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(CMD); onBanner({ kind: "ok", text: "Copied — paste it in your terminal." }); }
+    catch { onBanner({ kind: "warn", text: "Copy failed — select and copy the command manually." }); }
+  };
+  return (
+    <section className="card">
+      <h2>Sync from your CLI</h2>
+      <p className="hint">Your terminal tracks XP locally and pushes to the web on every tick. If the web feels out of sync, force an immediate push:</p>
+      <div className="cliBox">
+        <code>{CMD}</code>
+        <button className="btn ghost sm" onClick={copy}>Copy</button>
+      </div>
+      <p className="hint" style={{ marginTop: 10 }}>This sends your local skill levels + activity to the server so this page matches your terminal. Reload after.</p>
     </section>
   );
 };
@@ -210,6 +239,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
       </section>
 
       <GithubSyncCard gh={account.github} refresh={refresh} onBanner={onBanner} />
+      <CliSyncCard onBanner={onBanner} />
 
       <section className="card">
         <h2>Your logins</h2>

@@ -61,6 +61,16 @@ switch (cmd) {
     console.log(`✦ Adopted ${cr.name} (${cr.tier}) — it now lives in your status line. \`renown companion\` to see it.`);
     break;
   }
+  case "sync": {
+    // Force an immediate /submit so the web matches what your terminal shows. The tick already
+    // does this on a timer; `sync` is the manual button when something feels out of date.
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const { submit } = await import("../core/leaderboard.ts");
+    await submit(loadState(), cfg);
+    console.log("✓ Pushed your local state to the web. Reload the Account page to see it.");
+    break;
+  }
   case "link": {
     const cfg = loadConfig();
     if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
@@ -84,5 +94,5 @@ switch (cmd) {
   case "recap": { process.env.DQ_TAB = "5"; process.env.DQ_ONESHOT = "1"; const { runTui } = await import("./quest.ts"); await runTui(); break; }
   case "watch": { const { runDaemon } = await import("../core/daemon.ts"); await runDaemon(); break; }
   case undefined: case "": { const { runTui } = await import("./quest.ts"); await runTui(); break; }
-  default: console.log("usage: renown [tick|commit <repo>|recap|heartbeat|greet|skills|collection|summon|menagerie|adopt|companion|parade|gallery|watch]");
+  default: console.log("usage: renown [tick|sync|commit <repo>|recap|heartbeat|greet|skills|collection|summon|menagerie|adopt|companion|parade|gallery|link|watch]");
 }

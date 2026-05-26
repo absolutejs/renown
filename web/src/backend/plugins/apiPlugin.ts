@@ -6,6 +6,7 @@ import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
 import { achievements, playerProjects, players } from "../../../../db/schema.ts";
+import { searchAttributions } from "../attribution.ts";
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
 import { gameDb, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";
@@ -50,11 +51,26 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       if (!row?.githubVerified) return { error: "login ownership not verified (OAuth required)" };
       // Refresh cooldown by tier (cost meter — never changes the score, only how often it refreshes).
       const cooldown = REVERIFY_COOLDOWN_MS[normalizeTier(row.tier)];
-      if (row.verifiedAt && Date.now() - new Date(row.verifiedAt).getTime() < cooldown) return { ok: true, score: row.verifiedScore, throttled: true, tier: normalizeTier(row.tier) };
+      const baseScoreCached = Number(row.verifiedScore) - Number(row.attributionScore);
+      if (row.verifiedAt && Date.now() - new Date(row.verifiedAt).getTime() < cooldown) {
+        return { ok: true, score: row.verifiedScore, baseScore: baseScoreCached, attributionScore: row.attributionScore, attributionDelta: 0, throttled: true, tier: normalizeTier(row.tier) };
+      }
       const v = await verifyGithub(login);
       if (!v) return { error: "github verification failed" };
-      await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, row.id));
-      return { ok: true, score: v.score, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
+      // Attribution: count NEW commits since max(account_created, last_attribution_sync). The
+      // window cap guarantees a resync never double-counts; a long absence backfills correctly.
+      let attrDelta = 0;
+      if (row.attributionQuery) {
+        const since = row.lastAttributionSyncAt ?? row.createdAt;
+        attrDelta = await searchAttributions(row.attributionQuery, since);
+      }
+      const attributionScore = Number(row.attributionScore) + attrDelta;
+      const score = v.score + attributionScore;
+      await gameDb.update(players).set({
+        attributionScore, lastAttributionSyncAt: row.attributionQuery ? new Date() : row.lastAttributionSyncAt,
+        verifiedAt: new Date(), verifiedScore: score,
+      }).where(eq(players.id, row.id));
+      return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
     })
     // Browserless CLI link: the CLI presents its existing GitHub OAuth token (gh auth token).
     // We verify it against GitHub (GET /user) — which PROVES the caller owns that login, no
