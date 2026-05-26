@@ -517,10 +517,12 @@ const App = () => {
       {view === "auth" && <AuthView initial={authMode} onAuthed={() => { loadAccount(); setView("account"); setBanner({ kind: "ok", text: "Welcome back." }); }} onBanner={setBanner} />}
       {view === "reset" && resetToken && <ResetView token={resetToken} onDone={(ok, msg) => { setBanner({ kind: ok ? "ok" : "warn", text: msg }); setView("auth"); setResetToken(null); }} />}
       {profileLogin && <ProfileModal login={profileLogin} onClose={() => setProfileLogin(null)} />}
-      {/* One shared WebGL context for all menagerie pet cards. Only mount when on Account view
-          (the only place the menagerie shows) — leaderboard / pricing / auth all skip WebGL
-          entirely. drei View also auto-pauses individual scrolled-out cards via scissor. */}
-      {view === "account" && <MenagerieCanvas />}
+      {/* One shared WebGL context for all menagerie pet cards. Mount whenever something is
+          actually using <View> on this page: the Account view (menagerie grid) or the
+          ProfileModal (showcase row's non-hero SinglePets). Leaderboard/pricing/auth alone
+          skip WebGL entirely. drei View also auto-pauses individual scrolled-out cards via
+          scissor, so the cost when mounted is bounded by what's visible. */}
+      {(view === "account" || profileLogin !== null) && <MenagerieCanvas />}
 
       <footer className="foot">by AbsoluteJS · <a href="https://github.com/absolutejs/renown">github.com/absolutejs/renown</a></footer>
     </main>

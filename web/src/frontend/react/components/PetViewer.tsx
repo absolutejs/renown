@@ -382,12 +382,20 @@ export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creatur
 };
 
 // One pet, used for avatars and other single-pet displays (mount-gated so SSR is safe).
+// hero=true → standalone Canvas with full FX (post-processing, reflector floor, etc.).
+// hero=false → drei <View> that scissor-renders into the shared MenagerieCanvas. Callers
+// using non-hero (e.g. ProfileModal's showcase row) MUST ensure MenagerieCanvas is mounted
+// in the page; otherwise the View has nowhere to render and the pet is invisible.
 export const SinglePet = ({ seed, hero = false }: { seed: string; hero?: boolean }) => {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const c = useMemo(() => generate(seed), [seed]);
   if (!mounted) return <div className="petCanvas" />;
-  return <div className="petCanvas">{hero ? <HeroCanvas seed={seed} creature={c} /> : <PetCanvas seed={seed} creature={c} />}</div>;
+  // hero wraps itself in a sized div; PetCardView IS the petCanvas div (View renders the
+  // element itself when used outside a Canvas), so don't double-wrap it.
+  return hero
+    ? <div className="petCanvas"><HeroCanvas seed={seed} creature={c} /></div>
+    : <PetCardView seed={seed} creature={c} />;
 };
 
 // One card. The PetCardView IS the visible canvas region (it renders a div internally and
