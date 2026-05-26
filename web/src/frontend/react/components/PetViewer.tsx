@@ -142,7 +142,7 @@ const movementFor = (c: Creature): MovementProfile => {
 // Translucent mirror of the body geometry that orbits around the pet's center. Stacks well
 // for ghostCount > 1 (each copy phase-offset). Same merged geometry, additive blend implied
 // by emissive shader + a small transparent material on top.
-const GhostCopy = ({ geom, creature, warpMode, index, count }: { geom: BufferGeometry; creature: Creature; warpMode: number; index: number; count: number }) => {
+const GhostCopy = ({ geom, creature, warpMode, index, count, burstRef }: { geom: BufferGeometry; creature: Creature; warpMode: number; index: number; count: number; burstRef: { current: { value: number } } }) => {
   const ref = useRef<Group>(null);
   const radius = 0.45;
   useFrame((state) => {
@@ -159,7 +159,7 @@ const GhostCopy = ({ geom, creature, warpMode, index, count }: { geom: BufferGeo
   return (
     <group ref={ref}>
       <mesh geometry={geom}>
-        <ProceduralMat creature={creature} color={creature.eyeColor} useVertexColor={false} warpMode={warpMode} />
+        <ProceduralMat creature={creature} color={creature.eyeColor} useVertexColor={false} warpMode={warpMode} burstRef={burstRef} />
       </mesh>
     </group>
   );
@@ -190,24 +190,48 @@ const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) =>
   }));
 
   // Movement: bob + tilt + squash + spin per species/tier — every pet has a personality.
-  // Heartbeat sits on a separate inner pulse group.
+  // Heartbeat sits on a separate inner pulse group. Bursts are tier-gated flourish moments
+  // (vertex warp triples, color glitches, scale pulses) — invisible for Common-Epic, regular
+  // for Legendary, frequent + insane for Mythic / 1-of-1.
   const bpm = c.oneOfOne ? 3.2 : c.tier === "Mythic" ? 2.4 : c.tier === "Legendary" ? 1.8 : 1.2;
   const pulseRef = useRef<Group>(null);
+  const burstRef = useRef({ value: 0 });
+  const burstUntilRef = useRef(0);
+  const nextBurstRef = useRef(2 + Math.random() * 4);
+  // Average burst interval per tier (seconds between flourishes); 0 = never.
+  const burstInterval = c.oneOfOne ? 4 : c.mythicAura ? 7.5 : c.tier === "Legendary" ? 12 : 0;
+
   useFrame((state, delta) => {
     const t = state.clock.getElapsedTime();
+    // Burst timer: trigger a 0.4s flourish on schedule for tiers that have one. Eased
+    // in/out of the burst value via a smooth pulse so the warp lerps rather than snaps.
+    if (burstInterval > 0) {
+      if (t > nextBurstRef.current && t > burstUntilRef.current) {
+        burstUntilRef.current = t + 0.4;
+        nextBurstRef.current = t + burstInterval + (Math.random() - 0.5) * 2;
+      }
+      const remaining = burstUntilRef.current - t;
+      if (remaining > 0) {
+        const phase = 1 - remaining / 0.4;
+        burstRef.current.value = Math.sin(phase * Math.PI);   // 0 → 1 → 0 over the burst
+      } else {
+        burstRef.current.value = 0;
+      }
+    }
+    const burst = burstRef.current.value;
     if (groupRef.current) {
       groupRef.current.position.y = Math.sin(t * mp.bobFreq + seedHash * 0.01) * mp.bobAmp;
-      groupRef.current.rotation.y += (autoRotate + mp.spin) * delta;
+      groupRef.current.rotation.y += (autoRotate + mp.spin * (1 + burst * 2)) * delta;
       groupRef.current.rotation.x = Math.sin(t * mp.tiltFreq) * mp.tiltAmp;
       groupRef.current.rotation.z = Math.cos(t * mp.tiltFreq * 0.7) * mp.tiltAmp * 0.6;
-      // Squash-and-stretch: y stretches up while x/z compress, conserving volume.
+      // Squash-and-stretch + burst pop.
       const s = Math.sin(t * mp.squashFreq) * mp.squashAmp;
-      groupRef.current.scale.x = 1 - s * 0.5;
-      groupRef.current.scale.y = 1 + s;
-      groupRef.current.scale.z = 1 - s * 0.5;
+      const pop = 1 + burst * 0.18;
+      groupRef.current.scale.x = (1 - s * 0.5) * pop;
+      groupRef.current.scale.y = (1 + s) * pop;
+      groupRef.current.scale.z = (1 - s * 0.5) * pop;
     }
     if (pulseRef.current) {
-      // Heartbeat: a brief expansion every beat, otherwise flat — feels alive vs sine bob.
       const phase = (t * bpm) % 1;
       const beat = phase < 0.18 ? Math.sin(phase * Math.PI / 0.18) : 0;
       pulseRef.current.scale.setScalar(1 + beat * 0.06);
@@ -221,14 +245,11 @@ const Pet = ({ seed, autoRotate = 0 }: { seed: string; autoRotate?: number }) =>
         {/* Body: one merged mesh + one ShaderMaterial — N voxels collapse to 1 draw call. */}
         {bodyGeom && (
           <mesh geometry={bodyGeom}>
-            <ProceduralMat creature={c} color={c.palette[0]} useVertexColor warpMode={mp.warpMode} />
+            <ProceduralMat creature={c} color={c.palette[0]} useVertexColor warpMode={mp.warpMode} burstRef={burstRef} />
           </mesh>
         )}
-        {/* Ghost copies — translucent phasing duplicates orbiting through the body. Reserved
-            for Mythic (1 copy) and 1-of-1 (2 copies). Same merged geometry, transparent,
-            offset by an angle that animates → looks like the pet is phasing through reality. */}
         {bodyGeom && mp.ghostCount > 0 && Array.from({ length: mp.ghostCount }, (_, gi) => (
-          <GhostCopy key={gi} geom={bodyGeom} creature={c} warpMode={mp.warpMode} index={gi + 1} count={mp.ghostCount} />
+          <GhostCopy key={gi} geom={bodyGeom} creature={c} warpMode={mp.warpMode} index={gi + 1} count={mp.ghostCount} burstRef={burstRef} />
         ))}
         {/* Eyes + mouth stay as individual meshes (small count, unique geometries/materials). */}
         {grid.voxels.filter((v) => v.kind !== "body").map((v, i) => {
