@@ -21,6 +21,7 @@
 //   context-overflow / hallucinated / sycophant / wip / revert-revert / friday-deploy
 //   late-night / force-push / stack-overflow  → quirk aliases (see /api/cli/quirk registry)
 //   scan-commits     → read git log from cwd; auto-bump quirks whose regex matches commit messages (--limit N --dry-run)
+//   tsc / vue-tsc / eslint / biome  → bump the matching tool-caught quirk; manual (--count N) or auto-wrap (-- <args...>)
 //   adopt [seed]      → adopt a wild find (default: your rarest) as your companion
 //   companion         → watch your adopted companion (animated)
 //   watch            → editor-agnostic activity daemon (next on the roadmap)
@@ -97,6 +98,38 @@ const QUIRK_LINES: Record<string, (total: number) => string[]> = {
   "wifi-died": (t) => t >= 1000 ? ["🐦  Offline-First Believer.", "    1,000 outages. You'd use git over carrier pigeon."] : t >= 100 ? ["☕  Coffee Shop Survivor.", "    100. You know which booth has the strong signal."] : t >= 10 ? ["📱  Hotspot Veteran.", "    10. Your phone's data plan respects you."] : ["📡  WiFi Died.", "    git push hangs. Hotspot engaged."],
   "vscode-crashed": (t) => t >= 1000 ? ["🔧  Reinstall Whole IDE.", "    1,000 reloads. Done it on five machines."] : t >= 100 ? ["💀  TypeScript Server Crashed.", "    100. Memory: 8.6GB. Vibe: not great."] : t >= 10 ? ["⌨️   Restart Connoisseur.", "    10. Cmd+Shift+P, reload, enter."] : ["♻️   Reload Window Was the Fix.", "    The TypeScript server filed for divorce."],
   "merge-conflict-veteran": (t) => t >= 1000 ? ["🪖  I Live in the Conflicts.", "    1,000. The merge IS the workflow."] : t >= 100 ? ["📜  Conflict Cartographer.", "    100. Reading conflict markers like braille."] : t >= 10 ? ["🤝  Three-Way Merge Survivor.", "    10. You know what // <<<<<<<< theirs means."] : ["⚔️   Merge Conflict Veteran.", "    Picked the wrong side. It compiled."],
+  "tsc-caught": (t) => t >= 1000 ? ["🦴  I Don't Need TypeScript.", "    1,000 saves. Said while typing `tsc --watch`."] : t >= 100 ? ["☕  Strict Mode Survivor.", "    100. You owe tsc a beverage. Probably espresso."] : t >= 10 ? ["🤝  Type-Checker Friend.", "    10. You and tsc are in a long-distance relationship now."] : ["🧪  tsc Caught One.", "    The type system did its job. You did not."],
+  "vue-tsc-caught": (t) => t >= 1000 ? ["📚  I Read the Vue Docs.", "    1,000. All of them. Including the migration guide."] : t >= 100 ? ["💚  Composition API Convert.", "    100. vue-tsc finally understood your refs."] : t >= 10 ? ["🎭  Volar Friend.", "    10. Vue's type checker has Opinions."] : ["🧵  vue-tsc Caught One.", "    The template typing was lying."],
+  "eslint-caught": (t) => t >= 1000 ? ["⚙️   ESLint Owns You.", "    1,000. The config IS the codebase now."] : t >= 100 ? ["🛠️   eslint --fix Devotee.", "    100. You and the --fix flag have a thing."] : t >= 10 ? ["👂  Listened to ESLint.", "    10. Eventually."] : ["🚫  Linter Caught One.", "    no-unused-vars wins again."],
+  "biome-caught": (t) => t >= 1000 ? ["🌱  Biome Maximalist.", "    1,000. You rewrote your eslint plugins as biome rules. For fun."] : t >= 100 ? ["✨  Biome Believer.", "    100. You converted the team. They are still mad about it."] : t >= 10 ? ["🚀  Biome Migrant.", "    10. You switched from ESLint at hour 4 of your migration."] : ["⚡  Biome Caught One.", "    The fix was 'remove this line, you cretin.'"],
+};
+
+// Output parsers per tool. Each returns the number of issues the tool found.
+// Strategy: look for the tool's own summary line first ("Found N errors"), fall
+// back to grep-counting error lines so we still get a reasonable number even when
+// the tool prints in a non-default format. Exit code is informational (we trust
+// the parsed count, not exit code, since some tools exit non-zero for warnings).
+const PARSE_TOOL: Record<string, (output: string, exit: number) => number> = {
+  tsc: (out) => {
+    const m = out.match(/Found (\d+) errors? in/i);
+    if (m) return parseInt(m[1]!, 10);
+    return (out.match(/\(\d+,\d+\):\s+error\s+TS\d+/g) ?? []).length;
+  },
+  "vue-tsc": (out) => {
+    const m = out.match(/Found (\d+) errors? in/i);
+    if (m) return parseInt(m[1]!, 10);
+    return (out.match(/\(\d+,\d+\):\s+error\s+TS\d+/g) ?? []).length;
+  },
+  eslint: (out) => {
+    const m = out.match(/✖\s+(\d+)\s+problems?/);
+    if (m) return parseInt(m[1]!, 10);
+    return (out.match(/^\s*\d+:\d+\s+error\b/gm) ?? []).length;
+  },
+  biome: (out) => {
+    const m = out.match(/Found (\d+) errors?/i);
+    if (m) return parseInt(m[1]!, 10);
+    return (out.match(/×\s+/g) ?? []).length;   // biome's error glyph
+  },
 };
 
 const [, , cmd, arg] = process.argv;
@@ -285,6 +318,63 @@ switch (cmd) {
     for (const l of lines) console.log(l);
     console.log(`\n  total: ${total.toLocaleString()}  ·  newly granted: ${granted.length === 0 ? "(none — already in this tier)" : granted.join(", ")}\n`);
     break;
+  }
+  // Tool-caught quirks with optional auto-wrap. Three modes per case:
+  //   renown tsc --count 12              ← manual report
+  //   renown tsc -- tsc --noEmit         ← run + parse + auto-bump
+  //   (no args)                          ← prints usage
+  // The parsers look for known tool summaries first ("Found N errors"), fall back
+  // to grep-counting error lines. Exit code is preserved so CI pipelines can chain.
+  case "tsc":
+  case "vue-tsc":
+  case "eslint":
+  case "biome": {
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const args = process.argv.slice(3);
+    // Manual --count path.
+    const countFlagIdx = args.findIndex((a) => a === "--count" || a.startsWith("--count="));
+    const dashIdx = args.indexOf("--");
+    if (countFlagIdx < 0 && dashIdx < 0) {
+      console.log(`usage: renown ${cmd} --count N            (manual report)`);
+      console.log(`       renown ${cmd} -- ${cmd === "vue-tsc" ? "vue-tsc" : cmd} <args...>  (auto-wrap; parses tool output for error count)`);
+      break;
+    }
+    const quirkName = `${cmd}-caught`;
+    let count = 0;
+    let toolExit = 0;
+    if (dashIdx >= 0) {
+      const toolArgs = args.slice(dashIdx + 1);
+      if (toolArgs.length === 0) { console.log("missing command after `--`"); break; }
+      const proc = Bun.spawn(toolArgs, { stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+      toolExit = await proc.exited;
+      // Stream the tool's output to the user — wrapping shouldn't hide what they ran.
+      if (stdout) process.stdout.write(stdout);
+      if (stderr) process.stderr.write(stderr);
+      const combined = stdout + "\n" + stderr;
+      count = PARSE_TOOL[cmd](combined, toolExit);
+      console.log(`\n  ${cmd}: ${count} issue${count === 1 ? "" : "s"} parsed from output.`);
+    } else {
+      const countStr = args[countFlagIdx].includes("=") ? args[countFlagIdx].split("=", 2)[1] : args[countFlagIdx + 1];
+      count = Math.max(0, Number(countStr ?? 0));
+    }
+    if (count === 0) {
+      console.log(`  Nothing for ${cmd} to be smug about today. (No bump.)\n`);
+      process.exit(toolExit); // preserve original exit
+    }
+    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first."); process.exit(toolExit); }
+    const res = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/cli/quirk`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, name: quirkName, count }) }).catch(() => null);
+    const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+    if (j.error) { console.log(`${cmd} bump failed: ${j.error}`); process.exit(toolExit); }
+    const total = Number(j.total ?? 0);
+    const granted = Array.isArray(j.granted) ? j.granted as string[] : [];
+    const lines = QUIRK_LINES[quirkName]?.(total) ?? [`Logged: ${quirkName} +${count}. Total: ${total.toLocaleString()}.`];
+    console.log("");
+    for (const l of lines) console.log(l);
+    console.log(`\n  total: ${total.toLocaleString()}  ·  newly granted: ${granted.length === 0 ? "(none — already in this tier)" : granted.join(", ")}\n`);
+    process.exit(toolExit);
   }
   case "scan-commits": {
     // Read git log from cwd, regex-match each commit's subject+body against the

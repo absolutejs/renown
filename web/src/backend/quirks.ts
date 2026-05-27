@@ -331,6 +331,47 @@ export const QUIRKS: Record<string, QuirkDef> = {
     ),
     keywordPatterns: [/merge\s+conflict/i, /resolve\s+conflict/i],
   },
+
+  // ── Tool-caught quirks ─────────────────────────────────────────────
+  // "The tool saved you from yourself." Bump these via `renown tsc -- tsc --noEmit`
+  // (the wrapper parses the output for error counts) or manually with --count N.
+  // Each error caught BEFORE it shipped is the joke; the tool is the hero.
+  "tsc-caught": {
+    id: "tsc-caught", label: "tsc saves", frame: "tsc kept catching the same thing. You kept doing the same thing.",
+    tiers: tiers("tsc-caught",
+      ["tsc Caught One", "First. The type system did its job. You did not."],
+      ["Type-Checker Friend", "10. You and tsc are in a long-distance relationship now."],
+      ["Strict Mode Survivor", "100. You owe tsc a beverage. Probably espresso."],
+      ["I Don't Need TypeScript", "1,000. Said while typing `tsc --watch`."],
+    ),
+  },
+  "vue-tsc-caught": {
+    id: "vue-tsc-caught", label: "vue-tsc saves", frame: "Templates have types too, apparently.",
+    tiers: tiers("vue-tsc-caught",
+      ["vue-tsc Caught One", "First. The template typing was lying."],
+      ["Volar Friend", "10. Vue's type checker has Opinions."],
+      ["Composition API Convert", "100. vue-tsc finally understood your refs."],
+      ["I Read the Vue Docs", "1,000. All of them. Including the migration guide."],
+    ),
+  },
+  "eslint-caught": {
+    id: "eslint-caught", label: "eslint saves", frame: "no-unused-vars wins again.",
+    tiers: tiers("eslint-caught",
+      ["Linter Caught One", "First. no-unused-vars wins again."],
+      ["Listened to ESLint", "10. Eventually."],
+      ["eslint --fix Devotee", "100. You and the --fix flag have a thing."],
+      ["ESLint Owns You", "1,000. The config IS the codebase now."],
+    ),
+  },
+  "biome-caught": {
+    id: "biome-caught", label: "biome saves", frame: "Fast linter, faster fix.",
+    tiers: tiers("biome-caught",
+      ["Biome Caught One", "First. The fix was 'remove this line, you cretin.'"],
+      ["Biome Migrant", "10. You switched from ESLint at hour 4 of your migration."],
+      ["Biome Believer", "100. You converted the team. They are still mad about it."],
+      ["Biome Maximalist", "1,000. You rewrote your eslint plugins as biome rules. For fun."],
+    ),
+  },
 };
 
 export const TIER_BY_THRESHOLD: Record<number, string> = { 1: "bronze", 10: "silver", 100: "gold", 1000: "mythic" };
