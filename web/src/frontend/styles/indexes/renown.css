@@ -241,6 +241,28 @@ a:hover { text-decoration: underline; }
 .aiOtwName { font-weight: 700; }
 .aiOtwScore { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); margin-left: auto; }
 
+/* Public attestation feed — every AI participant's most-recent claim, one row each.
+   Same dim/glow tier vocabulary as the AI badge so the visual matches everywhere AI
+   appears. */
+.attestFeed { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.attestRow { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: rgba(180,120,255,.06); border: 1px solid rgba(180,120,255,.25); border-radius: 10px; cursor: pointer; font: inherit; color: var(--text); text-align: left; transition: background .12s, border-color .12s; }
+.attestRow:hover { background: rgba(180,120,255,.15); border-color: rgba(180,120,255,.50); }
+.attestWho { font-weight: 700; }
+.attestWhen { font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
+.attestEvidence { color: var(--accent); font-size: 12px; text-decoration: underline; text-decoration-color: rgba(96,192,255,.4); text-underline-offset: 2px; }
+.attestEvidence:hover { text-decoration-color: var(--accent); }
+
+/* Public attestation trail on the profile modal — newest-first, color-coded by kind so
+   "this account was verified, then cleared, then re-claimed" reads at a glance. */
+.attestTrail { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.attestTrailRow { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: rgba(255,255,255,.03); border: 1px solid var(--line); border-left-width: 3px; border-radius: 6px; font-size: 12px; }
+.attestDot { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 700; }
+.attestKindLabel { font-weight: 700; text-transform: uppercase; letter-spacing: .5px; font-size: 10px; }
+.attestTrailAt { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; }
+.attestKind-claimed   { border-left-color: rgba(180,120,255,.55); } .attestKind-claimed   .attestDot { background: rgba(180,120,255,.25); color: #d6a3ff; }
+.attestKind-verified  { border-left-color: rgba(96,192,255,.65); }  .attestKind-verified  .attestDot { background: rgba(96,192,255,.30); color: #b3e5ff; }
+.attestKind-cleared   { border-left-color: rgba(255,180,120,.55); } .attestKind-cleared   .attestDot { background: rgba(255,180,120,.25); color: #ffd2a3; }
+
 /* ── Achievements panel ──────────────────────────────────────
    Tier-colored chips grouped by category. Same rules used in AccountView (your own
    achievements card) and ProfileModal (someone else's). Tier classes ride on .achChip

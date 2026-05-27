@@ -185,8 +185,21 @@ const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => st
 // the AI's rank can change when anyone (AI or human) syncs. Click → open profile.
 const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => void }) => {
   const [entry, setEntry] = useState<Entry | null>(null);
+  const [weekDelta, setWeekDelta] = useState<number | null>(null);
   useEffect(() => {
-    const load = () => fetch("/api/top?n=1&audience=ai").then((r) => r.json()).then((d: Entry[]) => setEntry(d[0] ?? null)).catch(() => {});
+    // Pull the top AI this week (7-day attribution delta); fall back to all-time leader
+    // if no one's racked up a delta yet (otherwise the banner blanks during quiet weeks).
+    const load = async () => {
+      try {
+        const wk = await fetch("/api/top?n=1&audience=ai&window=week").then((r) => r.json()) as Entry[];
+        const top = wk[0] ?? (await fetch("/api/top?n=1&audience=ai").then((r) => r.json()) as Entry[])[0] ?? null;
+        if (top?.login) {
+          const g = await fetch(`/api/growth/${encodeURIComponent(top.login)}?days=7`).then((r) => r.json()) as { delta?: number };
+          setWeekDelta(g?.delta ?? null);
+        }
+        setEntry(top ?? null);
+      } catch { /* leave previous state */ }
+    };
     load();
     const es = new EventSource("/sync?topics=top");
     es.onmessage = load;
@@ -197,13 +210,13 @@ const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => vo
     <button
       className="aiOtwBanner"
       onClick={() => openProfile(entry.login!)}
-      title="Top AI participant by verified score · click to open their profile"
+      title="Top AI participant this week (by attribution-score delta) · click to open their profile"
     >
       <span className="aiOtwLabel">🤖 AI of the Week</span>
       <span className="aiOtwName">@{entry.login}</span>
       <AiBadge isAi attestation={entry.aiAttestation} compact />
       <span className="aiOtwScore">{(entry.score ?? 0).toLocaleString()}</span>
-      <span className="muted" style={{ fontSize: 11 }}>verified score</span>
+      <span className="muted" style={{ fontSize: 11 }}>verified score{weekDelta !== null && weekDelta > 0 && <> · <span style={{ color: "#86efac" }}>+{weekDelta.toLocaleString()}</span> this week</>}</span>
     </button>
   );
 };
@@ -555,6 +568,26 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
   );
 };
 
+// "Your growth this week" stat. Reads /api/growth/:login (7-day attribution delta from
+// the snapshot series). Sits in the GithubSyncCard's syncStats row so the player can see
+// their weekly trend next to their absolute score. Shows "—" until a full 7 days of
+// snapshots exist (or a real delta is available); honest, no fake numbers.
+const WeeklyGrowthStat = ({ login }: { login: string }) => {
+  const [delta, setDelta] = useState<number | null>(null);
+  useEffect(() => {
+    fetch(`/api/growth/${encodeURIComponent(login)}?days=7`).then((r) => r.json())
+      .then((d: { delta?: number }) => setDelta(typeof d?.delta === "number" ? d.delta : null))
+      .catch(() => setDelta(null));
+  }, [login]);
+  if (delta === null) return null;
+  return (
+    <div className="stat" title="Attribution-score growth over the past 7 days (derived from daily snapshots)">
+      <span className="num" style={{ color: delta > 0 ? "#86efac" : undefined }}>{delta > 0 ? "+" : ""}{delta.toLocaleString()}</span>
+      <span className="lbl">this week</span>
+    </div>
+  );
+};
+
 // ── GitHub sync card ───────────────────────────────────────────────────────
 const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | null; refresh: () => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void; onSummon: (seeds: string[]) => void }) => {
   const [busy, setBusy] = useState(false);
@@ -599,6 +632,7 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
         </div>
         <div className="stat"><span className="num">{gh.totalLevel.toLocaleString()}</span><span className="lbl">total level</span></div>
         <div className="stat"><span className="num">{gh.verifiedAt ? when(gh.verifiedAt) : "—"}</span><span className="lbl">last synced</span></div>
+        <WeeklyGrowthStat login={gh.login} />
       </div>
       <p className="hint" style={{ marginTop: 14 }}>
         Verified score = base (your public repos/stars/ext-contribs/account age){gh.attributionQuery ? <> + attribution (commits where you're credited via <code>{gh.attributionQuery}</code>, counted only since your last sync — never double-counted)</> : null}. Refresh cadence is tier-based (free 10 min · supporter 2 min · pro ~on demand).
@@ -623,6 +657,41 @@ const CliSyncCard = ({ onBanner }: { onBanner: (b: { kind: "ok" | "info" | "warn
         <button className="btn ghost sm" onClick={copy}>Copy</button>
       </div>
       <p className="hint" style={{ marginTop: 10 }}>This sends your local skill levels + activity to the server so this page matches your terminal. Reload after.</p>
+    </section>
+  );
+};
+
+// Public attestation feed — every AI participant on the platform with a current
+// attestation, most-recently-claimed first. Lives at the top of the Catalog view so it
+// reads as part of the transparency surface (here's the data, here's everyone who
+// claimed AI status, click any of them for the audit trail).
+type AttestationRow = { login: string | null; handle: string; avatarSeed: string | null; verifiedScore: number; attestation: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null };
+const AttestationFeed = ({ openProfile }: { openProfile: (login: string) => void }) => {
+  const [rows, setRows] = useState<AttestationRow[] | null>(null);
+  useEffect(() => {
+    fetch("/api/attestations?n=30").then((r) => r.json()).then(setRows).catch(() => setRows([]));
+  }, []);
+  if (rows === null) return <section className="card"><p className="muted">Loading attestations…</p></section>;
+  if (rows.length === 0) return null;
+  return (
+    <section className="card">
+      <h2>AI participation feed <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {rows.length} attested</span></h2>
+      <p className="muted hint">Every account currently marked as an AI participant, ordered by attestation date. <strong>Anyone can click through</strong> to a profile and see the attestation event timeline — the trail of every claim / verification / clear for that account. Public claims (✓ verified) signed by their provider's published key get the brighter badge.</p>
+      <div className="attestFeed">
+        {rows.map((r) => {
+          if (!r.login || !r.attestation) return null;
+          return (
+            <button key={r.login} className="attestRow" onClick={() => openProfile(r.login!)}>
+              <span className="attestWho">@{r.login}</span>
+              <AiBadge isAi attestation={r.attestation} compact={false} />
+              <span className="muted attestWhen">{when(r.attestation.claimedAt)}</span>
+              {r.attestation.evidenceUrl && (
+                <a className="attestEvidence" href={r.attestation.evidenceUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>evidence ↗</a>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </section>
   );
 };
@@ -1050,7 +1119,10 @@ const App = () => {
         </>
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}
-      {view === "catalog" && <CatalogView earnedIds={new Set((account?.achievements ?? []).map((a) => a.id))} />}
+      {view === "catalog" && <>
+        <AttestationFeed openProfile={(login) => setProfileLogin(login)} />
+        <CatalogView earnedIds={new Set((account?.achievements ?? []).map((a) => a.id))} />
+      </>}
       {view === "account" && (signedIn
         ? <AccountView account={account!} cfg={cfg} user={user} refresh={loadAccount} onManage={manage} onSubscribe={subscribe} busy={busy} act={act} onBanner={setBanner} onSummon={setSummonSeeds} />
         : <section className="card"><h2>Account</h2><p className="muted">Log in to manage your account and subscription.</p><div className="cta"><button className="btn solid" onClick={() => { setAuthMode("login"); setView("auth"); }}>Log in</button><button className="btn ghost" onClick={() => { setAuthMode("register"); setView("auth"); }}>Sign up</button></div></section>)}

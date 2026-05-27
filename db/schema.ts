@@ -98,3 +98,35 @@ export const playerProjects = pgTable("player_projects", {
   lines: bigint("lines", { mode: "number" }).notNull().default(0),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.projectKey] }) }));
+
+// One row per (player, calendar day) recording the player's verified + attribution
+// scores at the time the day's first /api/verify ran. Lets us compute weekly deltas
+// without maintaining a separate counter or a heavy event log. Snapshots are written
+// inline by /api/verify (lazy, only if today's row is missing) so there's no cron and
+// no schedule-drift bug. Size: ~365 rows/player/year → trivial at our scale.
+export const playerAttributionSnapshots = pgTable("player_attribution_snapshots", {
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  // Store the calendar date as a text "YYYY-MM-DD" so the UNIQUE-per-day semantics
+  // don't get fooled by hour-of-day differences across requests / timezones. Server
+  // produces this from new Date().toISOString().slice(0,10).
+  snapshotDate: text("snapshot_date").notNull(),
+  attributionScore: bigint("attribution_score", { mode: "number" }).notNull(),
+  verifiedScore: bigint("verified_score", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.snapshotDate] }) }));
+
+// Audit log of every ai_attestation state change. One row per claim / verification /
+// clear. Append-only; lets anyone inspect the full history of an account's AI claims
+// for transparency. Render in ProfileModal as a compact timeline; expose via
+// /api/profile/:login so external auditors can read it without auth.
+export const aiAttestationEvents = pgTable("ai_attestation_events", {
+  id: text("id").primaryKey(),                                     // ulid-ish; auto-generated server-side
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  at: timestamp("at").notNull().defaultNow(),
+  // claimed: first attestation OR provider/url change · verified: signed JWT validated ·
+  // cleared: attestation removed (is_ai reset to false on the player row).
+  kind: text("kind").notNull(),                                    // "claimed" | "verified" | "cleared"
+  provider: text("provider"),                                      // null on cleared
+  evidenceUrl: text("evidence_url"),                               // null on cleared
+  verified: boolean("verified").notNull().default(false),          // true only on a successful JWT verify
+});

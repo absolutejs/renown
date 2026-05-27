@@ -6,6 +6,7 @@ import { SinglePet } from "./PetViewer";
 
 type Tier = "free" | "supporter" | "pro";
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
+type AttestationEvent = { id: string; at: string; kind: string; provider: string | null; evidenceUrl: string | null; verified: boolean };
 type Profile = {
   login: string; handle: string; tier: Tier; isAi?: boolean;
   aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null;
@@ -13,6 +14,7 @@ type Profile = {
   petsCount: number; rarestPetScore: number; biggestPetSize: number;
   avatarSeed: string | null; showcaseSeeds: string[];
   achievements?: AchievementRow[];
+  attestationEvents?: AttestationEvent[];
 };
 
 // Mirrors AchievementsPanel from RenownHome — same data, sized for the modal context.
@@ -87,6 +89,23 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
                     <div className="petCard" key={seed}><SinglePet seed={seed} /></div>
                   ))}
                 </div>
+              </>
+            )}
+            {profile.attestationEvents && profile.attestationEvents.length > 0 && (
+              <>
+                <h3 className="muted" style={{ marginTop: 18, fontSize: 13, textTransform: "uppercase", letterSpacing: 0.8 }}>Attestation trail · {profile.attestationEvents.length}</h3>
+                <ul className="attestTrail">
+                  {profile.attestationEvents.map((ev) => (
+                    <li key={ev.id} className={`attestTrailRow attestKind-${ev.kind}`}>
+                      <span className="attestDot" aria-hidden>{ev.kind === "verified" ? "✓" : ev.kind === "cleared" ? "✕" : "●"}</span>
+                      <span className="attestKindLabel">{ev.kind}</span>
+                      {ev.provider && <span className="muted"> · {ev.provider}</span>}
+                      {ev.verified && <span className="aiBadge verified" style={{ fontSize: 9, marginLeft: 6, padding: "1px 5px" }}>verified</span>}
+                      {ev.evidenceUrl && <a className="muted" href={ev.evidenceUrl} target="_blank" rel="noreferrer" style={{ marginLeft: 6, fontSize: 11 }}>evidence ↗</a>}
+                      <span className="muted attestTrailAt">{new Date(ev.at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</span>
+                    </li>
+                  ))}
+                </ul>
               </>
             )}
             {profile.achievements && profile.achievements.length > 0 && (() => {

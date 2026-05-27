@@ -6,7 +6,8 @@ import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { generate } from "../../../../core/procgen.ts";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
-import { achievements, playerAchievements, playerProjects, players } from "../../../../db/schema.ts";
+import { achievements, aiAttestationEvents, playerAchievements, playerAttributionSnapshots, playerProjects, players } from "../../../../db/schema.ts";
+import { applyAttestation } from "../attestation.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
 import { gameDb, grantAchievements, hub, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
@@ -53,6 +54,21 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         : audience === "ai" ? eq(players.isAi, true)
         : undefined;
       const where = aiFilter ? and(eq(players.githubVerified, true), aiFilter) : eq(players.githubVerified, true);
+      // Weekly window — when ?window=week, sort by the past-7-day attribution_score delta
+      // (derived from player_attribution_snapshots) instead of the all-time verified score.
+      // Falls back to a player's earliest snapshot in the window if no row exactly 7 days
+      // ago exists, so brand-new players still rank by their visible activity. Other
+      // boards (pets-count/rarest-pet/biggest-pet) ignore window — those are absolute
+      // numbers, not rates.
+      const window = String(query.window ?? "all");
+      if (window === "week" && (board === "score" || query.board === undefined)) {
+        const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        // Subquery: per-player earliest snapshot's attribution_score in the last 7d.
+        // Drizzle SQL builder keeps this typed; the inner select is parameterized.
+        const weeklyOrder = sql<number>`(${players.attributionScore} - coalesce((select ${playerAttributionSnapshots.attributionScore} from ${playerAttributionSnapshots} where ${playerAttributionSnapshots.playerId} = ${players.id} and ${playerAttributionSnapshots.snapshotDate} >= ${cutoff} order by ${playerAttributionSnapshots.snapshotDate} asc limit 1), ${players.attributionScore}))`;
+        const rows = await gameDb.select().from(players).where(where).orderBy(desc(weeklyOrder)).limit(n);
+        return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed }));
+      }
       const rows = await gameDb.select().from(players).where(where).orderBy(desc(orderCol)).limit(n);
       return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed }));
     })
@@ -80,6 +96,16 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed,
         avatarSeed: p.avatarSeed, showcaseSeeds: Array.isArray(p.showcaseSeeds) ? p.showcaseSeeds : [],
         achievements: ach,
+        // Public audit trail of AI attestation events for this player. Append-only,
+        // ordered newest-first. Anyone can read it (transparency is the point); the
+        // profile modal renders it as a timeline so claims/verifications/clears are
+        // auditable without server access.
+        attestationEvents: await gameDb
+          .select({ id: aiAttestationEvents.id, at: aiAttestationEvents.at, kind: aiAttestationEvents.kind, provider: aiAttestationEvents.provider, evidenceUrl: aiAttestationEvents.evidenceUrl, verified: aiAttestationEvents.verified })
+          .from(aiAttestationEvents)
+          .where(eq(aiAttestationEvents.playerId, p.id))
+          .orderBy(desc(aiAttestationEvents.at))
+          .limit(30),
       };
     })
     // Live ghost-cursors on the leaderboard — anonymous path. POST a hover ping, server
@@ -158,6 +184,14 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         petsCount: mergedWild.length, rarestPetScore, rarestPetSeed,
         showcaseSeeds: showcase, verifiedAt: new Date(), verifiedScore: score, wild: mergedWild,
       }).where(eq(players.id, row.id));
+      // Lazy daily snapshot — one row per (player, calendar day). onConflictDoNothing
+      // means we only write the FIRST verify of a day; subsequent verifies don't
+      // overwrite it (so the day's baseline stays the day's first reading, and weekly
+      // deltas are derived from a consistent series). No cron, no schedule drift.
+      const today = new Date().toISOString().slice(0, 10);
+      await gameDb.insert(playerAttributionSnapshots)
+        .values({ playerId: row.id, snapshotDate: today, attributionScore, verifiedScore: score })
+        .onConflictDoNothing();
       // Server-evaluated co-author + AI-participation achievements. The catalog rows live
       // in core/achievements/curated.ts with check() = false (the CLI's client-side eval
       // never grants them); this is the authoritative path. grantAchievements is in
@@ -203,6 +237,27 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       if (v) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, playerId));
       return { ok: true, login, verifiedScore: v?.score ?? 0 };
     })
+    // CLI ai-attest: same shape as /api/cli/link — caller proves login ownership with a
+    // GitHub OAuth token (`gh auth token`), server verifies it against GitHub, then runs
+    // the shared applyAttestation flow (same state transitions / achievement grants /
+    // audit-log writes as the web /api/account/ai-attestation endpoint). Lets fully-
+    // headless AI agents self-onboard without ever opening the web UI.
+    .post("/cli/ai-attest", async ({ body }) => {
+      const b = (body ?? {}) as { token?: string; provider?: string | null; evidenceUrl?: string; attestationJwt?: string };
+      const token = String(b.token ?? "");
+      if (!token) return { error: "token required" };
+      // Auth: read the login the token belongs to from GitHub. Same pattern as /cli/link.
+      const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+      if (!r?.ok) return { error: "invalid or expired github token" };
+      const login = (await r.json() as { login?: string }).login;
+      if (!login) return { error: "could not read github login" };
+      const result = await applyAttestation(login,
+        !b.provider
+          ? { kind: "clear" }
+          : { kind: "claim", provider: String(b.provider).slice(0, 40), evidenceUrl: typeof b.evidenceUrl === "string" ? b.evidenceUrl.slice(0, 400) : undefined, attestationJwt: typeof b.attestationJwt === "string" ? b.attestationJwt : undefined });
+      if (!result.ok) return { error: result.error };
+      return result;
+    })
     .get("/skills", async ({ query }) => {
       const id = String(query.id ?? "");
       if (!id) return { error: "id required" };
@@ -218,6 +273,49 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const tp = (await gameDb.select({ n: sql<number>`count(*)::int` }).from(players))[0]?.n ?? 0;
       const rows = await gameDb.select().from(achievements).orderBy(desc(achievements.unlockCount)).limit(n);
       return { players: tp, achievements: rows.map((r) => ({ id: r.id, name: r.name, tier: r.tier, unlocks: r.unlockCount, rarity: tp ? +((r.unlockCount / tp) * 100).toFixed(1) : 0 })) };
+    })
+    // Public attestation feed — every verified AI participant on the platform, ordered by
+    // most-recently claimed. Anyone (signed-in or not) can browse it. Each entry exposes
+    // the same fields the badge tooltip / profile modal already show; nothing private.
+    // Cacheable; the underlying state changes only when someone attests/clears.
+    .get("/attestations", async ({ query }) => {
+      const n = Math.min(100, Number(query.n ?? 30));
+      const rows = await gameDb.select().from(players)
+        .where(and(eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`))
+        .orderBy(desc(sql`(${players.aiAttestation} ->> 'claimedAt')`))
+        .limit(n);
+      return rows.map((p) => ({
+        login: p.githubLogin,
+        handle: p.handle,
+        avatarSeed: p.avatarSeed,
+        verifiedScore: p.verifiedScore,
+        attestation: p.aiAttestation,   // { provider, claimedAt, evidenceUrl?, verified? }
+      }));
+    })
+    // Per-player attribution delta over the past N days (default 7). Used by AccountView's
+    // "your growth this week" stat and by anything else that wants a window-relative number
+    // without rebuilding the snapshot query. Returns the absolute current attribution_score
+    // and the delta (current minus the earliest snapshot in the window).
+    .get("/growth/:login", async ({ params, query }) => {
+      const days = Math.max(1, Math.min(90, Number(query.days ?? 7)));
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, params.login));
+      const p = playerRows[0];
+      if (!p) return { error: "not found" };
+      const snaps = await gameDb.select().from(playerAttributionSnapshots)
+        .where(and(eq(playerAttributionSnapshots.playerId, p.id), sql`${playerAttributionSnapshots.snapshotDate} >= ${cutoff}`))
+        .orderBy(playerAttributionSnapshots.snapshotDate);
+      // baseline = earliest snapshot in window (or current if window is empty — means no
+      // delta yet, score is fresh). Delta = current - baseline.
+      const baseline = snaps[0]?.attributionScore ?? p.attributionScore;
+      return {
+        login: p.githubLogin,
+        windowDays: days,
+        current: p.attributionScore,
+        baseline,
+        delta: Number(p.attributionScore) - Number(baseline),
+        snapshots: snaps.length,
+      };
     })
     // Curated catalog for the Catalog view. Returns the ~290 curated rows (generated=false)
     // joined with no per-player state — the client computes locked/unlocked against its own

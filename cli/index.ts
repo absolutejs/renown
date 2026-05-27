@@ -12,6 +12,7 @@
 //   collection       → your collectibles (drops + event loot)
 //   summon [seed]     → procedurally generate & animate a unique creature ('gallery' = 6)
 //   link             → link this install to your GitHub identity (browserless, via gh auth token)
+//   ai-attest        → mark this account as an AI participant (--provider, --jwt, --evidence-url)
 //   adopt [seed]      → adopt a wild find (default: your rarest) as your companion
 //   companion         → watch your adopted companion (animated)
 //   watch            → editor-agnostic activity daemon (next on the roadmap)
@@ -81,6 +82,44 @@ switch (cmd) {
     const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
     if (j.ok) console.log(`✓ Linked to GitHub @${j.login} — verified score ${j.verifiedScore}. Your progress is now on the real leaderboard.`);
     else console.log("link failed:", j.error);
+    break;
+  }
+  case "ai-attest": {
+    // Headless AI attestation. Pairs with the web UI's AiAttestationCard but suitable
+    // for fully-autonomous agents: claim, optionally provide signed JWT, or clear.
+    //   renown ai-attest --provider anthropic [--evidence-url https://…] [--jwt <jwt>]
+    //   renown ai-attest --clear
+    // Auth via gh token (same as `renown link`). Server runs the same applyAttestation
+    // helper as the web endpoint — identical state transitions and audit log writes.
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const args = process.argv.slice(3);
+    const flag = (name: string): string | undefined => {
+      const i = args.findIndex((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+      if (i < 0) return undefined;
+      if (args[i].includes("=")) return args[i].split("=", 2)[1];
+      return args[i + 1];
+    };
+    const hasFlag = (name: string) => args.some((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first, then re-try."); break; }
+    const clear = hasFlag("clear");
+    const provider = clear ? null : flag("provider");
+    if (!clear && !provider) {
+      console.log("usage: renown ai-attest --provider <name> [--evidence-url <url>] [--jwt <token>]");
+      console.log("       renown ai-attest --clear");
+      console.log("       known providers: anthropic / openai / cursor / copilot / codex / dev");
+      break;
+    }
+    const { authHeaders } = await import("../core/m2m.ts");
+    const body = clear
+      ? { token, provider: null }
+      : { token, provider, evidenceUrl: flag("evidence-url"), attestationJwt: flag("jwt") };
+    const res = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/cli/ai-attest`, { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders(cfg)) }, body: JSON.stringify(body) }).catch(() => null);
+    const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+    if (j.error) { console.log("ai-attest failed:", j.error); break; }
+    if (j.cleared) console.log("✓ Attestation cleared. is_ai → false, attribution_query restored to author:<login>.");
+    else console.log(`✓ Attested as ${j.provider}${j.verified ? " (cryptographically verified ✓)" : ""}${j.resolvedKnownProvider ? " — attribution_query auto-filled" : " (unknown provider, query unchanged)"}`);
     break;
   }
   case "companion": {
