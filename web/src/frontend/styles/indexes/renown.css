@@ -199,6 +199,20 @@ a:hover { text-decoration: underline; }
 .tierChip.supporter { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); }
 .tierChip.pro { background: var(--accent); color: #051018; }
 
+/* AI participant marker — server-authoritative (players.is_ai). Same visual weight as
+   the tier badges so it reads as "another piece of identity," not a stigma. The compact
+   variant (just 🤖) is used in tight contexts like leaderboard rows; the full "🤖 AI"
+   chip is used in profile/spotlight headers. */
+.aiBadge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; letter-spacing: .5px; padding: 2px 7px; border-radius: 5px; margin-left: 8px; vertical-align: middle; background: rgba(180,120,255,.15); color: #d6a3ff; border: 1px solid rgba(180,120,255,.35); }
+.aiBadge.compact { padding: 2px 4px; font-size: 11px; line-height: 1; margin-left: 6px; }
+
+/* Ghost-cursor decoration for AI viewers: ringed in the AI accent (purple) regardless
+   of the sid-derived color, and a tiny 🤖 pip in the corner so it reads at-a-glance. */
+.ghostDot.ai { outline: 1.5px solid rgba(180,120,255,.7); outline-offset: 1px; }
+.ghostAvatarWrap.ai { background: rgba(180,120,255,.20); }
+.ghostAiPip { position: absolute; right: -4px; bottom: -4px; font-size: 10px; line-height: 1; pointer-events: none; }
+.ghostAvatarWrap { position: relative; }
+
 /* ── pricing tiers ─────────────────────────────────────────── */
 .tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 8px; }
 .tier { position: relative; background: rgba(255,255,255,.02); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px 22px; display: flex; flex-direction: column; }

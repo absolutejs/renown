@@ -6,7 +6,7 @@ import { SinglePet } from "./PetViewer";
 
 type Tier = "free" | "supporter" | "pro";
 type Profile = {
-  login: string; handle: string; tier: Tier;
+  login: string; handle: string; tier: Tier; isAi?: boolean;
   score: number; totalLevel: number;
   petsCount: number; rarestPetScore: number; biggestPetSize: number;
   avatarSeed: string | null; showcaseSeeds: string[];
@@ -40,7 +40,10 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
           <>
             <div className="profileHead">
               <div>
-                <h2>@{profile.login}</h2>
+                <h2>
+                  @{profile.login}
+                  {profile.isAi && <span className="aiBadge" style={{ marginLeft: 10 }} title="AI participant — earns score and pets the same way humans do, with the badge for transparency">🤖 AI</span>}
+                </h2>
                 <p className="muted">{profile.handle}{profile.tier !== "free" && <span className={`tierChip ${profile.tier}`} style={{ marginLeft: 10 }}>{profile.tier}</span>}</p>
               </div>
               <div className="profileScore">

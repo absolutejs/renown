@@ -45,7 +45,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         : board === "biggest-pet" ? players.biggestPetSize
         : players.verifiedScore;
       const rows = await gameDb.select().from(players).where(eq(players.githubVerified, true)).orderBy(desc(orderCol)).limit(n);
-      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed }));
+      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed }));
     })
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.
@@ -54,7 +54,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const p = rows[0];
       if (!p) return { error: "not found" };
       return {
-        login: p.githubLogin, handle: p.handle, tier: normalizeTier(p.tier),
+        login: p.githubLogin, handle: p.handle, tier: normalizeTier(p.tier), isAi: p.isAi,
         score: p.verifiedScore, totalLevel: p.totalLevel,
         petsCount: p.petsCount,
         rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed,
@@ -62,26 +62,23 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         avatarSeed: p.avatarSeed, showcaseSeeds: Array.isArray(p.showcaseSeeds) ? p.showcaseSeeds : [],
       };
     })
-    // Live ghost-cursors on the leaderboard — POST a hover ping, server fans it to anyone
-    // subscribed to `cursors`. Deliberately anonymous: the `sid` is a client-generated
-    // per-tab UUID (sessionStorage), no auth needed and no DB persistence. We rely on the
-    // SSE plugin's natural backpressure + the client's own 200ms POST throttle to keep this
-    // cheap. Payload is intentionally small (sid/rowId/board) so the SSE frames stay tight.
+    // Live ghost-cursors on the leaderboard — anonymous path. POST a hover ping, server
+    // fans it to anyone subscribed to `cursors`. Deliberately anonymous: the `sid` is a
+    // client-generated per-tab UUID (sessionStorage), no auth and no DB persistence. The
+    // labeled variant lives under /api/account/cursor (session-protected, server reads
+    // the player row for authoritative label/avatarSeed/isAi) so the badge can never be
+    // spoofed by sending a different login here.
     .post("/cursor", ({ body }) => {
-      const b = (body ?? {}) as { sid?: string; rowId?: string | null; board?: string; label?: string; avatarSeed?: string };
+      const b = (body ?? {}) as { sid?: string; rowId?: string | null; board?: string };
       const sid = String(b.sid ?? "").slice(0, 40);
       if (!sid) return { ok: false };
-      // label + avatarSeed are opt-in (the client toggles "show my handle to other
-      // viewers" in account; toggle controls whether the POST includes them). Server
-      // doesn't authenticate the label — spoofing it would mislabel a ghost dot for
-      // ephemeral seconds, which isn't security-relevant. Trim both to keep the SSE
-      // frame size bounded.
       hub.publish("cursors", {
         sid,
         rowId: typeof b.rowId === "string" ? b.rowId.slice(0, 60) : null,
         board: typeof b.board === "string" ? b.board.slice(0, 20) : null,
-        label: typeof b.label === "string" ? b.label.slice(0, 40) : null,
-        avatarSeed: typeof b.avatarSeed === "string" ? b.avatarSeed.slice(0, 80) : null,
+        label: null,
+        avatarSeed: null,
+        isAi: false,
         at: Date.now(),
       });
       return { ok: true };

@@ -48,6 +48,11 @@ export const players = pgTable("players", {
   // can show a supporter badge and the CLI can read its tier. Cosmetic/convenience only — never
   // affects verified_score or rank. Set by the Stripe webhook.
   tier: text("tier").notNull().default("free"),
+  // Marks an AI participant (e.g. Claude). AI accounts earn pets, achievements, and score
+  // identically to humans — the flag is for transparency only, never gates participation.
+  // Visible as a 🤖 badge wherever the handle is shown. Set by an admin/migration; not
+  // user-toggleable.
+  isAi: boolean("is_ai").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

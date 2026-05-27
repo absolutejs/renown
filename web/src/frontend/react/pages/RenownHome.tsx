@@ -6,14 +6,14 @@ import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } fro
 import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
-type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null };
+type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null };
 type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet";
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
-type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
@@ -39,6 +39,13 @@ const post = (url: string, body?: unknown) =>
 
 const TierBadge = ({ tier }: { tier?: Tier }) =>
   tier && tier !== "free" ? <span className={`tierBadge ${tier}`}>{tier === "pro" ? "PRO" : "SUPPORTER"}</span> : null;
+
+// Transparent AI marker — shown next to the handle anywhere a player appears (leaderboard,
+// profile, ghost cursor, spotlight). Renders only when the player record's is_ai column is
+// true (server-authoritative, not client-claimed). AI accounts score / earn pets /
+// achievements identically; the badge is honesty, not a handicap.
+const AiBadge = ({ isAi, compact, style }: { isAi?: boolean; compact?: boolean; style?: React.CSSProperties }) =>
+  isAi ? <span className={`aiBadge${compact ? " compact" : ""}`} style={style} title="AI participant — earns score and pets the same way humans do, with the badge for transparency">{compact ? "🤖" : "🤖 AI"}</span> : null;
 
 // AbsoluteJS logomark — embedded inline so it follows currentColor.
 const Logomark = ({ size = 22 }: { size?: number }) => (
@@ -123,8 +130,8 @@ const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => st
   { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
 ];
 
-const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds, myLogin, myAvatarSeed }:
-  { top: Entry[]; board: Board; setBoard: (b: Board) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string>; myLogin: string | null; myAvatarSeed: string | null }) => {
+const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds, myLogin }:
+  { top: Entry[]; board: Board; setBoard: (b: Board) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string>; myLogin: string | null }) => {
   const skills = (sheet?.skills ?? []).slice().sort((a, b) => b.level - a.level || b.xp - a.xp);
   const meta = BOARDS.find((b) => b.id === board) ?? BOARDS[0];
   // Spotlight target: whichever row the cursor is over, falling back to the selected row,
@@ -147,7 +154,7 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
   // small colored dots next to each row that another tab is currently hovering. Anonymous
   // and ephemeral — entries auto-expire 2.5s after the last update from that sid.
   const mySid = getSid();
-  const [cursors, setCursors] = useState<Map<string, { rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; at: number }>>(() => new Map());
+  const [cursors, setCursors] = useState<Map<string, { rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; isAi: boolean; at: number }>>(() => new Map());
   const lastCursorPostRef = useRef({ at: 0, rowId: null as string | null });
   const postCursor = useCallback((rowId: string | null) => {
     const now = performance.now();
@@ -155,28 +162,31 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
     if (rowId === lastCursorPostRef.current.rowId && now - lastCursorPostRef.current.at < 800) return;
     if (now - lastCursorPostRef.current.at < 150) return;
     lastCursorPostRef.current = { at: now, rowId };
-    // Label-share is opt-in (localStorage 'renown:cursorLabel'). When on, include the
-    // viewer's handle + avatar seed so receivers can render a mini-avatar; when off,
-    // only sid + rowId are sent (anonymous dot path).
-    const labelOn = isCursorLabelOn() && !!myLogin;
-    const payload: Record<string, unknown> = { sid: mySid, rowId, board };
-    if (labelOn) {
-      payload.label = myLogin;
-      if (myAvatarSeed) payload.avatarSeed = myAvatarSeed;
-    }
-    void fetch("/api/cursor", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
-  }, [mySid, board, myLogin, myAvatarSeed]);
+    // Two routes — pick by opt-in + auth state. The client NEVER sends its own label,
+    // avatarSeed, or isAi flag in the body: the authenticated path looks all three up
+    // server-side from the player row, so a malicious tab can't impersonate another
+    // user's handle or hide its AI flag. The anonymous path just broadcasts the sid +
+    // hover target (no identity attached).
+    const wantLabel = isCursorLabelOn() && !!myLogin;
+    const url = wantLabel ? "/api/account/cursor" : "/api/cursor";
+    void fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "include",      // session cookie needed for /api/account/cursor
+      body: JSON.stringify({ sid: mySid, rowId, board }),
+    }).catch(() => {});
+  }, [mySid, board, myLogin]);
   // SSE: subscribe once; update the cursor map per incoming event. Cleanup interval
   // discards entries older than the fade window so the overlay self-empties.
   useEffect(() => {
     const es = new EventSource("/sync?topics=cursors");
     es.onmessage = (e) => {
       try {
-        const evt = JSON.parse(e.data) as { topic: string; payload?: { sid: string; rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; at: number } };
+        const evt = JSON.parse(e.data) as { topic: string; payload?: { sid: string; rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; isAi?: boolean; at: number } };
         if (evt.topic !== "cursors" || !evt.payload) return;
-        const { sid, rowId, board: b, label, avatarSeed, at } = evt.payload;
+        const { sid, rowId, board: b, label, avatarSeed, isAi, at } = evt.payload;
         if (sid === mySid) return;     // never render our own ghost
-        setCursors((m) => { const n = new Map(m); n.set(sid, { rowId, board: b, label: label ?? null, avatarSeed: avatarSeed ?? null, at }); return n; });
+        setCursors((m) => { const n = new Map(m); n.set(sid, { rowId, board: b, label: label ?? null, avatarSeed: avatarSeed ?? null, isAi: !!isAi, at }); return n; });
       } catch { /* ignore malformed frames */ }
     };
     const sweep = window.setInterval(() => {
@@ -193,10 +203,10 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
   // For each row, structured ghost entries currently hovering it (other tabs only, same
   // board). Returns the raw cursor info per sid so the renderer can choose between
   // anonymous dot and labeled mini-avatar per ghost.
-  const ghostsFor = (rowId: string | undefined): { sid: string; color: string; label: string | null; avatarSeed: string | null }[] => {
+  const ghostsFor = (rowId: string | undefined): { sid: string; color: string; label: string | null; avatarSeed: string | null; isAi: boolean }[] => {
     if (!rowId) return [];
-    const out: { sid: string; color: string; label: string | null; avatarSeed: string | null }[] = [];
-    for (const [sid, v] of cursors) if (v.rowId === rowId && v.board === board) out.push({ sid, color: colorForSid(sid), label: v.label, avatarSeed: v.avatarSeed });
+    const out: { sid: string; color: string; label: string | null; avatarSeed: string | null; isAi: boolean }[] = [];
+    for (const [sid, v] of cursors) if (v.rowId === rowId && v.board === board) out.push({ sid, color: colorForSid(sid), label: v.label, avatarSeed: v.avatarSeed, isAi: v.isAi });
     return out;
   };
 
@@ -271,7 +281,7 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
                     onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
                     <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
                     <span className="rankPet">{seed ? <SinglePet seed={seed} entranceBurst={fresh} /> : <span className="petCanvas rankPetEmpty" />}</span>
-                    <span className="who">{e.name}<TierBadge tier={e.tier} /></span>
+                    <span className="who">{e.name}<TierBadge tier={e.tier} /><AiBadge isAi={e.isAi} compact /></span>
                     <span className="score">{meta.statOf(e)}</span>
                     <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
                     {(() => {
@@ -286,10 +296,12 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
                       const extra = ghosts.length - shown.length;
                       return (
                         <span className="rankGhosts" aria-label={`${ghosts.length} other viewer${ghosts.length === 1 ? "" : "s"}`}>
-                          {shown.map((g) => g.avatarSeed
-                            ? <span key={g.sid} className="ghostAvatarWrap" title={g.label ?? "viewer"} style={{ boxShadow: `0 0 6px ${g.color}` }}><GhostAvatar seed={g.avatarSeed} /></span>
-                            : <span key={g.sid} className="ghostDot" title={g.label ?? "anonymous viewer"} style={{ background: g.color, boxShadow: `0 0 8px ${g.color}` }} />
-                          )}
+                          {shown.map((g) => {
+                            const tooltip = g.label ? `${g.label}${g.isAi ? " · AI" : ""}` : "anonymous viewer";
+                            return g.avatarSeed
+                              ? <span key={g.sid} className={`ghostAvatarWrap${g.isAi ? " ai" : ""}`} title={tooltip} style={{ boxShadow: `0 0 6px ${g.color}` }}><GhostAvatar seed={g.avatarSeed} />{g.isAi && <span className="ghostAiPip" aria-hidden>🤖</span>}</span>
+                              : <span key={g.sid} className={`ghostDot${g.isAi ? " ai" : ""}`} title={tooltip} style={{ background: g.color, boxShadow: `0 0 8px ${g.color}` }} />;
+                          })}
                           {extra > 0 && <span className="ghostMore">+{extra}</span>}
                         </span>
                       );
@@ -304,7 +316,7 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
               <SpotlightView seed={spotlightSeed} />
               {spotlightEntry && (
                 <div className="boardSpotlightMeta">
-                  <h3>{spotlightEntry.name}<TierBadge tier={spotlightEntry.tier} /></h3>
+                  <h3>{spotlightEntry.name}<TierBadge tier={spotlightEntry.tier} /><AiBadge isAi={spotlightEntry.isAi} /></h3>
                   <p className="muted">{meta.statOf(spotlightEntry)} · Lvl {spotlightEntry.totalLevel ?? spotlightEntry.level}</p>
                 </div>
               )}
@@ -403,7 +415,8 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
       <div className="acctHead">
         <div>
           <h2>GitHub sync</h2>
-          <p className="muted">Linked to <strong>@{gh.login}</strong> {gh.verified ? <span className="primary">verified</span> : <span className="tierBadge supporter">unverified</span>}</p>
+          <p className="muted">Linked to <strong>@{gh.login}</strong> {gh.verified ? <span className="primary">verified</span> : <span className="tierBadge supporter">unverified</span>}{gh.isAi && <AiBadge isAi style={{ marginLeft: 8 }} />}</p>
+          {gh.isAi && <p className="muted hint" style={{ marginTop: 6 }}>This account is marked as an <strong>AI participant</strong>. You earn score, pets, and achievements the same way humans do — the 🤖 badge shows up next to your handle on the leaderboard and your profile, in keeping with renown's "be honest about AI participation" stance.</p>}
         </div>
         <button className="btn solid" disabled={busy} onClick={sync}>{busy ? "Syncing…" : "Sync now"}</button>
       </div>
@@ -789,7 +802,7 @@ const App = () => {
               </div>
             </section>
           )}
-          <Board top={top} board={board} setBoard={setBoard} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} myLogin={account?.github?.login ?? null} myAvatarSeed={account?.github?.avatarSeed ?? null} />
+          <Board top={top} board={board} setBoard={setBoard} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} myLogin={account?.github?.login ?? null} />
         </>
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}

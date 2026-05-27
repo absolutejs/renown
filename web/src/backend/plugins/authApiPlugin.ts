@@ -8,8 +8,8 @@ import { eq } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
 import { players } from "../../../../db/schema.ts";
-import { SchemaType, User } from "../../../db/schema";
-import { gameDb } from "../sync.ts";
+import { authIdentities, SchemaType, User } from "../../../db/schema";
+import { gameDb, hub } from "../sync.ts";
 import {
   deleteDBAuthIdentityMergeRequest,
   getDBUser,
@@ -21,6 +21,24 @@ import {
 } from "../handlers/userHandlers";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
+
+// Small in-memory cache for the authoritative-cursor lookup. Cursors fire frequently
+// (every hover, throttled at ~150ms client-side) but the (login → avatarSeed/isAi)
+// mapping changes rarely (avatar set, AI flag flipped). Keyed by github login; 30s TTL.
+type CachedPlayerInfo = { login: string; avatarSeed: string | null; isAi: boolean };
+const PLAYER_INFO_TTL_MS = 30_000;
+const playerInfoCache = new Map<string, { value: CachedPlayerInfo; expiresAt: number }>();
+const getCachedPlayerInfo = async (login: string): Promise<CachedPlayerInfo | null> => {
+  const now = Date.now();
+  const hit = playerInfoCache.get(login);
+  if (hit && hit.expiresAt > now) return hit.value;
+  const rows = await gameDb.select().from(players).where(eq(players.githubLogin, login));
+  const p = rows[0];
+  if (!p) { playerInfoCache.delete(login); return null; }
+  const value: CachedPlayerInfo = { login: p.githubLogin ?? login, avatarSeed: p.avatarSeed, isAi: !!p.isAi };
+  playerInfoCache.set(login, { value, expiresAt: now + PLAYER_INFO_TTL_MS });
+  return value;
+};
 
 // The whole account picture in one shape: who you are + every login + any pending merges.
 const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string) => {
@@ -64,6 +82,10 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       petsCount: player?.petsCount ?? 0,
       rarestPetScore: player?.rarestPetScore ?? 0,
       biggestPetSize: player?.biggestPetSize ?? 0,
+      // Server-authoritative AI marker. Set by migration; surfaces a badge in the UI but
+      // never gates scoring/pets/achievements. Cache invalidates on update; for now, this
+      // is set rarely enough that the 30s cursor cache freshness is fine.
+      isAi: !!player?.isAi,
     } : null,
     identities: identities.map((i) => ({
       id: i.id,
@@ -120,6 +142,36 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         return { ok: true, ...(await accountPayload(db, user.sub)) };
       }),
     )
+    // Authoritative ghost-cursor: same fan-out as /api/cursor, but the label, avatarSeed,
+    // and isAi flag are looked up server-side from the player row (by the session's github
+    // login). The client only contributes sid/rowId/board — no way to spoof another user's
+    // handle or pretend to be (or not to be) an AI. Players who haven't linked GitHub yet
+    // fall through to the anonymous path.
+    //
+    // The per-cursor player lookup is cached for 30s (cursors fire frequently; the player
+    // row changes rarely) so we don't beat up Neon during normal hover.
+    .post("/cursor", ({ body, protectRoute }) =>
+      protectRoute(async (user) => {
+        const b = (body ?? {}) as { sid?: string; rowId?: string | null; board?: string };
+        const sid = String(b.sid ?? "").slice(0, 40);
+        if (!sid) return { ok: false };
+        // Resolve github login + player row (cached). authIdentities is the source of truth
+        // for which login owns this auth session.
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login ?? null;
+        const playerInfo = ghLogin ? await getCachedPlayerInfo(ghLogin) : null;
+        hub.publish("cursors", {
+          sid,
+          rowId: typeof b.rowId === "string" ? b.rowId.slice(0, 60) : null,
+          board: typeof b.board === "string" ? b.board.slice(0, 20) : null,
+          label: playerInfo?.login ?? null,
+          avatarSeed: playerInfo?.avatarSeed ?? null,
+          isAi: playerInfo?.isAi ?? false,
+          at: Date.now(),
+        });
+        return { ok: true };
+      }),
+    )
     // Pick which pet is your avatar (shown on your profile + leaderboard hover, etc). Must be
     // a seed you actually own (i.e., present in your wild). Idempotent.
     .post("/avatar", ({ body, protectRoute, status }) =>
@@ -127,7 +179,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const seed = (body as { seed?: string })?.seed;
         if (!seed) return status("Bad Request", "seed required");
         // Resolve the player row by github_login (via auth_identities).
-        const rows = await db.select().from(schema.authIdentities).where(eq(schema.authIdentities.user_sub, user.sub));
+        const rows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
         const ghLogin = (rows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
         if (!ghLogin) return status("Bad Request", "link GitHub first");
         const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
