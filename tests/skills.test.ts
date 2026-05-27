@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CraftResult } from "../core/craft.ts";
+import { AGENTS } from "../core/agents.ts";
 import {
   applyGains,
   awardCraft,
@@ -47,9 +48,10 @@ describe("skills xp curve (OSRS-style)", () => {
 });
 
 describe("the catalog", () => {
-  test("has exactly 100 unique disciplines", () => {
-    expect(SKILLS).toHaveLength(100);
-    expect(new Set(SKILLS.map((sk) => sk.id)).size).toBe(100);
+  test("keeps the original 100 disciplines plus provider agent skills", () => {
+    expect(SKILLS).toHaveLength(100 + AGENTS.length);
+    expect(new Set(SKILLS.map((sk) => sk.id)).size).toBe(SKILLS.length);
+    for (const a of AGENTS) expect(SKILLS.some((sk) => sk.id === a.skillId)).toBe(true);
   });
 });
 

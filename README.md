@@ -5,7 +5,9 @@ quantified-self layer for programming: XP is *earned* by the craft and importanc
 your work (never by commit-count), with thousands of achievements, deep activity
 recaps, and competitive per-project leaderboards. By [AbsoluteJS](https://absolutejs.com).
 
-> Grew out of a personal Claude Code experiment; now its own thing — **editor-agnostic**.
+> Grew out of a personal coding-agent experiment; now its own thing — **editor- and
+> agent-agnostic**, with Claude, Codex, Cursor, Copilot, Aider, Gemini, and friends all
+> treated as first-class participants.
 
 ## Why it's not cheese-able
 XP comes from a **craft engine** that scores each commit by *substance* (generated
@@ -21,6 +23,8 @@ importance multiplier**: open-source ×, GitHub stars (log scale), and contribut
   Neovim, JetBrains, anything) and detects commits. Editor plugins can POST richer
   heartbeats to it (WakaTime-style) later.
 - `cli` — `renown` / `renown recap` TUI + `renown heartbeat`.
+- `core/agents.ts` — universal coding-agent registry used by local stats, agent
+  skills, achievements, and install docs.
 - `server` — Bun API + Drizzle/Neon: `/submit`, `/top`, `/top?project`,
   `/achievements` (catalog + global rarity %).
 - `db` — Drizzle schema + Neon client.
@@ -48,6 +52,7 @@ password before this repo is public.**
 - [x] 10,000-achievement catalog (258 curated + 10.6k generated) + DB seed
 - [x] Universal memory bosses (live `/proc` sampler — any machine, no log files)
 - [x] Editor-agnostic activity daemon (`renown watch`)
+- [x] Coding-agent usage skills (`renown agent codex`, `renown agent claude`, etc.)
 - [x] Server API (`/submit`, `/top`, `/top?project`, `/achievements` + rarity %)
 - [x] Per-project leaderboards end-to-end
 - [ ] Wire the TUI to show live rarity % from the server

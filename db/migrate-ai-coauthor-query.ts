@@ -18,6 +18,7 @@ import { sql } from "./index.ts";
 // trailer signature; keeping this explicit avoids guessing).
 const AI_QUERIES: Record<string, string> = {
   claude: `"Co-authored-by: Claude"`,
+  codex: `"Co-authored-by: Codex"`,
 };
 
 for (const [login, query] of Object.entries(AI_QUERIES)) {

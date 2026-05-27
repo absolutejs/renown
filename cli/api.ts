@@ -1,13 +1,16 @@
 #!/usr/bin/env node
-// Renown CLI — runtime-agnostic HTTP entry. Distinct from cli/index.ts (the full,
-// Bun-flavored CLI that also has the tick/commit/heartbeat/menagerie game commands
-// requiring Bun's `$` and the runtime-state machine). This entry only includes the
-// HTTP-API commands so the bundle works under Node / npm / pnpm / yarn / Deno.
+// Renown CLI — runtime-agnostic entry. Distinct from cli/index.ts (the full,
+// Bun-flavored CLI that also has commit reconciliation / the TUI / creature animation).
+// This file carries HTTP commands plus the small local state commands agents need
+// (`agent`, `statusline`) so the npm-installed binary works in Codex, Claude, Cursor,
+// and other coding-agent runtimes without Bun.
 //
 // Built via:    bun build cli/api.ts --target=node --outfile=dist/cli.mjs
 // Published as: the `renown` bin in package.json
 //
 // Commands exposed here:
+//   agent <provider> / statusline
+//   heartbeat (lightweight HUD refresh + submit; full commit scoring lives in cli/index.ts)
 //   link / sync (via /api/cli/link)
 //   ai-attest [--clear] [--auto] [--webauthn] [--jwt] [--evidence-url]
 //   weekly · ai-stats · digest-test
@@ -16,25 +19,79 @@
 //   scan-commits [--limit N] [--dry-run]
 //
 // Bun-game commands (tick / commit / heartbeat / menagerie / companion / parade /
-// adopt / etc.) are intentionally not here — they require Bun's $ and the local
+// adopt / etc.) are intentionally not here — some require Bun's $ and the richer local
 // state machine. Run those via the full CLI in this repo: `bun run cli/index.ts`.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { run, runSync } from "./proc.ts";
+import { agentById, agentFromEnv, normalizeAgentId } from "../core/agents.ts";
+import { applyGains, skillProgress, topSkills, totalLevel } from "../core/skills.ts";
 
 type AppConfig = { leaderboardEndpoint?: string; playerId?: string; clientId?: string; clientSecret?: string };
 
-// Minimal config-loader — looks at ~/.renown/config.json (XDG_CONFIG_HOME aware).
-// Same shape core/runtime.ts uses; inlined so the bundle stays free of bun deps.
+const HOME = homedir();
+const RDIR = join(HOME, ".renown");
+const STATE = join(RDIR, "state.json");
+const HUD = join(RDIR, "hud.txt");
+
+// Minimal config-loader — accepts the historical XDG path and the current ~/.renown
+// path used by the local engine.
 const loadConfig = (): AppConfig => {
   try {
     const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-    const path = join(base, "renown", "config.json");
-    if (!existsSync(path)) return {};
+    const path = [join(RDIR, "config.json"), join(base, "renown", "config.json")].find((p) => existsSync(p));
+    if (!path) return {};
     return JSON.parse(readFileSync(path, "utf8")) as AppConfig;
   } catch { return {}; }
+};
+
+type LocalState = {
+  v?: number; name?: string; playerId?: string; createdAt?: number;
+  xp?: number; lifetimeXp?: number; streak?: number; ossCommits?: number;
+  achievements?: Record<string, number>; skillXp?: Record<string, number>;
+  agentUses?: Record<string, number>; agentLastUsedAt?: Record<string, number>;
+  stats?: { activeSec?: number }; companion?: string;
+};
+
+const loadLocalState = (): LocalState => {
+  try { return JSON.parse(readFileSync(STATE, "utf8")) as LocalState; } catch {
+    const now = Date.now();
+    return { v: 3, name: "player", playerId: "local", createdAt: now, xp: 0, lifetimeXp: 0, streak: 1, ossCommits: 0, achievements: {}, skillXp: {}, agentUses: {}, agentLastUsedAt: {}, stats: { activeSec: 0 } };
+  }
+};
+const saveLocalState = (s: LocalState) => {
+  mkdirSync(RDIR, { recursive: true });
+  const t = `${STATE}.tmp`;
+  writeFileSync(t, JSON.stringify(s));
+  renameSync(t, STATE);
+};
+const renderLocalHud = (s: LocalState) => {
+  const skx = s.skillXp ?? {};
+  const top = topSkills(skx, 1)[0];
+  const pr = skillProgress(top.xp);
+  const pct = String(pr.pct).padStart(2);
+  return `Lvl${totalLevel(skx)} ${pct}% ${top.def.icon} ${top.def.name} ${top.level}`;
+};
+const submitLocalState = async (s: LocalState, cfg: AppConfig) => {
+  const apiBase = cfg.leaderboardEndpoint?.replace(/\/$/, "");
+  if (!apiBase) return;
+  const body = {
+    id: s.playerId,
+    name: s.name ?? "player",
+    level: 1,
+    xp: s.lifetimeXp ?? 0,
+    streak: s.streak ?? 1,
+    oss: s.ossCommits ?? 0,
+    ach: Object.keys(s.achievements ?? {}).length,
+    active: s.stats?.activeSec ?? 0,
+    totalLevel: totalLevel(s.skillXp ?? {}),
+    skillXp: s.skillXp ?? {},
+    projects: [],
+    unlocked: Object.keys(s.achievements ?? {}),
+  };
+  await fetch(`${apiBase}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(4000) }).catch(() => {});
 };
 
 // gh auth token — used by all auth'd CLI commands. Returns empty string if gh isn't
@@ -102,6 +159,9 @@ const KNOWN_QUIRKS = [
 const usage = () => {
   console.log("renown — HTTP-API CLI (runtime-agnostic; works under Node, Bun, Deno, pnpm, yarn, npm)\n");
   console.log("commands:");
+  console.log("  agent <provider>          count one coding-agent session (codex / claude / cursor / etc.)");
+  console.log("  statusline                print the local renown HUD for shells and agent footers");
+  console.log("  heartbeat                 refresh local HUD and submit current state");
   console.log("  link                     link this install to GitHub (browserless, via gh auth token)");
   console.log("  merit                    refresh PR-review / cross-repo / shipper / maintainer signals");
   console.log("  substance [--limit N]    classify recent commits by substance (RAG when configured)");
@@ -130,6 +190,49 @@ const main = async () => {
   if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") { usage(); return; }
   const cfg = loadConfig();
   const apiBase = cfg.leaderboardEndpoint?.replace(/\/$/, "");
+
+  if (cmd === "statusline" || cmd === "hud") {
+    const s = loadLocalState();
+    const line = existsSync(HUD) ? readFileSync(HUD, "utf8").trim() : renderLocalHud(s);
+    console.log(line);
+    return;
+  }
+
+  if (cmd === "heartbeat") {
+    const s = loadLocalState();
+    mkdirSync(RDIR, { recursive: true });
+    writeFileSync(HUD, renderLocalHud(s));
+    await submitLocalState(s, cfg);
+    if (!hasFlag(rest, "quiet")) console.log(renderLocalHud(s));
+    return;
+  }
+
+  if (cmd === "agent" || ["claude", "codex", "cursor", "copilot", "aider", "gemini", "goose", "windsurf", "openhands", "devin"].includes(cmd)) {
+    const raw = cmd === "agent" ? (rest[0] && !rest[0].startsWith("--") ? rest[0] : undefined) : cmd;
+    const id = normalizeAgentId(raw) ?? agentFromEnv();
+    const a = agentById(id);
+    if (!a) { console.log("usage: renown agent <claude|codex|cursor|copilot|aider|gemini|goose|windsurf|openhands|devin|other> [--count N] [--quiet]"); return; }
+    const count = Math.max(1, Math.min(10000, Number(flag(rest, "count") ?? 1) || 1));
+    const quiet = hasFlag(rest, "quiet") || rest.includes("-q");
+    const s = loadLocalState();
+    s.skillXp ??= {};
+    s.agentUses ??= {};
+    s.agentLastUsedAt ??= {};
+    s.agentUses[a.id] = (s.agentUses[a.id] ?? 0) + count;
+    s.agentLastUsedAt[a.id] = Date.now();
+    const ups = applyGains(s.skillXp, { [a.skillId]: count * 250 });
+    saveLocalState(s);
+    writeFileSync(HUD, renderLocalHud(s));
+    await submitLocalState(s, cfg);
+    if (!quiet) {
+      const pr = skillProgress(s.skillXp[a.skillId] ?? 0);
+      console.log(`${a.icon} ${a.name}: +${count} session${count === 1 ? "" : "s"} (total ${(s.agentUses[a.id] ?? 0).toLocaleString()})`);
+      if (ups.length) for (const u of ups) console.log(`  ${a.name} Lv${u.to}. The agent has been fed; this was probably legal.`);
+      else console.log(`  ${a.blurb} Lv${pr.level}, ${pr.pct}% to next.`);
+    }
+    return;
+  }
+
   if (!apiBase) { console.log("No leaderboard endpoint configured. Set leaderboardEndpoint in ~/.config/renown/config.json."); return; }
 
   // ── link / sync (the original CLI commands re-implemented HTTP-only) ───────

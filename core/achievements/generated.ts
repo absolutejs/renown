@@ -70,7 +70,7 @@ for (const lang of LANGS) {
 }
 
 // boss type × GB tiers
-const BOSSES: [string, string][] = [["tsc", "Type Dragon"], ["ugrep", "Regex Hydra"], ["chromium", "Browser Swarm"], ["claude", "Cloned Legion"], ["bun", "Bun Bunny"], ["node", "Node Golem"], ["esbuild", "Build Wraith"], ["ram", "RAM Wraith"]];
+const BOSSES: [string, string][] = [["tsc", "Type Dragon"], ["ugrep", "Regex Hydra"], ["chromium", "Browser Swarm"], ["claude", "Cloned Legion"], ["codex", "Sandbox Oracle"], ["bun", "Bun Bunny"], ["node", "Node Golem"], ["esbuild", "Build Wraith"], ["ram", "RAM Wraith"]];
 const GB = [1, 2, 4, 8, 12, 16, 24, 32];
 for (const [key, nm] of BOSSES) {
   fams.push({

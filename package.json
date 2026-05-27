@@ -11,6 +11,7 @@
     "dist/cli.mjs",
     "cli/",
     "core/",
+    "integrations/",
     "db/schema.ts",
     "INSTALL.md",
     "README.md"
@@ -56,6 +57,8 @@
     "substance": "bun run cli/index.ts substance",
     "substance-sync": "bun run cli/index.ts substance-sync",
     "rate-limited": "bun run cli/index.ts rate-limited",
+    "agent": "bun run cli/index.ts agent",
+    "statusline": "bun run cli/index.ts statusline",
     "quirk": "bun run cli/index.ts quirk",
     "context-overflow": "bun run cli/index.ts context-overflow",
     "hallucinated": "bun run cli/index.ts hallucinated",

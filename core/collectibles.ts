@@ -41,6 +41,7 @@ export const CATALOG: Collectible[] = [
   { id: "bracket", name: "Lonely Bracket", icon: "❳", rarity: "common", blurb: "Looking for its pair." },
   { id: "byte", name: "A Byte", icon: "🍪", rarity: "common", blurb: "Eight bits of joy." },
   { id: "cursor", name: "Blinking Cursor", icon: "▏", rarity: "common", blurb: "Waiting." },
+  { id: "promptreceipt", name: "Prompt Receipt", icon: "🧾", rarity: "common", blurb: "Proof you paid in tokens." },
   // uncommon
   { id: "hoodie", name: "Hacker Hoodie", icon: "🧥", rarity: "uncommon", blurb: "+2 to looking busy." },
   { id: "glasses", name: "Blue-Light Glasses", icon: "👓", rarity: "uncommon", blurb: "3am insurance." },
@@ -51,6 +52,8 @@ export const CATALOG: Collectible[] = [
   { id: "mechkey", name: "Mechanical Keyboard", icon: "🎹", rarity: "uncommon", blurb: "Clack." },
   { id: "greenci", name: "All-Green CI", icon: "✅", rarity: "uncommon", blurb: "A rare sight." },
   { id: "coldbrew", name: "Cold Brew", icon: "🧊", rarity: "uncommon", blurb: "For the long sessions." },
+  { id: "approvalstamp", name: "Approval Stamp", icon: "✅", rarity: "uncommon", blurb: "The agent asked nicely before touching the rake." },
+  { id: "contextcorkboard", name: "Context Corkboard", icon: "🧷", rarity: "uncommon", blurb: "A place to pin the thing it forgot anyway." },
   // rare
   { id: "goldcommit", name: "Golden Commit", icon: "🪙", rarity: "rare", blurb: "Perfectly atomic." },
   { id: "perfectdiff", name: "The Perfect Diff", icon: "📜", rarity: "rare", blurb: "Net-negative lines." },
@@ -60,6 +63,8 @@ export const CATALOG: Collectible[] = [
   { id: "compass", name: "Debugger's Compass", icon: "🧭", rarity: "rare", blurb: "Points to the stack frame." },
   { id: "prism", name: "Syntax Prism", icon: "🌈", rarity: "rare", blurb: "Highlights everything." },
   { id: "keymaster", name: "Keymaster", icon: "🔑", rarity: "rare", blurb: "Knows every shortcut." },
+  { id: "sandboxkey", name: "Sandbox Key", icon: "🗝️", rarity: "rare", blurb: "Works only after three approvals and a stern look." },
+  { id: "modelswitcher", name: "Model Switcher", icon: "🎚️", rarity: "rare", blurb: "Surely the next model will understand the repo." },
   // epic
   { id: "monocle", name: "Architect's Monocle", icon: "🧐", rarity: "epic", blurb: "Sees the whole system." },
   { id: "phoenix", name: "Phoenix Down", icon: "🔥", rarity: "epic", blurb: "git revert, but stylish." },
@@ -68,6 +73,7 @@ export const CATALOG: Collectible[] = [
   { id: "katana", name: "Refactor Katana", icon: "🗡️", rarity: "epic", blurb: "One clean slice." },
   { id: "beacon", name: "Deploy Beacon", icon: "🚨", rarity: "epic", blurb: "Shipped to prod on a Friday." },
   { id: "anvil", name: "Build Anvil", icon: "⚒️", rarity: "epic", blurb: "Forges the binary." },
+  { id: "statuslinefuse", name: "Status-Line Fuse", icon: "🧨", rarity: "epic", blurb: "Makes terminal chrome legally excessive." },
   // legendary
   { id: "monolith", name: "The Monolith", icon: "🗿", rarity: "legendary", blurb: "It compiles. Nobody knows why." },
   { id: "excalibur", name: "Excalibur", icon: "⚔️", rarity: "legendary", blurb: "The one-character fix that saved prod." },
@@ -76,6 +82,7 @@ export const CATALOG: Collectible[] = [
   { id: "dragon", name: "Slain Type Dragon", icon: "🐉", rarity: "legendary", blurb: "tsc: 0 errors." },
   { id: "halo", name: "The Green Halo", icon: "😇", rarity: "legendary", blurb: "100% coverage, honestly." },
   { id: "ring", name: "The Root Password", icon: "💍", rarity: "legendary", blurb: "One key to rule them all." },
+  { id: "goldendiff", name: "The Golden Diff", icon: "🏆", rarity: "legendary", blurb: "AI changed three lines and only one was decorative." },
   // event-exclusive
   { id: "hacktober", name: "Hacktoberfest Leaf", icon: "🍂", rarity: "event", event: "hacktoberfest", blurb: "Four PRs and a T-shirt." },
   { id: "pumpkin", name: "Pumpkin Bug", icon: "🎃", rarity: "event", event: "halloween", blurb: "Spooky segfault." },

@@ -3,7 +3,7 @@
 // achievements are badges (the 10k catalog) recorded with their unlock date.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { type Boss, type Quest, type State, type Stats, levelInfo } from "./state.ts";
-import { MAX_TOTAL_LEVEL, SKILLS, fmtBig, maxedCount, skillProgress, topSkills, totalLevel } from "./skills.ts";
+import { MAX_TOTAL_LEVEL, SKILLS, displayLevelForSkill, fmtBig, isAgentSkill, maxedCount, skillProgress, topSkills, totalLevel } from "./skills.ts";
 import { gradientBar, rainbow } from "./shiny.ts";
 import { face, generate } from "./procgen.ts";
 
@@ -45,6 +45,7 @@ export function bossFor(comm: string): { key: string; name: string; emoji: strin
   if (c.includes("ugrep") || c.includes("grep")) return { key: "ugrep", name: "Regex Hydra", emoji: "🐍" };
   if (c.includes("chrom") || c.includes("headless")) return { key: "chromium", name: "Browser Swarm", emoji: "🕷️" };
   if (c.includes("claude")) return { key: "claude", name: "Cloned Legion", emoji: "🤖" };
+  if (c.includes("codex")) return { key: "codex", name: "Sandbox Oracle", emoji: "🧠" };
   if (c.includes("bun")) return { key: "bun", name: "Bun Bunny", emoji: "🐰" };
   if (c.includes("node")) return { key: "node", name: "Node Golem", emoji: "🗿" };
   if (c.includes("esbuild") || c.includes("vite") || c.includes("webpack")) return { key: "esbuild", name: "Build Wraith", emoji: "🔨" };
@@ -89,7 +90,7 @@ export function freshState(): State {
     v: STATE_V, name: cfg.playerName, playerId: cfg.playerId, createdAt: now,
     xp: 0, lifetimeXp: 0, streak: 1, lastActiveDay: new Date().toISOString().slice(0, 10),
     commits: 0, linesAdded: 0, bossesSurvived: 0, secondsHealthy: 0, ossCommits: 0, extCommits: 0, starsTouched: 0, topStars: 0,
-    langs: {}, hours: {}, days: {}, skillXp: {}, collectibles: {}, wild: [], achievements: {}, bestiary: {},
+    langs: {}, hours: {}, days: {}, skillXp: {}, agentUses: {}, agentLastUsedAt: {}, collectibles: {}, wild: [], achievements: {}, bestiary: {},
     questDay: "", quests: [], repoHeads: {}, recentFp: [], craftDay: "", craftXpToday: 0, maxMem: 0,
     lastTick: 0, lastLogScanTs: 0, lastBossTs: 0, best: { xpInDay: 0, level: 1, streak: 1 },
     stats: emptyStats(), projects: {}, langsDeep: {},
@@ -101,6 +102,8 @@ export function freshState(): State {
 // lifetime grind seeds the headline Shipping skill once, so nobody starts from scratch.
 export function ensureSkills(s: State) {
   s.skillXp ??= {};
+  s.agentUses ??= {};
+  s.agentLastUsedAt ??= {};
   if (s.skillXp.shipping === undefined && s.lifetimeXp > 0) s.skillXp.shipping = s.lifetimeXp;
   s.collectibles ??= {};
   s.wild ??= [];
@@ -153,13 +156,14 @@ export function renderGreet(s: State): string {
 // Full skill sheet for `renown skills` — every discipline, highest first.
 export function renderSkillList(s: State): string {
   const skx = s.skillXp ?? {};
-  const rows = SKILLS.map((sk) => { const xp = skx[sk.id] ?? 0; const pr = skillProgress(xp); return { sk, xp, lvl: pr.level, pct: pr.pct }; })
+  const rows = SKILLS.map((sk) => { const xp = skx[sk.id] ?? 0; const pr = skillProgress(xp); return { sk, xp, lvl: displayLevelForSkill(sk.id, xp), pct: pr.pct }; })
     .sort((a, b) => b.lvl - a.lvl || b.xp - a.xp);
   const head = `${C.b}${C.mag}Total Level ${totalLevel(skx)}${C.r}${C.dim}/${MAX_TOTAL_LEVEL}${C.r}  ${C.gold}${maxedCount(skx)} maxed${C.r}  ${C.dim}${SKILLS.length} skills${C.r}`;
   // fixed-width columns (level · bar · %) lead so they align; emoji+name trail freely.
   const lines = rows.map(({ sk, xp, lvl, pct }) => {
     const lc = lvl >= 99 ? C.gold : lvl >= 50 ? C.grn : lvl >= 20 ? C.yel : C.r;
-    const badge = lvl >= 99 ? rainbow(`Lv${lvl}`) : `${lc}Lv${String(lvl).padStart(2)}${C.r}`;
+    const label = isAgentSkill(sk.id) && lvl > 99 ? `Lv${lvl}` : `Lv${String(lvl).padStart(2)}`;
+    const badge = lvl >= 99 ? rainbow(label) : `${lc}${label}${C.r}`;
     return `  ${badge} ${gradientBar(pct, 10)} ${C.dim}${String(pct).padStart(3)}%${C.r} ${sk.icon} ${sk.name} ${C.dim}${fmtBig(xp)}xp${C.r}`;
   });
   return [head, ...lines].join("\n");

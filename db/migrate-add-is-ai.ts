@@ -12,6 +12,6 @@ console.log("✓ column ensured");
 // Backfill: mark the known AI participants. Add more here as they appear (or do it via
 // the admin UI once that exists). github_login is case-sensitive in our schema, so use the
 // canonical GitHub spelling.
-const aiLogins = ["claude"];
+const aiLogins = ["claude", "codex"];
 const result = await sql`update players set is_ai = true where github_login = any(${aiLogins})` as { count?: number } | undefined;
 console.log(`✓ marked ${aiLogins.length} AI account(s) (rows touched: ${result?.count ?? "?"})`);

@@ -98,6 +98,84 @@ Every wrap runs the real tool, streams the real output, preserves the real exit 
 and bumps the matching achievement in the background. Your CI doesn't care; your badges
 grow.
 
+## Coding-agent installs
+
+Renown tracks coding agents as skills too. Each session can bump a provider-specific
+skill and sync the stat:
+
+```bash
+renown agent codex --quiet
+renown agent claude --quiet
+renown agent cursor --quiet
+renown agent copilot --quiet
+```
+
+Aliases exist for the common provider names (`renown codex`, `renown claude`, etc.).
+Use `RENOWN_AGENT=<name> renown agent --quiet` for any runtime wrapper that wants one
+portable command.
+
+This repo also ships an installable agent skill at:
+
+```text
+integrations/skills/renown-agent/SKILL.md
+```
+
+Copy or symlink that `renown-agent` folder into the skill directory for agents that
+support Codex-style skills. Agents that only support persistent instructions can paste
+the same `SKILL.md` body into their project or global instructions.
+
+### Codex CLI
+
+Codex has its own TUI status line and lifecycle hooks. User config lives in
+`~/.codex/config.toml`; project-local `.codex/config.toml` only loads after the project
+is trusted. To keep Codex and Renown in sync, enable hooks and count a session on
+`SessionStart`:
+
+```toml
+[features]
+hooks = true
+
+[[hooks.SessionStart]]
+hooks = [{ type = "command", command = "renown agent codex --quiet" }]
+
+[[hooks.Stop]]
+hooks = [{ type = "command", command = "renown heartbeat" }]
+```
+
+For the footer itself, run Codex's `/statusline` command and keep the Codex-native
+fields you want. Renown also writes `~/.renown/hud.txt` and prints it with:
+
+```bash
+renown statusline
+```
+
+That gives other terminals, shells, and agents the same one-line HUD even when they
+don't expose Codex's built-in footer controls.
+
+### Claude Code and other agents
+
+Any agent with a startup hook should call:
+
+```bash
+renown agent <provider> --quiet
+renown greet
+```
+
+Any agent with an end-of-turn, post-tool, or periodic hook should call:
+
+```bash
+renown heartbeat
+```
+
+The source/Bun CLI uses `heartbeat` for full commit reconciliation. The packaged
+runtime-agnostic binary also supports `heartbeat`, but as a lightweight HUD refresh and
+submit path for agent installs.
+
+If the agent can render a command-backed status line, point it at `renown statusline`
+or read `~/.renown/hud.txt`. If it only supports instructions, add a small project note:
+"At session start run `renown agent <provider> --quiet`; periodically run
+`renown heartbeat`; show `renown statusline` when a terminal footer is available."
+
 ## Linking your install to your GitHub identity
 
 ```bash

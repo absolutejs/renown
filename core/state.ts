@@ -20,6 +20,8 @@ export interface State {
   ossCommits: number; extCommits: number; starsTouched: number; topStars: number;
   langs: Record<string, number>; hours: Record<string, number>; days: Record<string, number>;
   skillXp: Record<string, number>;
+  agentUses?: Record<string, number>;
+  agentLastUsedAt?: Record<string, number>;
   collectibles: Record<string, { at: number; count: number }>;
   wild: string[];                 // seeds of procedurally-generated wild creatures found
   companion?: string;             // seed of the wild creature you've adopted as your pet

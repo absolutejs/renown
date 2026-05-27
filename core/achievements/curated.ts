@@ -204,9 +204,16 @@ add("brownfield", "Brownfield", "Earn XP across 10 projects", "Culture", "gold",
 
 // ── AI / agents (the origin) ──────────────────────────────────────────────────
 add("prompt-engineer", "Prompt Engineer", "Reach level 6", "AI", "bronze", "secret", s => level(s) >= 6);
-add("agent-wrangler", "Agent Wrangler", "Survive the cloned-legion memory boss", "AI", "gold", "secret", s => (s.bestiary.claude?.count ?? 0) >= 1);
+add("agent-wrangler", "Agent Wrangler", "Survive an AI-flavored memory boss", "AI", "gold", "secret", s => (s.bestiary.claude?.count ?? 0) + (s.bestiary.codex?.count ?? 0) >= 1);
 add("vibe-coder", "Vibe Coder", "Earn 2,000 XP", "AI", "silver", "secret", s => s.lifetimeXp >= 2000);
 add("human-in-loop", "Human in the Loop", "Author commits across 20 different days", "AI", "silver", "secret", s => Object.keys(s.stats.daily).length >= 20);
+add("agent-first-contact", "First Contact", "Use a coding agent once and pretend this was all your idea", "AI", "bronze", "shown", s => Object.values(s.agentUses ?? {}).reduce((a, b) => a + b, 0) >= 1);
+add("codex-convert", "Codex Convert", "10 Codex sessions. The sandbox now has a punch card.", "AI", "silver", "shown", s => (s.agentUses?.codex ?? 0) >= 10);
+add("claude-regular", "Claude Regular", "10 Claude sessions. You know exactly when to start a new chat and still don't.", "AI", "silver", "shown", s => (s.agentUses?.claude ?? 0) >= 10);
+add("agent-polyglot", "Model Shopper", "Use three different coding agents", "AI", "gold", "shown", s => Object.values(s.agentUses ?? {}).filter(n => n > 0).length >= 3);
+add("agent-committee", "The Committee Has Notes", "100 coding-agent sessions. Somehow the meeting got longer.", "AI", "platinum", "secret", s => Object.values(s.agentUses ?? {}).reduce((a, b) => a + b, 0) >= 100);
+add("agent-burner-phone", "Provider Burner Phone", "Use five different coding agents", "AI", "platinum", "secret", s => Object.values(s.agentUses ?? {}).filter(n => n > 0).length >= 5);
+add("agent-singularity-intern", "Singularity Intern", "1,000 coding-agent sessions. Still asks whether to run tests.", "AI", "mythic", "secret", s => Object.values(s.agentUses ?? {}).reduce((a, b) => a + b, 0) >= 1000);
 
 // ── Secret / cryptic legends ──────────────────────────────────────────────────
 add("the-chosen", "The Chosen One", "??????????", "Secret", "mythic", "secret", s => level(s) >= 42);

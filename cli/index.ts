@@ -5,6 +5,8 @@
 //   commit <repo>    → fast reconcile of one repo
 //   recap            → one-shot Recap view
 //   heartbeat        → register cwd's repo + tick (the entry editors/agents call)
+//   agent <provider> → count one coding-agent session and train the provider skill
+//   statusline       → print the current renown HUD for shells/agent footers
 //   greet            → one-line "welcome back" (streak + level), for session start
 //   skills           → full skill sheet (all disciplines, levels + xp)
 //   parade           → queue a sample celebration parade onto the status line
@@ -29,6 +31,8 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { HUD, WATCHED, loadConfig, loadState, renderGreet, renderHud, renderSkillList, saveState } from "../core/runtime.ts";
 import { runEvent } from "../core/event.ts";
 import { run, runSync } from "./proc.ts";
+import { agentById, agentFromEnv, normalizeAgentId } from "../core/agents.ts";
+import { applyGains, skillById, skillProgress, totalLevel } from "../core/skills.ts";
 
 // gh auth token is needed by ~7 commands; pull it once via the shim so the CLI works
 // under Bun, Node, or any runtime with node:child_process. Trim + empty-string check
@@ -229,6 +233,60 @@ switch (cmd) {
   case "tick": await runEvent("tick"); break;
   case "commit": await runEvent("commit", arg); break;
   case "heartbeat": registerCwdRepo(); await runEvent("tick"); break;
+  case "statusline":
+  case "hud": console.log(renderHud(loadState())); break;
+  case "agent":
+  case "claude":
+  case "codex":
+  case "cursor":
+  case "copilot":
+  case "aider":
+  case "gemini":
+  case "goose":
+  case "windsurf":
+  case "openhands":
+  case "devin": {
+    const args = process.argv.slice(3);
+    const flag = (name: string): string | undefined => {
+      const i = args.findIndex((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+      if (i < 0) return undefined;
+      if (args[i].includes("=")) return args[i].split("=", 2)[1];
+      return args[i + 1];
+    };
+    const quiet = args.includes("--quiet") || args.includes("-q");
+    const raw = cmd === "agent" ? (arg && !arg.startsWith("--") ? arg : undefined) : cmd;
+    const id = normalizeAgentId(raw) ?? agentFromEnv();
+    const a = agentById(id);
+    if (!a) { console.log("usage: renown agent <claude|codex|cursor|copilot|aider|gemini|goose|windsurf|openhands|devin|other> [--count N] [--quiet]"); break; }
+    const count = Math.max(1, Math.min(10000, Number(flag("count") ?? 1) || 1));
+    const st = loadState();
+    const beforeTotal = totalLevel(st.skillXp ?? {});
+    st.agentUses ??= {};
+    st.agentLastUsedAt ??= {};
+    st.agentUses[a.id] = (st.agentUses[a.id] ?? 0) + count;
+    st.agentLastUsedAt[a.id] = Date.now();
+    const levelUps = applyGains(st.skillXp, { [a.skillId]: count * 250 });
+    const afterTotal = totalLevel(st.skillXp ?? {});
+    writeFileSync(HUD, renderHud(st));
+    saveState(st);
+    const cfg = loadConfig();
+    if (cfg.leaderboardEndpoint) {
+      const { submit } = await import("../core/leaderboard.ts");
+      await submit(st, cfg).catch(() => {});
+    }
+    if (!quiet) {
+      const total = st.agentUses[a.id] ?? 0;
+      const pr = skillProgress(st.skillXp[a.skillId] ?? 0);
+      console.log(`${a.icon} ${a.name}: +${count} session${count === 1 ? "" : "s"} (total ${total.toLocaleString()})`);
+      for (const u of levelUps) {
+        const sk = skillById(u.id);
+        if (sk) console.log(`  ${sk.icon} ${sk.name} Lv${u.to}. The agent has been fed; this was probably legal.`);
+      }
+      if (afterTotal > beforeTotal) console.log(`  Total level ${beforeTotal} → ${afterTotal}`);
+      if (!levelUps.length) console.log(`  ${a.blurb} Lv${pr.level}, ${pr.pct}% to next.`);
+    }
+    break;
+  }
   case "greet": console.log(renderGreet(loadState())); break;
   case "skills": console.log(renderSkillList(loadState())); break;
   case "parade": {
@@ -809,6 +867,9 @@ switch (cmd) {
   }
   case "recap": { process.env.DQ_TAB = "5"; process.env.DQ_ONESHOT = "1"; const { runTui } = await import("./quest.ts"); await runTui(); break; }
   case "watch": { const { runDaemon } = await import("../core/daemon.ts"); await runDaemon(); break; }
+  case "help":
+    console.log("usage: renown [tick|sync|commit <repo>|recap|heartbeat|agent <provider>|statusline|greet|skills|collection|summon|menagerie|adopt|companion|parade|gallery|link|watch]");
+    break;
   case undefined: case "": { const { runTui } = await import("./quest.ts"); await runTui(); break; }
-  default: console.log("usage: renown [tick|sync|commit <repo>|recap|heartbeat|greet|skills|collection|summon|menagerie|adopt|companion|parade|gallery|link|watch]");
+  default: console.log("usage: renown [tick|sync|commit <repo>|recap|heartbeat|agent <provider>|statusline|greet|skills|collection|summon|menagerie|adopt|companion|parade|gallery|link|watch]");
 }

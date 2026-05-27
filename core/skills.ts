@@ -7,6 +7,7 @@
 // trains Shipping + Testing + Open Source, RuneScape-style.
 
 import type { CraftResult } from "./craft.ts";
+import { AGENTS } from "./agents.ts";
 
 export const MAX_LEVEL = 99;
 
@@ -155,6 +156,14 @@ const LANGS: [string, string, string, string[]][] = [
   ["protobuf", "Protobuf", "🧩", [".proto"]]
 ];
 
+const AGENT_SKILLS: SkillDef[] = AGENTS.map((a) => ({
+  id: a.skillId,
+  name: a.name,
+  icon: a.icon,
+  blurb: a.blurb,
+  route: () => 0,
+}));
+
 export const SKILLS: SkillDef[] = [
   // --- craft / meta (12) ---
   { id: "shipping", name: "Shipping", icon: "🚢", blurb: "Substance shipped — every commit feeds it.", route: (c) => c.xp },
@@ -219,6 +228,10 @@ export const SKILLS: SkillDef[] = [
   { id: "polish", name: "Polish", icon: "💄", blurb: "UX, styling and finishing touches.", route: (c) => (said(c, /\b(polish|ux|ui|tweak|cosmetic|spacing|layout|design)\b/i) ? c.xp : 0) },
   { id: "datacraft", name: "Data & Markup", icon: "📋", blurb: "JSON, YAML, XML, CSV.", route: (c) => (ext(c, ".json", ".yaml", ".yml", ".xml", ".csv") ? c.xp : 0) },
   { id: "automation", name: "Automation", icon: "🦾", blurb: "Scripts, crons, workflows.", route: (c) => (said(c, /\b(automat|script|cron|workflow)\b/i) || inPath(c, /(scripts?\/|automation)/) ? c.xp : 0) }
+  ,
+
+  // --- coding agents (tracked by `renown agent`, not by commit routing) ---
+  ...AGENT_SKILLS
 ];
 
 export const SKILL_IDS = SKILLS.map((sk) => sk.id);
@@ -252,6 +265,8 @@ export const totalLevel = (ledger: SkillXp) => SKILLS.reduce((sum, sk) => sum + 
 export const totalXp = (ledger: SkillXp) => SKILLS.reduce((sum, sk) => sum + (ledger[sk.id] ?? 0), 0);
 export const maxedCount = (ledger: SkillXp) => SKILLS.filter((sk) => levelForXp(ledger[sk.id] ?? 0) >= MAX_LEVEL).length;
 export const MAX_TOTAL_LEVEL = MAX_LEVEL * SKILLS.length;
+export const displayLevelForSkill = (id: string, xp: number) => id.startsWith("agent-") ? virtualLevelForXp(xp) : levelForXp(xp);
+export const isAgentSkill = (id: string) => id.startsWith("agent-");
 
 // Highest skill(s) — used by the HUD to show your best strength at a glance.
 export const topSkills = (ledger: SkillXp, n = 1) =>
