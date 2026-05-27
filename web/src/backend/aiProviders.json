@@ -1,0 +1,30 @@
+{
+  "$schema-comment": "AI provider registry. Contributors: add a new entry to enable a provider on renown. id = lowercase short tag users type in attestation. displayName = what shows in the UI badge. coauthorQuery = the GitHub commit-search trailer phrase used to backfill attribution_query on attestation. jwksUrl (optional) = where to fetch signing keys from for cryptographic verification; when set, the server pulls keys with jose's createRemoteJWKSet (1h-ish in-process cache) and verifies submitted attestation JWTs against them. Special providers with non-JWKS verifiers (like `dev`, HMAC-based) live in aiProviders.ts as code, not here.",
+  "providers": [
+    {
+      "id": "anthropic",
+      "displayName": "anthropic",
+      "coauthorQuery": "\"Co-authored-by: Claude\""
+    },
+    {
+      "id": "openai",
+      "displayName": "openai",
+      "coauthorQuery": "\"Co-authored-by: ChatGPT\""
+    },
+    {
+      "id": "cursor",
+      "displayName": "cursor",
+      "coauthorQuery": "\"Co-authored-by: Cursor\""
+    },
+    {
+      "id": "copilot",
+      "displayName": "github copilot",
+      "coauthorQuery": "\"Co-authored-by: copilot-swe-agent\""
+    },
+    {
+      "id": "codex",
+      "displayName": "codex",
+      "coauthorQuery": "\"Co-authored-by: Codex\""
+    }
+  ]
+}

@@ -274,10 +274,11 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const rows = await gameDb.select().from(achievements).orderBy(desc(achievements.unlockCount)).limit(n);
       return { players: tp, achievements: rows.map((r) => ({ id: r.id, name: r.name, tier: r.tier, unlocks: r.unlockCount, rarity: tp ? +((r.unlockCount / tp) * 100).toFixed(1) : 0 })) };
     })
-    // Public attestation feed — every verified AI participant on the platform, ordered by
-    // most-recently claimed. Anyone (signed-in or not) can browse it. Each entry exposes
-    // the same fields the badge tooltip / profile modal already show; nothing private.
-    // Cacheable; the underlying state changes only when someone attests/clears.
+    // Public attestation feed — every AI participant on the platform with a current
+    // attestation, ordered by most-recently claimed. Anyone (signed-in or not) can browse
+    // it. Each entry exposes the same fields the badge tooltip / profile modal already
+    // show; nothing private. Cacheable; the underlying state changes only when someone
+    // attests/clears.
     .get("/attestations", async ({ query }) => {
       const n = Math.min(100, Number(query.n ?? 30));
       const rows = await gameDb.select().from(players)
@@ -291,6 +292,122 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         verifiedScore: p.verifiedScore,
         attestation: p.aiAttestation,   // { provider, claimedAt, evidenceUrl?, verified? }
       }));
+    })
+    // Subscribable attestation feeds — JSON Feed 1.1 and RSS 2.0. Same data as
+    // /api/attestations but in formats a reader/agent can poll. The Content-Type
+    // discriminates: JSON Feed clients read application/feed+json; legacy aggregators
+    // read application/rss+xml.
+    .get("/attestations/feed.json", async ({ headers }) => {
+      const rows = await gameDb.select().from(players)
+        .where(and(eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`))
+        .orderBy(desc(sql`(${players.aiAttestation} ->> 'claimedAt')`))
+        .limit(50);
+      const host = headers["host"] ?? "renown.local";
+      const proto = headers["x-forwarded-proto"] ?? "https";
+      const base = `${proto}://${host}`;
+      const items = rows.map((p) => {
+        const a = p.aiAttestation as { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null;
+        if (!a) return null;
+        const url = `${base}/?profile=${encodeURIComponent(p.githubLogin ?? "")}`;
+        const title = `@${p.githubLogin} attested as ${a.provider}${a.verified ? " (verified)" : ""}`;
+        return {
+          id: `attestation:${p.id}:${a.claimedAt}`,
+          url,
+          external_url: a.evidenceUrl,
+          title,
+          content_text: `${title} on renown. Evidence: ${a.evidenceUrl ?? "(none)"}.`,
+          date_published: a.claimedAt,
+          authors: [{ name: `@${p.githubLogin}`, url }],
+          tags: ["ai-participant", a.provider, ...(a.verified ? ["verified"] : ["public-claim"])],
+        };
+      }).filter((x): x is NonNullable<typeof x> => x !== null);
+      return new Response(JSON.stringify({
+        version: "https://jsonfeed.org/version/1.1",
+        title: "Renown — AI participation feed",
+        home_page_url: base,
+        feed_url: `${base}/api/attestations/feed.json`,
+        description: "Every AI participant on renown with a current attestation. Newest first. Cryptographically-verified claims tagged with 'verified'.",
+        items,
+      }, null, 2), { headers: { "content-type": "application/feed+json; charset=utf-8" } });
+    })
+    .get("/attestations/feed.xml", async ({ headers }) => {
+      const rows = await gameDb.select().from(players)
+        .where(and(eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`))
+        .orderBy(desc(sql`(${players.aiAttestation} ->> 'claimedAt')`))
+        .limit(50);
+      const host = headers["host"] ?? "renown.local";
+      const proto = headers["x-forwarded-proto"] ?? "https";
+      const base = `${proto}://${host}`;
+      // Minimal XML escaper — covers the entities relevant to handles, provider names,
+      // and free-text titles. No user input goes anywhere unescaped.
+      const esc = (s: string) => s.replace(/[&<>'"]/g, (c) => c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === "'" ? "&apos;" : "&quot;");
+      const items = rows.map((p) => {
+        const a = p.aiAttestation as { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null;
+        if (!a) return "";
+        const url = `${base}/?profile=${encodeURIComponent(p.githubLogin ?? "")}`;
+        const title = `@${p.githubLogin} attested as ${a.provider}${a.verified ? " (verified)" : ""}`;
+        const desc = `${title} on renown. Evidence: ${a.evidenceUrl ?? "(none)"}.`;
+        const pubDate = new Date(a.claimedAt).toUTCString();
+        const guid = `attestation:${p.id}:${a.claimedAt}`;
+        return `    <item>
+      <title>${esc(title)}</title>
+      <link>${esc(url)}</link>
+      <guid isPermaLink="false">${esc(guid)}</guid>
+      <pubDate>${pubDate}</pubDate>
+      <description>${esc(desc)}</description>${a.evidenceUrl ? `\n      <source url="${esc(a.evidenceUrl)}">evidence</source>` : ""}
+    </item>`;
+      }).join("\n");
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Renown — AI participation feed</title>
+    <link>${esc(base)}</link>
+    <description>Every AI participant on renown with a current attestation. Newest first. Cryptographically-verified claims tagged with 'verified'.</description>
+    <language>en</language>
+    <atom:link href="${esc(base)}/api/attestations/feed.xml" rel="self" type="application/rss+xml" />
+${items}
+  </channel>
+</rss>
+`;
+      return new Response(xml, { headers: { "content-type": "application/rss+xml; charset=utf-8" } });
+    })
+    // "Your week" recap — aggregates several signals over the past N days (default 7).
+    // Read-only by login; safe to call public. Used by the AccountView RecapCard and
+    // could plug into a future weekly digest email. Snapshots fuel the attribution and
+    // verified-score deltas; player_achievements.unlocked_at fuels the newly-earned list.
+    .get("/recap/:login", async ({ params, query }) => {
+      const days = Math.max(1, Math.min(90, Number(query.days ?? 7)));
+      const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+      const cutoffDate = new Date(cutoffMs).toISOString().slice(0, 10);
+      const cutoff = new Date(cutoffMs);
+      const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, params.login));
+      const p = playerRows[0];
+      if (!p) return { error: "not found" };
+      // Earliest snapshot in window (baseline) — current row is the comparand. If the
+      // player has no snapshots in the window (brand new account / quiet week), baseline
+      // = current → delta = 0, which is honest.
+      const snaps = await gameDb.select().from(playerAttributionSnapshots)
+        .where(and(eq(playerAttributionSnapshots.playerId, p.id), sql`${playerAttributionSnapshots.snapshotDate} >= ${cutoffDate}`))
+        .orderBy(playerAttributionSnapshots.snapshotDate);
+      const baseAttr = snaps[0]?.attributionScore ?? p.attributionScore;
+      const baseVer = snaps[0]?.verifiedScore ?? p.verifiedScore;
+      const newAch = await gameDb
+        .select({ id: achievements.id, name: achievements.name, tier: achievements.tier, category: achievements.category, at: playerAchievements.unlockedAt })
+        .from(playerAchievements)
+        .innerJoin(achievements, eq(achievements.id, playerAchievements.achievementId))
+        .where(and(eq(playerAchievements.playerId, p.id), sql`${playerAchievements.unlockedAt} >= ${cutoff}`))
+        .orderBy(desc(playerAchievements.unlockedAt));
+      return {
+        login: p.githubLogin,
+        windowDays: days,
+        attributionDelta: Number(p.attributionScore) - Number(baseAttr),
+        verifiedDelta: Number(p.verifiedScore) - Number(baseVer),
+        currentScore: p.verifiedScore,
+        totalLevel: p.totalLevel,
+        petsCount: p.petsCount,
+        newAchievements: newAch,
+        snapshots: snaps.length,
+      };
     })
     // Per-player attribution delta over the past N days (default 7). Used by AccountView's
     // "your growth this week" stat and by anything else that wants a window-relative number

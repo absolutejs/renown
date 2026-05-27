@@ -568,6 +568,54 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
   );
 };
 
+// Weekly recap — pulls /api/recap/:login (attribution delta + verified delta +
+// achievements granted in the window). Renders on AccountView; honest about empty
+// weeks (shows "no growth this week" rather than fake numbers).
+type RecapPayload = { login: string; windowDays: number; attributionDelta: number; verifiedDelta: number; currentScore: number; totalLevel: number; petsCount: number; newAchievements: { id: string; name: string; tier: string; category: string; at: string }[]; snapshots: number };
+const RecapCard = ({ login }: { login: string }) => {
+  const [r, setR] = useState<RecapPayload | null>(null);
+  useEffect(() => {
+    fetch(`/api/recap/${encodeURIComponent(login)}?days=7`).then((res) => res.json()).then(setR).catch(() => {});
+  }, [login]);
+  if (!r) return null;
+  const empty = r.attributionDelta === 0 && r.verifiedDelta === 0 && r.newAchievements.length === 0;
+  return (
+    <section className="card recapCard">
+      <h2>Your past week <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· last {r.windowDays} days</span></h2>
+      {empty ? (
+        <p className="muted hint">No growth or new unlocks this week — quiet stretches are normal. Push some commits, then <code>renown sync</code> or click <em>Sync now</em> above.</p>
+      ) : (
+        <>
+          <div className="syncStats">
+            <div className="stat" title="Verified score added this week">
+              <span className="num" style={{ color: r.verifiedDelta > 0 ? "#86efac" : undefined }}>{r.verifiedDelta > 0 ? "+" : ""}{r.verifiedDelta.toLocaleString()}</span>
+              <span className="lbl">verified score</span>
+            </div>
+            <div className="stat" title="Attribution score added this week (commits where you're credited)">
+              <span className="num" style={{ color: r.attributionDelta > 0 ? "#86efac" : undefined }}>{r.attributionDelta > 0 ? "+" : ""}{r.attributionDelta.toLocaleString()}</span>
+              <span className="lbl">attributions</span>
+            </div>
+            <div className="stat" title="Achievements earned this week">
+              <span className="num" style={{ color: r.newAchievements.length > 0 ? "#86efac" : undefined }}>{r.newAchievements.length}</span>
+              <span className="lbl">new achievements</span>
+            </div>
+          </div>
+          {r.newAchievements.length > 0 && (
+            <div className="achList" style={{ marginTop: 12 }}>
+              {r.newAchievements.map((a) => (
+                <div key={a.id} className={`achChip tier-${a.tier}`} title={`${a.category} · earned ${new Date(a.at).toLocaleDateString()}`}>
+                  <span className="achName">{a.name}</span>
+                  <span className="achTier">{a.tier}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+};
+
 // "Your growth this week" stat. Reads /api/growth/:login (7-day attribution delta from
 // the snapshot series). Sits in the GithubSyncCard's syncStats row so the player can see
 // their weekly trend next to their absolute score. Shows "—" until a full 7 days of
@@ -808,6 +856,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
       </section>
 
       <GithubSyncCard gh={account.github} refresh={refresh} onBanner={onBanner} onSummon={onSummon} />
+      {account.github && <RecapCard login={account.github.login} />}
       {account.github && <AiAttestationCard gh={account.github} act={act} />}
       {account.achievements && <AchievementsPanel items={account.achievements} title="Your achievements" />}
       {account.github && account.github.wild.length > 0 && (
