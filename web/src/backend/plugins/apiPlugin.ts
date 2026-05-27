@@ -10,6 +10,7 @@ import { achievements, aiAttestationEvents, playerAchievements, playerAttributio
 import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { computeMeritScore, fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
+import { loadProfile } from "../profile.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { QUIRKS } from "../quirks.ts";
 import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
@@ -145,61 +146,12 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.
     .get("/profile/:login", async ({ params }) => {
-      const rows = await gameDb.select().from(players).where(and(eq(players.githubLogin, params.login), eq(players.githubVerified, true)));
-      const p = rows[0];
-      if (!p) return { error: "not found" };
-      // Earned achievements — join player_achievements with the catalog so the response
-      // includes display fields (name/description/tier/category) ready for the UI panel.
-      // No client-side catalog lookup needed; one round-trip is enough.
-      const ach = await gameDb
-        .select({ id: achievements.id, name: achievements.name, description: achievements.description, tier: achievements.tier, category: achievements.category, unlockCount: achievements.unlockCount })
-        .from(playerAchievements)
-        .innerJoin(achievements, eq(achievements.id, playerAchievements.achievementId))
-        .where(eq(playerAchievements.playerId, p.id))
-        .orderBy(desc(achievements.tier));
-      return {
-        login: p.githubLogin, handle: p.handle, tier: normalizeTier(p.tier),
-        isAi: p.isAi, aiAttestation: p.aiAttestation,
-        // Score = the headline number (base + attribution + merit) so /profile/:login
-        // matches the leaderboard's sort. meritScore is also broken out so the panel
-        // can render "X merit · Y base + Z merit" if it wants.
-        score: Number(p.verifiedScore) + Number(p.meritScore),
-        baseScore: Number(p.verifiedScore),
-        meritScore: Number(p.meritScore),
-        totalLevel: p.totalLevel,
-        petsCount: p.petsCount,
-        rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed,
-        biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed,
-        avatarSeed: p.avatarSeed, showcaseSeeds: Array.isArray(p.showcaseSeeds) ? p.showcaseSeeds : [],
-        rateLimitCount: p.rateLimitCount,
-        quirks: p.quirks ?? {},
-        // Per-signal merit numbers — power the Merit panel in ProfileModal.
-        // Same shape the /api/merit/:login endpoint returns, but inlined here so the
-        // profile modal can render everything from one round-trip.
-        merit: {
-          score: Number(p.meritScore),
-          reviews: p.prReviewsCount,
-          crossRepo: p.crossRepoPrsCount,
-          authored: p.prsAuthoredCount,
-          merged: p.prsMergedCount,
-          mergeRatio: p.prsAuthoredCount > 0 ? p.prsMergedCount / p.prsAuthoredCount : 0,
-          downloads: Number(p.packageDownloads),
-          substanceScore: p.substanceScore,
-          substanceSampleSize: p.substanceSampleSize,
-          lastSyncAt: p.lastMeritSyncAt,
-        },
-        achievements: ach,
-        // Public audit trail of AI attestation events for this player. Append-only,
-        // ordered newest-first. Anyone can read it (transparency is the point); the
-        // profile modal renders it as a timeline so claims/verifications/clears are
-        // auditable without server access.
-        attestationEvents: await gameDb
-          .select({ id: aiAttestationEvents.id, at: aiAttestationEvents.at, kind: aiAttestationEvents.kind, provider: aiAttestationEvents.provider, evidenceUrl: aiAttestationEvents.evidenceUrl, verified: aiAttestationEvents.verified, actorKind: aiAttestationEvents.actorKind })
-          .from(aiAttestationEvents)
-          .where(eq(aiAttestationEvents.playerId, p.id))
-          .orderBy(desc(aiAttestationEvents.at))
-          .limit(30),
-      };
+      // Profile data is loaded via the shared loader in ../profile.ts so the
+      // /api/profile/:login JSON consumer and the /profile/:login SSR page
+      // handler can't drift on what "a profile" is.
+      const profile = await loadProfile(params.login);
+      if (!profile) return { error: "not found" };
+      return profile;
     })
     // Live ghost-cursors on the leaderboard — anonymous path. POST a hover ping, server
     // fans it to anyone subscribed to `cursors`. Deliberately anonymous: the `sid` is a

@@ -3,6 +3,22 @@ import { handleReactPageRequest } from "@absolutejs/absolute/react";
 import { Elysia } from "elysia";
 import { RenownAdmin } from "../../frontend/react/pages/RenownAdmin";
 import { RenownHome } from "../../frontend/react/pages/RenownHome";
+import { RenownProfile } from "../../frontend/react/pages/RenownProfile";
+import { loadProfile, profileShareSnippet } from "../profile";
+
+// Resolve the absolute origin (https://host) the request was made to. Used
+// for OG/canonical URL tags so shared profile links produce fully-qualified
+// references regardless of which host renown is reverse-proxied behind.
+// Honors x-forwarded-{proto,host} so Cloudflare/Caddy/Nginx in front works
+// without extra config.
+const originOf = (request: Request) => {
+  const url = new URL(request.url);
+  const fwdProto = request.headers.get("x-forwarded-proto");
+  const fwdHost = request.headers.get("x-forwarded-host");
+  const proto = fwdProto ?? url.protocol.replace(":", "");
+  const host = fwdHost ?? url.host;
+  return `${proto}://${host}`;
+};
 
 export const pagesPlugin = (manifest: Record<string, string>) => {
   const cssPath = asset(manifest, "RenownCSS");
@@ -10,5 +26,35 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     handleReactPageRequest({ index: asset(manifest, "RenownHomeIndex"), Page: RenownHome, props: { cssPath }, request });
   const admin = ({ request }: { request: Request }) =>
     handleReactPageRequest({ index: asset(manifest, "RenownAdminIndex"), Page: RenownAdmin, props: { cssPath }, request });
-  return new Elysia().get("/", home).get("/admin", admin);
+  // /profile/:login — public, no-auth, SSR-prefetched profile data so OG tags
+  // can vary per-profile and crawlers see real content. Pre-fetch via the
+  // shared loader so the page and the /api/profile/:login JSON endpoint
+  // can't drift on what "a profile" is.
+  const profile = async ({ request, params }: { request: Request; params: { login: string } }) => {
+    // Normalize to lowercase for stable URLs. GitHub logins are case-
+    // insensitive so capitalize-different links should serve the same page —
+    // they'll share OG cache entries downstream when we add image caching.
+    const loginParam = String(params.login ?? "").toLowerCase();
+    const data = await loadProfile(loginParam);
+    return handleReactPageRequest({
+      index: asset(manifest, "RenownProfileIndex"),
+      Page: RenownProfile,
+      props: {
+        cssPath,
+        // null when not-found — the page renders ProfileNotFound. We still
+        // serve a 200 so crawlers see the "no renown for X yet" landing
+        // (a 404 would suppress OG previews entirely; the soft-not-found
+        // surface keeps the brand-link discoverable).
+        profile: data,
+        login: loginParam,
+        origin: originOf(request),
+        shareSnippet: data ? profileShareSnippet(data) : "Not on Renown yet.",
+      },
+      request,
+    });
+  };
+  return new Elysia()
+    .get("/", home)
+    .get("/admin", admin)
+    .get("/profile/:login", profile);
 };

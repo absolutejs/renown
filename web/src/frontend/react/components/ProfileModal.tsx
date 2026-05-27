@@ -31,6 +31,42 @@ const TIER_ORDER: Record<string, number> = { mythic: 0, platinum: 1, gold: 2, si
 const QUIRK_TIER: Record<number, [string, string]> = { 1: ["🥉", "bronze"], 10: ["🥈", "silver"], 100: ["🥇", "gold"], 1000: ["🏆", "mythic"] };
 const quirkTierFor = (n: number): [string, string] => n >= 1000 ? QUIRK_TIER[1000]! : n >= 100 ? QUIRK_TIER[100]! : n >= 10 ? QUIRK_TIER[10]! : QUIRK_TIER[1]!;
 
+// Share affordances — pulled out so the modal head can stay legible and the
+// "open in new tab" link reuses the same URL the OG/canonical tag references.
+// The URL is constructed client-side (window.location.origin) so it works on
+// any host the modal is rendered on (preview deploys, localhost, prod).
+const ProfileShareRow = ({ login }: { login: string }) => {
+  const [copied, setCopied] = useState(false);
+  const url = typeof window === "undefined" ? `/profile/${login}` : `${window.location.origin}/profile/${login}`;
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch { /* clipboard blocked — user can still click "Open public page" */ }
+  };
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, fontSize: 12 }}>
+      <button
+        onClick={onCopy}
+        style={{ padding: "5px 10px", background: copied ? "rgba(134,239,172,.18)" : "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 5, color: "inherit", cursor: "pointer", fontSize: 12 }}
+        title="Copy a sharable link to this profile"
+      >
+        {copied ? "✓ Copied" : "🔗 Copy link"}
+      </button>
+      <a
+        href={`/profile/${login}`}
+        target="_blank"
+        rel="noreferrer"
+        style={{ padding: "5px 10px", background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.12)", borderRadius: 5, textDecoration: "none", color: "inherit", fontSize: 12 }}
+        title="Open the public profile page in a new tab"
+      >
+        Open public page ↗
+      </a>
+    </div>
+  );
+};
+
 export const ProfileModal = ({ login, onClose }: { login: string; onClose: () => void }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -80,6 +116,7 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
                 <span className="lbl">score</span>
               </div>
             </div>
+            <ProfileShareRow login={profile.login} />
             <div className="profileAvatar">
               {profile.avatarSeed
                 ? <SinglePet seed={profile.avatarSeed} hero />
