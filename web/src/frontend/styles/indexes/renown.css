@@ -41,6 +41,10 @@ a:hover { text-decoration: underline; }
 .authbox { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .me { display: inline-flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; padding: 7px 13px; border-radius: 10px; cursor: pointer; }
 .me:hover { background: var(--card-strong); }
+/* Audio toggle in the header. Synth-only, lives in audio.ts. The click itself is the
+   user-gesture that unlocks Web Audio, so flipping this on warms the AudioContext too. */
+.soundToggle { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; background: var(--card); border: 1px solid var(--line); border-radius: 9px; font-size: 15px; cursor: pointer; transition: background .12s, border-color .12s; }
+.soundToggle:hover { background: var(--card-strong); border-color: var(--accent-line); }
 .adminLink { color: var(--muted); font-size: 12px; padding: 6px 10px; border: 1px dashed var(--line-strong); border-radius: 8px; }
 .adminLink:hover { color: var(--text); border-color: var(--accent-line); text-decoration: none; }
 
@@ -265,6 +269,25 @@ a:hover { text-decoration: underline; }
 
 /* ── Profile modal ─────────────────────────────────────────── */
 .modalScrim { position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(6px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
+
+/* ── Summon cinematic ────────────────────────────────────────
+   Fullscreen takeover when /api/verify yields new pets. z-index above the profile modal
+   so it can also fire from there if we ever want it to. The HeroCanvas inside .summonStage
+   carries all the post-FX; the scrim itself adds an animated cosmic vignette around it. */
+.summonScrim { position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 24px; background: radial-gradient(ellipse at center, #060615 0%, #020205 70%, #000 100%); animation: summonIn .4s ease-out 1; }
+@keyframes summonIn { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+.summonHead { display: flex; align-items: center; gap: 18px; padding: 10px 18px; border-radius: 999px; background: rgba(255,255,255,.04); border: 1px solid var(--accent-line); }
+.summonLabel { font-size: 14px; font-weight: 700; letter-spacing: .8px; color: var(--accent); text-transform: uppercase; }
+.summonProgress { font-size: 12px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.summonSkip { padding: 4px 10px !important; font-size: 12px !important; }
+.summonStage { width: min(720px, 90vw); aspect-ratio: 1 / 1; max-height: 60vh; border-radius: 22px; overflow: hidden; border: 1px solid var(--accent-line); box-shadow: 0 0 80px rgba(96,192,255,.15), 0 20px 60px rgba(0,0,0,.6); animation: summonStageIn .8s ease-out 1; }
+@keyframes summonStageIn { from { transform: scale(.85); opacity: 0; } to { transform: none; opacity: 1; } }
+.summonMeta { text-align: center; min-height: 56px; }
+.summonName { margin: 0 0 4px; font-size: 26px; letter-spacing: .2px; }
+.summonName.tier-mythic    { color: #ffd166; text-shadow: 0 0 22px rgba(255,180,80,.55); }
+.summonName.tier-legendary { color: #d6a3ff; text-shadow: 0 0 18px rgba(180,120,255,.45); }
+.summonName.tier-epic      { color: #b3e5ff; }
+
 /* Profile modal — animated cosmic gradient backdrop so the hero pet inside reads as "on
    stage." Conic-gradient drift is slow (24s) and very subtle so it doesn't fight the pet's
    own animations, but you can tell the modal is alive even before the canvas mounts. */

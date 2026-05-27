@@ -9,9 +9,10 @@ import { Bloom, ChromaticAberration, EffectComposer, Noise, Vignette } from "@re
 import { animated, useSpring } from "@react-spring/three";
 import { BlendFunction, KernelSize } from "postprocessing";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BoxGeometry, BufferAttribute, type BufferGeometry, ExtrudeGeometry, Float32BufferAttribute, type Group, Shape, Vector2 } from "three";
+import { BoxGeometry, BufferAttribute, type BufferGeometry, ExtrudeGeometry, Float32BufferAttribute, type Group, type PerspectiveCamera as ThreePerspectiveCamera, Shape, Vector2 } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { type Creature, generate, type RGB, voxelize } from "../../../../../core/procgen";
+import { playChime } from "../../audio";
 import { ProceduralMat } from "./petMaterials";
 
 // One merged BoxGeometry for the whole pet body (per-voxel translation baked in + a custom
@@ -285,28 +286,75 @@ const Pet = ({ seed, autoRotate = 0, entranceBurst = false }: { seed: string; au
   );
 };
 
+// Pull camera z out of a spring value imperatively per frame. Lives as its own component
+// because useFrame must run inside the Canvas context (which drei View provides for its
+// children but not for the SpotlightView function body itself).
+const CameraSpringDolly = ({ camRef, camZ }: { camRef: React.RefObject<ThreePerspectiveCamera | null>; camZ: { get: () => number } }) => {
+  useFrame(() => {
+    if (camRef.current) camRef.current.position.z = camZ.get();
+  });
+  return null;
+};
+
+// Camera distance derived from creature size — bigger pets need to be further back to
+// stay in frame. Shared by the spotlight's initial position and its swap-target spring.
+const spotlightZFor = (seed: string | null) => seed ? Math.max(10, 7 + generate(seed).sizeN * 0.10) : 12;
+
 // Big shared View for the leaderboard hover spotlight (one mount per page, fed by whichever
 // row is currently hovered/selected). Uses the same shared MenagerieCanvas, so it costs one
-// extra scissor-rect rather than another WebGL context. Auto-rotate is slow + zoomable so the
-// viewer can read the pet's geometry without it spinning out of frame.
+// extra scissor-rect rather than another WebGL context.
+//
+// Seed transitions are animated via react-spring's imperative API (per
+// https://www.react-spring.dev/docs/concepts/imperative-api):
+//   useSpring(() => ({ scale: 1, camZ })) returns [springs, api]; on seed change we drive
+//   a two-leg `api.start({ to: async (next) => ... })` chain — dolly out, swap displaySeed,
+//   dolly in. No useEffect-coupled timing on the animation itself; useEffect is only the
+//   prop-change detector, the animation is event-driven (start → resolve → start).
 export const SpotlightView = ({ seed }: { seed: string | null }) => {
-  // Hooks must run unconditionally; build the creature even when seed is null so render
-  // order is stable across mounts (cheap — generate is pure).
-  const c = useMemo(() => generate(seed ?? "spotlight-empty"), [seed]);
-  if (!seed) return <View className="rankSpotlight"><ambientLight intensity={0.4} /></View>;
-  const z = Math.max(10, 7 + c.sizeN * 0.10);
+  // displaySeed = what's currently being shown in the scene (lags behind `seed` during the
+  // dolly-out leg of the transition; updated mid-chain so the new pet renders only after
+  // the outgoing one has scaled away).
+  const [displaySeed, setDisplaySeed] = useState<string | null>(seed);
+  const [springs, api] = useSpring(() => ({ scale: 1, camZ: spotlightZFor(seed) }));
+  const cameraRef = useRef<ThreePerspectiveCamera>(null);
+
+  // Prop-change detector. The chain runs imperatively inside api.start — useEffect here
+  // is only the dispatch point, it doesn't own the animation timing.
+  useEffect(() => {
+    if (seed === displaySeed) return;
+    // Null transitions snap (no pet to animate). Only animate when going between two pets.
+    if (displaySeed === null || seed === null) { setDisplaySeed(seed); return; }
+    api.start({
+      to: async (next) => {
+        // Leg 1: outgoing pet shrinks while camera pulls back, so the swap reads as a
+        // depth dolly, not a snap.
+        await next({ scale: 0, camZ: spotlightZFor(displaySeed) + 6, config: { tension: 260, friction: 22 } });
+        setDisplaySeed(seed);
+        // Leg 2: dolly back in to the new pet's natural distance while it scales up.
+        await next({ scale: 1, camZ: spotlightZFor(seed), config: { tension: 180, friction: 22 } });
+      },
+    });
+  }, [seed, displaySeed, api]);
+
+  if (!displaySeed) return <View className="rankSpotlight"><ambientLight intensity={0.4} /></View>;
+
+  const c = generate(displaySeed);
   const dramatic = c.tier === "Mythic" || c.tier === "Legendary" || c.oneOfOne;
   return (
-    // key on seed rebuilds the merged-voxel geom + materials when the spotlight target
-    // changes (cheaper than animating between two distinct procgen shapes).
-    <View key={seed} className="rankSpotlight">
-      <PerspectiveCamera makeDefault position={[0, 0, z]} fov={34} />
+    <View className="rankSpotlight">
+      <PerspectiveCamera makeDefault ref={cameraRef} position={[0, 0, spotlightZFor(displaySeed)]} fov={34} />
+      <CameraSpringDolly camRef={cameraRef} camZ={springs.camZ} />
       <color attach="background" args={[dramatic ? "#0a0a14" : "#0a0a0a"]} />
       <ambientLight intensity={0.7} />
       <directionalLight position={[3, 4, 5]} intensity={1.2} />
       <directionalLight position={[-3, -2, 4]} intensity={0.55} color="#5fbeeb" />
       {dramatic && <Stars radius={32} depth={20} count={520} factor={2.6} fade speed={0.45} />}
-      <Pet seed={seed} autoRotate={dramatic ? 0.35 : 0.2} />
+      {/* Outer animated.group carries the swap-scale; Pet's own intrinsic scale animations
+          (squash, burst pop) multiply through, so the transition reads cleanly on top of
+          the per-frame motion. */}
+      <animated.group scale={springs.scale}>
+        <Pet seed={displaySeed} autoRotate={dramatic ? 0.35 : 0.2} />
+      </animated.group>
     </View>
   );
 };
@@ -424,6 +472,63 @@ export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creatur
       </EffectComposer>
       {showStats() && <Stats />}
     </Canvas>
+  );
+};
+
+// Fullscreen "summon" cinematic — takes over the viewport when /api/verify yields new pets.
+// Cycles through each new seed for a tier-scaled dwell (Common 2.0s → 1/1 3.2s), uses the
+// HeroCanvas presentation pipeline for each, and auto-closes when done. Esc / Skip / scrim
+// click all close early; the seeds are already saved to `wild` server-side so closing
+// doesn't forfeit anything — it's pure UX.
+//
+// Per-pet remount via `key={seed}` is intentional: each cinematic beat is short enough that
+// the WebGL/post-FX warm-up is hidden by the next pet's entrance burst. Keeping one Canvas
+// + crossfade would be smoother but adds complexity; the current trade reads punchy.
+export const SummonCinematic = ({ seeds, onClose }: { seeds: string[]; onClose: () => void }) => {
+  const [index, setIndex] = useState(0);
+  const seed = seeds[index] ?? null;
+  const c = useMemo(() => seed ? generate(seed) : null, [seed]);
+
+  // Tier-scaled dwell so rare pets get a longer beat (they have more visual going on:
+  // chromatic aberration, orbiting trails, ghost copies, transmission spheres).
+  const dwell = c
+    ? (c.oneOfOne ? 3200 : c.tier === "Mythic" ? 2800 : c.tier === "Legendary" ? 2400 : 2000)
+    : 0;
+
+  useEffect(() => {
+    if (!seed) return undefined;
+    playChime();   // no-op when sound is off; otherwise one chime per beat
+    const id = window.setTimeout(() => {
+      if (index < seeds.length - 1) setIndex(index + 1);
+      else window.setTimeout(onClose, 700);     // brief hold on the last pet before closing
+    }, dwell);
+    return () => window.clearTimeout(id);
+  }, [seed, index, seeds.length, dwell, onClose]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (!seed || !c) return null;
+  return (
+    <div className="summonScrim" role="dialog" aria-modal onClick={onClose}>
+      <header className="summonHead" onClick={(e) => e.stopPropagation()}>
+        <span className="summonLabel">✦ {seeds.length === 1 ? "A new pet was summoned" : `${seeds.length} new pets summoned`} ✦</span>
+        <span className="summonProgress">{index + 1} / {seeds.length}</span>
+        <button className="btn ghost summonSkip" onClick={onClose}>Skip ›</button>
+      </header>
+      <div className="summonStage" onClick={(e) => e.stopPropagation()}>
+        <HeroCanvas key={seed} seed={seed} creature={c} />
+      </div>
+      <div className="summonMeta" onClick={(e) => e.stopPropagation()}>
+        <h2 className={`summonName tier-${c.tier.toLowerCase()}`}>{c.name}</h2>
+        <p className="muted">
+          {c.tier}{c.oneOfOne ? " · 1/1" : c.mythicAura ? " · Mythic aura" : ""} · size {c.sizeN} · {c.traits.species}
+        </p>
+      </div>
+    </div>
   );
 };
 

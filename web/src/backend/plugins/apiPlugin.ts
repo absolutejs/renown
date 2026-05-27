@@ -117,7 +117,11 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         petsCount: mergedWild.length, rarestPetScore, rarestPetSeed,
         showcaseSeeds: showcase, verifiedAt: new Date(), verifiedScore: score, wild: mergedWild,
       }).where(eq(players.id, row.id));
-      return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, newPets: newShas.length, totalPets: mergedWild.length, rarestPetScore, biggestPetSize, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
+      // Return the newly-minted SHAs so the client can roll the Summon cinematic. Capped
+      // small (<= 6) — the cinematic burns ~2s per pet on-screen so dumping 30 at once
+      // would be tedious. Anything beyond the cap still lands in `wild` (the player owns
+      // every pet they earned this sync), it just doesn't get a screen-takeover entrance.
+      return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, newPets: newShas.length, newPetSeeds: newShas.slice(0, 6), totalPets: mergedWild.length, rarestPetScore, biggestPetSize, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
     })
     // Browserless CLI link: the CLI presents its existing GitHub OAuth token (gh auth token).
     // We verify it against GitHub (GET /user) — which PROVES the caller owns that login, no

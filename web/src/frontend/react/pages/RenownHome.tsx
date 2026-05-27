@@ -1,7 +1,8 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { isSoundOn, playBell, playGong, setSoundOn } from "../../audio";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
-import { PetViewer, SinglePet, SpotlightView } from "../components/PetViewer";
+import { PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
@@ -46,6 +47,24 @@ const Logomark = ({ size = 22 }: { size?: number }) => (
   </svg>
 );
 
+// Tiny header toggle for the synth voices in audio.ts. The toggle click itself is the
+// user-gesture that authorizes the AudioContext to start, so enabling sound here is what
+// unlocks playback for the rest of the session — no separate "unmute" prompts elsewhere.
+const SoundToggle = () => {
+  const [on, setOn] = useState(false);
+  useEffect(() => setOn(isSoundOn()), []);
+  return (
+    <button
+      className="soundToggle"
+      onClick={() => { const next = !on; setSoundOn(next); setOn(next); }}
+      title={on ? "Sound on — click to mute" : "Sound off — click to enable"}
+      aria-label={on ? "Mute sound" : "Enable sound"}
+    >
+      {on ? "🔊" : "🔇"}
+    </button>
+  );
+};
+
 // ── Leaderboard ────────────────────────────────────────────────────────────
 // seedOf: which pet renders next to each row on this board. For Score and Most-pets we
 // show the player's chosen avatar (their identity pet); for Rarest/Biggest boards we show
@@ -65,6 +84,17 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
   // Spotlight target: whichever row the cursor is over, falling back to the selected row,
   // then the leader. Decoupled from `sel` because hover should be ephemeral (no click cost).
   const [hovered, setHovered] = useState<string | null>(null);
+  // Throttle the rare-board hover gong: re-firing on every cursor pixel-move (mouse drag
+  // through the list) would be miserable. 350ms is long enough to feel intentional but
+  // short enough to fire on most distinct row hovers.
+  const lastGongRef = useRef(0);
+  const trySoundOnHover = () => {
+    if (board !== "rarest-pet" && board !== "biggest-pet") return;
+    const now = performance.now();
+    if (now - lastGongRef.current < 350) return;
+    lastGongRef.current = now;
+    playGong();
+  };
   const spotlightEntry = top.find((e) => e.id === hovered)
     ?? top.find((e) => e.id === sel)
     ?? top[0];
@@ -89,7 +119,7 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
                 const fresh = !!e.id && freshIds.has(e.id);
                 return (
                   <li key={e.id ?? i} className={`${e.id === sel ? "sel" : ""}${fresh ? " fresh" : ""}`}
-                    onMouseEnter={() => { if (e.id) setHovered(e.id); }}
+                    onMouseEnter={() => { if (e.id) { setHovered(e.id); trySoundOnHover(); } }}
                     onMouseLeave={() => { if (e.id && hovered === e.id) setHovered(null); }}
                     onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
                     <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
@@ -176,7 +206,7 @@ const Pricing = ({ cfg, account, onSubscribe, busy, onLogIn }: { cfg: StripeConf
 };
 
 // ── GitHub sync card ───────────────────────────────────────────────────────
-const GithubSyncCard = ({ gh, refresh, onBanner }: { gh: GithubSync | null; refresh: () => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void }) => {
+const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | null; refresh: () => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void; onSummon: (seeds: string[]) => void }) => {
   const [busy, setBusy] = useState(false);
   if (!gh) return (
     <section className="card">
@@ -188,13 +218,17 @@ const GithubSyncCard = ({ gh, refresh, onBanner }: { gh: GithubSync | null; refr
     setBusy(true);
     const r = await post("/api/verify", { login: gh.login });
     setBusy(false);
-    const j = r.data as { ok?: boolean; score?: number; attributionDelta?: number; throttled?: boolean; tier?: string; error?: string } | null;
+    const j = r.data as { ok?: boolean; score?: number; attributionDelta?: number; throttled?: boolean; tier?: string; error?: string; newPets?: number; newPetSeeds?: string[] } | null;
     if (!r.ok || j?.error) { onBanner({ kind: "warn", text: j?.error ?? "Sync failed." }); return; }
     refresh();
     if (j?.throttled) onBanner({ kind: "info", text: `Sync cooldown hit (${j.tier ?? "your tier"}). Showing the last verified score.` });
     else {
       const delta = j?.attributionDelta ?? 0;
       onBanner({ kind: "ok", text: `✓ Synced from GitHub — verified score ${(j?.score ?? gh.verifiedScore).toLocaleString()}${delta ? ` (+${delta.toLocaleString()} new attributions)` : ""}.` });
+      // If the verify produced new pets, trigger the cinematic. Server caps the seed list
+      // at 6 so this can't run forever; remaining pets land in the menagerie silently.
+      const fresh = j?.newPetSeeds ?? [];
+      if (fresh.length > 0) onSummon(fresh);
     }
   };
   return (
@@ -243,8 +277,8 @@ const CliSyncCard = ({ onBanner }: { onBanner: (b: { kind: "ok" | "info" | "warn
 };
 
 // ── Account ────────────────────────────────────────────────────────────────
-const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy, act, onBanner }:
-  { account: Account; cfg: StripeConfig | null; user: { email?: string; first_name?: string } | null; refresh: () => void; onManage: () => void; onSubscribe: (t: Tier) => void; busy: string | null; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void }) => {
+const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy, act, onBanner, onSummon }:
+  { account: Account; cfg: StripeConfig | null; user: { email?: string; first_name?: string } | null; refresh: () => void; onManage: () => void; onSubscribe: (t: Tier) => void; busy: string | null; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void; onSummon: (seeds: string[]) => void }) => {
   const { billing, identities, mergeRequests } = account;
   const name = user?.first_name || user?.email || "your account";
   const paid = billing.tier !== "free";
@@ -287,7 +321,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
         )}
       </section>
 
-      <GithubSyncCard gh={account.github} refresh={refresh} onBanner={onBanner} />
+      <GithubSyncCard gh={account.github} refresh={refresh} onBanner={onBanner} onSummon={onSummon} />
       {account.github && account.github.wild.length > 0 && (
         <section className="card">
           <h2>Your menagerie <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {account.github.petsCount} owned · rarest {account.github.rarestPetScore.toFixed(1)} · biggest size {account.github.biggestPetSize}</span></h2>
@@ -429,6 +463,9 @@ const App = () => {
   const [resetToken, setResetToken] = useState<string | null>(null);
   const [board, setBoard] = useState<Board>("score");
   const [profileLogin, setProfileLogin] = useState<string | null>(null);
+  // Seeds for the post-/api/verify cinematic. Set non-null to take over the screen; the
+  // cinematic auto-closes when it's done cycling, and Esc / Skip / scrim-click close early.
+  const [summonSeeds, setSummonSeeds] = useState<string[] | null>(null);
   const [top, setTop] = useState<Entry[]>([]);
   // Newcomers: IDs that appeared in the most recent /api/top result but weren't in the
   // previous one. Their leaderboard row gets a spring zoom + one-shot burst so the entry
@@ -464,6 +501,7 @@ const App = () => {
         if (fresh.size > 0) {
           setFreshIds(fresh);
           window.setTimeout(() => setFreshIds(new Set()), 2500);
+          playBell();   // no-op when sound is off
         }
       }
       prevTopIdsRef.current = ids;
@@ -538,6 +576,7 @@ const App = () => {
           {signedIn && <button className={view === "account" ? "on" : ""} onClick={() => setView("account")}>Account</button>}
         </nav>
         <div className="authbox">
+          <SoundToggle />
           {account === undefined ? null : signedIn ? (
             <button className="me" onClick={() => setView("account")}>
               <TierBadge tier={account!.billing.tier} />
@@ -568,11 +607,12 @@ const App = () => {
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}
       {view === "account" && (signedIn
-        ? <AccountView account={account!} cfg={cfg} user={user} refresh={loadAccount} onManage={manage} onSubscribe={subscribe} busy={busy} act={act} onBanner={setBanner} />
+        ? <AccountView account={account!} cfg={cfg} user={user} refresh={loadAccount} onManage={manage} onSubscribe={subscribe} busy={busy} act={act} onBanner={setBanner} onSummon={setSummonSeeds} />
         : <section className="card"><h2>Account</h2><p className="muted">Log in to manage your account and subscription.</p><div className="cta"><button className="btn solid" onClick={() => { setAuthMode("login"); setView("auth"); }}>Log in</button><button className="btn ghost" onClick={() => { setAuthMode("register"); setView("auth"); }}>Sign up</button></div></section>)}
       {view === "auth" && <AuthView initial={authMode} onAuthed={() => { loadAccount(); setView("account"); setBanner({ kind: "ok", text: "Welcome back." }); }} onBanner={setBanner} />}
       {view === "reset" && resetToken && <ResetView token={resetToken} onDone={(ok, msg) => { setBanner({ kind: ok ? "ok" : "warn", text: msg }); setView("auth"); setResetToken(null); }} />}
       {profileLogin && <ProfileModal login={profileLogin} onClose={() => setProfileLogin(null)} />}
+      {summonSeeds && summonSeeds.length > 0 && <SummonCinematic seeds={summonSeeds} onClose={() => setSummonSeeds(null)} />}
       {/* One shared WebGL context for all <View>-based pets on the page: the Board view (one
           mini-pet per row), the Account view (menagerie grid), or the ProfileModal (showcase
           row's non-hero SinglePets). Pricing / auth / reset stay text-only and skip WebGL
