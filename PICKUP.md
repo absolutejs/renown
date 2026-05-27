@@ -1,0 +1,245 @@
+# PICKUP.md
+
+Resume document for the renown work-in-progress. If you're a future session,
+read this top-to-bottom before doing anything else.
+
+## Mission
+
+Renown is the productized DEVQUEST — an editor-agnostic dev-progression game
+that scores **real, meritorious dev work** with XP, achievements, 1/1 pets,
+and per-project leaderboards. The product lives at `~/abs/renown`, ships as
+`@absolutejs/renown`, and runs on Bun + Drizzle + Neon Postgres + AbsoluteJS.
+
+The tagline is **"XP and renown for real, meritorious dev work."** Two halves
+hold that promise up:
+
+- **Merit half** (hard-to-game signals): PR reviews given, cross-repo merged
+  PRs, shipper ratio, npm download weight, RAG-classified commit substance.
+- **Comedy half** (cope ladder): 49 self-reported quirks, rate-limited
+  achievement family, easter eggs.
+
+The leaderboard's headline `score` is `verified_score + merit_score` so merit
+IS the headline — not a separate dashboard.
+
+## What's done in this arc
+
+### Merit (the load-bearing addition)
+- ✅ 5 ladders × 5 tiers (Reviewer, Contributor, Shipper, Maintainer, Substance)
+  — 25 achievement rows seeded
+- ✅ `web/src/backend/merit.ts` with 4 GitHub-native fetchers + npm-downloads
+  signal (the bulk endpoint rejects scoped packages — split scoped from
+  unscoped, fan-out per-package for scoped)
+- ✅ `computeMeritScore` formula — log10-compresses downloads, ratio-penalizes
+  spammy shippers, requires ≥10 substance samples to count
+- ✅ `/api/cli/merit-sync` + `/api/cli/substance-sync` endpoints (on demand)
+- ✅ Two crons: `merit-refresh` (every 6h, 20 oldest players) +
+  `substance-refresh` (daily 03:30 UTC, 5 players × 30 commits)
+- ✅ `db/backfill-merit.ts` for one-shot every-player sync
+- ✅ `web/src/backend/substance.ts` — heuristic classifier (default, no deps)
+  + RAG classifier opt-in via `RENOWN_EMBEDDING_PROVIDER` env. 54 reference
+  exemplars across 9 substance buckets. RAG failures transparently fall back
+  to heuristic.
+- ✅ Frontend: `MeritPanel` (live-updating per-signal grid),
+  `RecentUnlocks` activity feed, ProfileModal merit block, `merit` board on
+  leaderboard plus per-dimension boards (`merit:reviews`, `:crossRepo`,
+  `:shipper`, `:downloads`, `:substance`)
+
+### Profile pages (the share-loop)
+- ✅ Public `/profile/:login` — SSR-rendered, OG/Twitter metadata per
+  profile, no auth needed. Soft-200 on not-found so OG previews still work.
+  Case-insensitive (canonical stays lowercase). x-forwarded-proto/host aware.
+- ✅ `web/src/backend/profile.ts` — shared `loadProfile()` +
+  `profileShareSnippet()` consumed by both `/api/profile/:login` JSON and the
+  SSR page so they can't drift.
+- ✅ `web/src/frontend/react/pages/RenownProfile.tsx` — full-page layout with
+  avatar pet, merit block, showcase, achievements grouped by category,
+  quirks. Doesn't bundle RenownHome's heavy chunks (cursor sync, parade
+  physics, audio).
+- ✅ ProfileModal got a `ProfileShareRow` ("🔗 Copy link" + "Open public page ↗")
+  so modal-browsers can bridge to the public URL.
+
+### Cross-language inclusivity (earlier in the arc)
+- ✅ CLI wrappers for 49 tools across 9 ecosystems (tsc/eslint/biome/mypy/
+  ruff/clippy/cargo/go-vet/golangci-lint/shellcheck/hadolint/yamllint/
+  actionlint/stylelint/markdownlint/oxlint/deno-check/pytest/pyright)
+- ✅ Runtime-agnostic CLI bundle (`dist/cli.mjs`, ~17KB, runs under Node /
+  Bun / Deno) via `cli/api.ts` + `cli/proc.ts` (node:child_process shim)
+- ✅ INSTALL.md with multi-runtime install instructions + Merit section
+
+### Upstream fixes shipped during this arc
+- ✅ **`@absolutejs/absolute@0.19.0-beta.1053`** — fixed the vendor pipeline's
+  CJS-wrapper transitive-import miss (zustand/traditional via @react-three/fiber).
+  Live on npm. See `~/abs/absolutejs/src/build/buildDepVendor.ts:113-178`
+  for `collectBareImportsFromFile`.
+- Renown's `web/package.json` was upgraded from 1047 → 1053 to consume it.
+
+## Critical context that's easy to lose
+
+1. **Drizzle TS noise is systemic.** `bunx tsc --noEmit` produces ~3500
+   errors in this project, almost all "Property X does not exist on type
+   {} | ..." or "No overload matches this call" from drizzle's overload
+   inference breaking with this tsconfig. Runtime works fine. To check
+   whether YOUR change broke anything, grep tsc output for the specific
+   files you touched.
+
+2. **`bun run tsc` is shadowed.** package.json has a `"tsc"` script that
+   invokes the renown CLI tool wrapper. Use `bunx tsc` (or
+   `./node_modules/.bin/tsc` after installing bun-types).
+
+3. **Vendor pipeline runs only in dev mode.** `prepare()` only calls
+   `prepareDev()` (which runs `buildDepVendor`) when `NODE_ENV=development`.
+   Production builds inline deps. If you're testing vendor-related
+   behavior, use `bunx absolute dev`, not `absolute start`.
+
+4. **Pre-existing SSR bug in `@absolutejs/sync`.** `createLiveQuery` →
+   `createSyncSubscriber` throws if there's no `globalThis.EventSource`
+   (always true during SSR). RenownHome.tsx's `useLiveQuery` has an inline
+   SSR guard as a workaround. The proper fix belongs upstream in
+   @absolutejs/sync.
+
+5. **WSL memory.** If memory > 75%, check
+   `ps -eo pid,rss,cmd --sort=-rss | head` — the 1-2GB "node" process is
+   almost always VS Code's TS Server, not user code. Playwright/Chrome
+   orphans accumulate from playwright-mcp shutdown bugs — see
+   `~/.claude/CLAUDE.md` for kill commands.
+
+6. **Always push.** User preference: push to origin after every commit in
+   their own repos. Don't ask. (Saved in
+   `~/.claude/projects/-home-alexkahn-alex/memory/always-push.md`.)
+
+7. **For upstream OSS PRs, strip AI markers.** No `🤖 Generated with
+   Claude Code` footer, no `Co-Authored-By: Claude` trailer. For
+   user's own repos, the Co-Authored-By trailer is fine and expected.
+
+## Total plan (where we are vs where we're going)
+
+```
+[done]    Merit signals + 5 ladders + cron + backfill
+[done]    Substance classifier (heuristic + RAG opt-in)
+[done]    Merit panel + activity feed + leaderboard integration
+[done]    Standalone /profile/:login page + OG metadata + share row
+[done]    @absolutejs/absolute beta 1053 released (CJS wrapper fix)
+
+[next]    OG image generator at /profile/:login/og.png
+[soon]    Leaderboard rows as proper <a> tags (cmd-click → new tab to /profile)
+[soon]    Substance backfill script (counterpart to merit backfill)
+
+[medium]  SPA-style profile-to-profile navigation (no full reload)
+[medium]  Push notifications on tier unlocks (push infra already exists)
+
+[ship]    Make publishable: flip private:false, publish 0.1.0 to npm
+[ship]    Public deployment of renown.app
+[ship]    README/marketing — turn the docs+INSTALL.md into a landing
+```
+
+## Next steps (concrete, in order)
+
+### 1. OG image generator — `/profile/:login/og.png`
+**Why**: og:image already points at it (in RenownProfile.tsx). Without an
+actual image, share cards in Slack/Discord/Twitter show text-only previews.
+Image is what makes shares POP in feeds — the whole point of profile pages.
+
+**Approach**: Add a route in `pagesPlugin.ts` (or a new image plugin) that
+takes `:login`, loads the profile via `loadProfile()`, generates a 1200×630
+PNG. Options:
+- `satori` + `@resvg/resvg-js` — JSX → SVG → PNG, ~50KB deps
+- `@vercel/og` — wraps satori; same approach
+- Hand-rolled SVG + sharp — lighter but more work
+
+Cache via ETag of `lastMeritSyncAt` + Cache-Control: max-age=300.
+
+**Content**: handle, score, top 3 stats (same as profileShareSnippet),
+tier-tinted gradient background, 🤖 badge if AI. Optionally a top-down
+2D-projected pet voxel grid (the seed is deterministic — `core/procgen.ts`
+generates the voxel data; you'd render a top-down projection).
+
+### 2. Leaderboard rows → real anchors
+Right now clicks on leaderboard ranks call `openProfile()` which opens the
+modal. Wrap the row content in `<a href="/profile/${login}">` so:
+- Left click: prevent default, open modal (current behavior, fast in-place)
+- Middle click / cmd-click: native open-in-new-tab to the public page
+
+Same change in RecentUnlocks rows.
+
+### 3. Substance backfill
+`db/backfill-substance.ts` mirroring `db/backfill-merit.ts`. Each verified
+player: `fetchRecentCommits(attributionQuery, 30)` →
+`aggregateSubstance()` → write `substance_score` + `substance_sample_size`
++ recompute `merit_score`. Respect a `--force` flag for re-runs.
+
+Expensive — N players × ~30 GitHub API calls each. Add a `--limit N` for
+safe batches. Could also chain into the merit backfill so one command does
+both.
+
+### 4. Ship-ready
+- Flip `package.json` `"private": true` → false
+- Bump version to `0.1.0`
+- Smoke test `bun run build:cli` and `npm pack` content
+- Push and `npm publish --tag beta`
+- Stand up a public renown.app (Neon DB is already cloud-hosted; needs a
+  Bun host — Railway/Fly/Vercel Bun runtime/etc.)
+
+## Where things live
+
+- **Renown code**: `~/abs/renown`
+- **AbsoluteJS source**: `~/abs/absolutejs` (npm-published; the renown
+  branch I touched is on main, pushed to GitHub)
+- **Web app**: `~/abs/renown/web/` (where the @absolutejs/absolute install
+  lives; `web/package.json` has its own deps separate from root)
+- **CLI**: `~/abs/renown/cli/` — `index.ts` is the full Bun CLI, `api.ts`
+  is the Node-portable HTTP-only entry that bundles to `dist/cli.mjs`
+- **DB**: Neon Postgres, connection string in `web/.env`
+- **Migrations**: `~/abs/renown/db/migrate-*.ts` — re-runnable, idempotent
+
+## Recent commits (for orientation)
+
+```
+d4ee66f feat(profile): standalone /profile/:login page + OG/share metadata
+d81ced5 chore: bump @absolutejs/absolute → 0.19.0-beta.1053
+0964e6a feat(merit): backfill script, profile-modal panel, network activity feed
+33b1f6e feat: merit — the hard-to-game half of the leaderboard
+d55357f feat: cross-language tool wrappers + runtime-agnostic CLI bundle
+```
+
+## Open architectural questions
+
+1. **Modal vs page navigation** — currently both exist; modal for in-app
+   browsing, page for direct URLs / sharing. Is duplication of UI worth it,
+   or should we kill the modal and only have the standalone page?
+2. **Profile page is its own bundle** — doesn't share chunks with
+   RenownHome (which means duplicated React, three.js code when a visitor
+   hits both). Acceptable for now (each page is fast); revisit if bundle
+   sizes get hairy.
+3. **Substance ingestion at scale** — 5 players/day is fine for a small
+   user base. For a launched product, we'd need to throttle differently
+   (priority queue based on profile-view recency? embedding cost budget?).
+4. **OG image caching** — generated PNGs need a cache. In-memory is
+   simple but won't survive restarts. R2/S3 is overkill until launch.
+   `Cache-Control: max-age=300` + browser/CDN caching may be enough for v1.
+
+## How to verify the current state works
+
+```bash
+# 1. Start the production server (vendor pipeline only runs in dev — see
+#    "Critical context" #3 — but the production server is good for testing
+#    the profile page and API).
+cd ~/abs/renown/web
+bunx absolute build
+bunx absolute start src/backend/server.ts
+
+# 2. Profile page (open in browser):
+#    http://localhost:7777/profile/alexkahndev    — real player
+#    http://localhost:7777/profile/AlexKahnDev    — uppercase → canonical
+#    http://localhost:7777/profile/nonexistent    — soft-not-found
+#    http://localhost:7777/profile/claude         — AI badge renders
+
+# 3. Merit data:
+curl http://localhost:7777/api/merit/alexkahndev | jq
+curl http://localhost:7777/api/recent-unlocks?limit=10 | jq
+
+# 4. CLI:
+gh auth login   # if not already
+renown merit
+renown substance --limit 30
+renown ai-stats
+```
