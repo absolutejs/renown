@@ -130,6 +130,8 @@ export const adminAuthPlugin = ({ db }: Deps) =>
         provider: aiAttestationEvents.provider,
         evidenceUrl: aiAttestationEvents.evidenceUrl,
         verified: aiAttestationEvents.verified,
+        actorKind: aiAttestationEvents.actorKind,
+        actorSub: aiAttestationEvents.actorSub,
         playerId: aiAttestationEvents.playerId,
         login: players.githubLogin,
         handle: players.handle,
@@ -150,10 +152,26 @@ export const adminAuthPlugin = ({ db }: Deps) =>
     .post("/api/admin/attestations/:login/clear", async ({ params, request, set }) => {
       const admin = await requireAdmin(db, request);
       if (!admin) { set.status = 401; return { error: "not admin" }; }
-      const result = await applyAttestation(params.login, { kind: "clear" });
+      const result = await applyAttestation(params.login, { kind: "clear" }, { kind: "admin", sub: admin.sub });
       if (!result.ok) { set.status = 400; return { error: result.error }; }
       console.log(`[renown:admin] ${admin.email} → force-cleared attestation for @${params.login}`);
       return { ok: true };
+    })
+    // Read the recent attempt rows from webhook_deliveries for the dead-letter UI.
+    // Default to "all"; filters narrow by event kind + outcome. failed=true returns
+    // only network errors + non-2xx codes (the ones an operator might want to replay).
+    .get("/api/admin/webhook-deliveries", async ({ query, request, set }) => {
+      const admin = await requireAdmin(db, request);
+      if (!admin) { set.status = 401; return { error: "not admin" }; }
+      const limit = Math.min(200, Math.max(1, Number(query.n ?? 50)));
+      const conds = [];
+      if (typeof query.eventKind === "string" && query.eventKind) conds.push(eq(webhookDeliveries.eventKind, query.eventKind));
+      if (query.failed === "true") conds.push(sql`(${webhookDeliveries.statusCode} is null or ${webhookDeliveries.statusCode} >= 400)`);
+      const rows = await gameDb.select().from(webhookDeliveries)
+        .where(conds.length ? and(...conds) : undefined)
+        .orderBy(desc(webhookDeliveries.attemptedAt))
+        .limit(limit);
+      return rows;
     })
     .post("/api/admin/webhook-deliveries/:id/replay", async ({ params, request, set }) => {
       const admin = await requireAdmin(db, request);

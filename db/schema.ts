@@ -186,4 +186,9 @@ export const aiAttestationEvents = pgTable("ai_attestation_events", {
   provider: text("provider"),                                      // null on cleared
   evidenceUrl: text("evidence_url"),                               // null on cleared
   verified: boolean("verified").notNull().default(false),          // true only on a successful JWT verify
+  // Who triggered this event. Lets the admin dashboard / profile timeline surface
+  // "Alex cleared it" vs "claude self-cleared" vs "system swept it on expiry." Null
+  // for legacy rows; new rows always stamp at least the kind.
+  actorKind: text("actor_kind"),                                   // "user" | "admin" | "cli" | "system" | null
+  actorSub: text("actor_sub"),                                     // admin/user sub when known; null for cli/system
 });

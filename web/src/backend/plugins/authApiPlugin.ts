@@ -401,7 +401,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
           provider: b.provider,
           evidenceUrl: typeof b.evidenceUrl === "string" ? b.evidenceUrl : undefined,
           webauthnVerified: true,
-        });
+        }, { kind: "user", sub: user.sub });
         if (!result.ok) return status("Bad Request", result.error);
         playerInfoCache.delete(ghLogin);
         return { ok: true, ...(await accountPayload(db, user.sub)) };
@@ -429,7 +429,8 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const result = await applyAttestation(ghLogin,
           !b.provider
             ? { kind: "clear" }
-            : { kind: "claim", provider: String(b.provider).slice(0, 40), evidenceUrl: typeof b.evidenceUrl === "string" ? b.evidenceUrl.slice(0, 400) : undefined, attestationJwt: typeof b.attestationJwt === "string" ? b.attestationJwt : undefined });
+            : { kind: "claim", provider: String(b.provider).slice(0, 40), evidenceUrl: typeof b.evidenceUrl === "string" ? b.evidenceUrl.slice(0, 400) : undefined, attestationJwt: typeof b.attestationJwt === "string" ? b.attestationJwt : undefined },
+          { kind: "user", sub: user.sub });
         if (!result.ok) return status("Bad Request", result.error);
         playerInfoCache.delete(ghLogin);
         return { ok: true, ...(await accountPayload(db, user.sub)) };

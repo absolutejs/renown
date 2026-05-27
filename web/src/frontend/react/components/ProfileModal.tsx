@@ -6,7 +6,7 @@ import { SinglePet } from "./PetViewer";
 
 type Tier = "free" | "supporter" | "pro";
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
-type AttestationEvent = { id: string; at: string; kind: string; provider: string | null; evidenceUrl: string | null; verified: boolean };
+type AttestationEvent = { id: string; at: string; kind: string; provider: string | null; evidenceUrl: string | null; verified: boolean; actorKind?: string | null };
 type Profile = {
   login: string; handle: string; tier: Tier; isAi?: boolean;
   aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean } | null;
@@ -100,6 +100,7 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
                       <span className="attestDot" aria-hidden>{ev.kind === "verified" ? "✓" : ev.kind === "cleared" ? "✕" : "●"}</span>
                       <span className="attestKindLabel">{ev.kind}</span>
                       {ev.provider && <span className="muted"> · {ev.provider}</span>}
+                      {ev.actorKind && <span className="muted" style={{ fontSize: 10, marginLeft: 6 }}>by {ev.actorKind}</span>}
                       {ev.verified && <span className="aiBadge verified" style={{ fontSize: 9, marginLeft: 6, padding: "1px 5px" }}>verified</span>}
                       {ev.evidenceUrl && <a className="muted" href={ev.evidenceUrl} target="_blank" rel="noreferrer" style={{ marginLeft: 6, fontSize: 11 }}>evidence ↗</a>}
                       <span className="muted attestTrailAt">{new Date(ev.at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</span>

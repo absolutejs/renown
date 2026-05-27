@@ -20,6 +20,16 @@ export type AttestationInput =
   | { kind: "clear" }
   | { kind: "claim"; provider: string; evidenceUrl?: string; attestationJwt?: string; webauthnVerified?: boolean };
 
+// Who triggered the attestation transition. Stamped into ai_attestation_events so the
+// timeline answers "this was cleared by an admin" vs "this was the cron sweep" vs
+// "Alex did it from the web." Default 'system' captures "no caller said otherwise"
+// (legacy code paths + the cron job).
+export type AttestationActor =
+  | { kind: "system" }
+  | { kind: "user"; sub: string }
+  | { kind: "admin"; sub: string }
+  | { kind: "cli" };
+
 export type AttestationResult =
   | { ok: true; cleared: true }
   | { ok: true; cleared: false; provider: string; verified: boolean; webauthnVerified: boolean; resolvedKnownProvider: boolean }
@@ -28,11 +38,12 @@ export type AttestationResult =
 const eventId = () => `att_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
 // Apply an attestation transition for the player identified by their GitHub login. Caller
-// is responsible for authenticating that the requesting session/token owns that login.
-export const applyAttestation = async (githubLogin: string, input: AttestationInput): Promise<AttestationResult> =>
-  tracer.startActiveSpan("attestation.apply", { attributes: { "renown.login": githubLogin, "renown.attestation.kind": input.kind } }, async (span) => {
+// is responsible for authenticating that the requesting session/token owns that login,
+// and for passing an actor describing who triggered the transition.
+export const applyAttestation = async (githubLogin: string, input: AttestationInput, actor: AttestationActor = { kind: "system" }): Promise<AttestationResult> =>
+  tracer.startActiveSpan("attestation.apply", { attributes: { "renown.login": githubLogin, "renown.attestation.kind": input.kind, "renown.attestation.actor": actor.kind } }, async (span) => {
     try {
-      const result = await applyAttestationInner(githubLogin, input);
+      const result = await applyAttestationInner(githubLogin, input, actor);
       if (!result.ok) {
         span.setStatus({ code: SpanStatusCode.ERROR, message: result.error });
       } else if (!result.cleared) {
@@ -55,7 +66,9 @@ export const applyAttestation = async (githubLogin: string, input: AttestationIn
     }
   });
 
-const applyAttestationInner = async (githubLogin: string, input: AttestationInput): Promise<AttestationResult> => {
+const applyAttestationInner = async (githubLogin: string, input: AttestationInput, actor: AttestationActor): Promise<AttestationResult> => {
+  const actorKind = actor.kind;
+  const actorSub = actor.kind === "user" || actor.kind === "admin" ? actor.sub : null;
   const playerRows = await tracer.startActiveSpan("attestation.player_lookup", async (s) => {
     try { return await gameDb.select().from(players).where(eq(players.githubLogin, githubLogin)); }
     finally { s.end(); }
@@ -73,6 +86,7 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
     await gameDb.insert(aiAttestationEvents).values({
       id: eventId(), playerId: player.id, kind: "cleared",
       provider: null, evidenceUrl: null, verified: false,
+      actorKind, actorSub,
     });
     // Live broadcast for the admin dashboard — every claim/verify/clear fires here.
     // (Distinct from "verified-attestation" which is verified-only + site-wide UI.)
@@ -147,11 +161,13 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
       await gameDb.insert(aiAttestationEvents).values({
         id: eventId(), playerId: player.id, kind: "claimed",
         provider: providerId, evidenceUrl: input.evidenceUrl ?? null, verified: false,
+        actorKind, actorSub,
       });
       if (verified) {
         await gameDb.insert(aiAttestationEvents).values({
           id: eventId(), playerId: player.id, kind: "verified",
           provider: providerId, evidenceUrl: input.evidenceUrl ?? null, verified: true,
+          actorKind, actorSub,
         });
       }
     } finally { s.end(); }

@@ -128,7 +128,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         // profile modal renders it as a timeline so claims/verifications/clears are
         // auditable without server access.
         attestationEvents: await gameDb
-          .select({ id: aiAttestationEvents.id, at: aiAttestationEvents.at, kind: aiAttestationEvents.kind, provider: aiAttestationEvents.provider, evidenceUrl: aiAttestationEvents.evidenceUrl, verified: aiAttestationEvents.verified })
+          .select({ id: aiAttestationEvents.id, at: aiAttestationEvents.at, kind: aiAttestationEvents.kind, provider: aiAttestationEvents.provider, evidenceUrl: aiAttestationEvents.evidenceUrl, verified: aiAttestationEvents.verified, actorKind: aiAttestationEvents.actorKind })
           .from(aiAttestationEvents)
           .where(eq(aiAttestationEvents.playerId, p.id))
           .orderBy(desc(aiAttestationEvents.at))
@@ -297,7 +297,8 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const result = await applyAttestation(login,
         !b.provider
           ? { kind: "clear" }
-          : { kind: "claim", provider: String(b.provider).slice(0, 40), evidenceUrl: typeof b.evidenceUrl === "string" ? b.evidenceUrl.slice(0, 400) : undefined, attestationJwt: typeof b.attestationJwt === "string" ? b.attestationJwt : undefined });
+          : { kind: "claim", provider: String(b.provider).slice(0, 40), evidenceUrl: typeof b.evidenceUrl === "string" ? b.evidenceUrl.slice(0, 400) : undefined, attestationJwt: typeof b.attestationJwt === "string" ? b.attestationJwt : undefined },
+        { kind: "cli" });
       if (!result.ok) return { error: result.error };
       return result;
     })

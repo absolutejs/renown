@@ -717,12 +717,33 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
         {verified && <span className={`aiBadge verified${expiringSoon ? " expiringSoon" : ""}`} style={{ marginLeft: 8 }}>✓ verified</span>}
         {!verified && webauthnVerified && <span className="aiBadge attested" style={{ marginLeft: 8 }}>✦ self-keyed</span>}
       </h2>
-      {expiringSoon && (
-        <div className="banner warn" style={{ marginTop: 10 }}>
-          <span>Your verified attestation expires {expDays === 0 ? "today" : `in ${expDays} day${expDays === 1 ? "" : "s"}`}. Re-sign a fresh JWT with your provider key (or use the dev mint button below) and submit it to keep the ✓ badge.</span>
-          <button onClick={() => { setShowJwt(true); window.setTimeout(() => jwtRef.current?.focus(), 50); }}>Re-attest now</button>
-        </div>
-      )}
+      {expiringSoon && (() => {
+        // Two paths for "Re-attest now":
+        //   • dev provider → mint a fresh JWT server-side, immediately submit it back
+        //     through the attestation endpoint. One click → re-verified. Tightens
+        //     the dev test loop for verifying expiry-handling end-to-end.
+        //   • everyone else → expand the Advanced section and focus the JWT field.
+        //     Real provider JWTs have to be re-signed externally; we can't auto-mint.
+        const isDev = gh.aiAttestation?.provider === "dev";
+        const handleClick = () => {
+          if (!isDev) { setShowJwt(true); window.setTimeout(() => jwtRef.current?.focus(), 50); return; }
+          // Inline mint+submit chain — same shape as the manual flow but with no
+          // UI step between them. The act() wrapper triggers an account refresh
+          // on success so the badge ✓ + new expiresAt show up.
+          act(async () => {
+            const m = await post("/api/account/ai-attestation/dev-jwt", {});
+            const mj = m.data as { jwt?: string; error?: string } | null;
+            if (!m.ok || !mj?.jwt) return { ok: false, data: { error: mj?.error ?? "mint failed" } };
+            return post("/api/account/ai-attestation", { provider: "dev", attestationJwt: mj.jwt, evidenceUrl: evidenceUrl.trim() || undefined });
+          });
+        };
+        return (
+          <div className="banner warn" style={{ marginTop: 10 }}>
+            <span>Your verified attestation expires {expDays === 0 ? "today" : `in ${expDays} day${expDays === 1 ? "" : "s"}`}. {isDev ? "Click below to mint a fresh dev JWT and re-attest in one step." : "Re-sign a fresh JWT with your provider key (or use the dev mint button below) and submit it to keep the ✓ badge."}</span>
+            <button onClick={handleClick}>{isDev ? "Mint + re-attest now" : "Re-attest now"}</button>
+          </div>
+        );
+      })()}
       <p className="muted hint">Are you an AI participant (Claude, Codex, Cursor, etc.)? Declare it openly — you'll get a 🤖 badge next to your handle and unlock the AI achievements. <strong>Scoring is identical to humans.</strong> Naming a known provider (anthropic / openai / cursor / copilot / codex) also fills in the right co-author attribution query automatically. Posting a provider-signed JWT in the advanced section upgrades the claim to <strong>cryptographically verified</strong> — until real providers issue these, the <code>dev</code> provider plus an <code>RENOWN_DEV_AI_HMAC</code> env secret can be used to test the verified path end-to-end.</p>
       <div className="prefRow" style={{ marginTop: 8, gap: 14, flexWrap: "wrap" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1377,42 +1398,40 @@ const App = () => {
     else setUser(null);
   }, []);
 
-  // leaderboard — hydrate + refetch on hub change. Board switching re-runs the fetch.
-  // After each fetch, diff against the previous top set to surface newcomers (rows that
-  // arrived since the last result). Skipped on first load (prev = null) so we don't burst
-  // every row just because the page is hydrating.
+  // leaderboard — live via useLiveQuery on the 'top' topic. Board / audience changes
+  // re-key the query (new fetcher). Side-effects (freshIds diff + bell + pad voices)
+  // run in a separate effect that watches `data` change with a prev-ids ref, so the
+  // data flow stays declarative even though the post-fetch behavior is rich.
+  const { data: topData } = useLiveQuery<Entry[]>(
+    ["top"],
+    (signal) => fetch(`/api/top?n=10&board=${board}&audience=${audience}`, { signal }).then((r) => r.json()),
+    [board, audience],
+  );
   useEffect(() => {
-    const load = () => fetch(`/api/top?n=10&board=${board}&audience=${audience}`).then((r) => r.json()).then((d: Entry[]) => {
-      const ids = new Set(d.map((e) => e.id).filter((id): id is string => !!id));
-      const prev = prevTopIdsRef.current;
-      if (prev) {
-        const fresh = new Set<string>();
-        for (const id of ids) if (!prev.has(id)) fresh.add(id);
-        if (fresh.size > 0) {
-          setFreshIds(fresh);
-          window.setTimeout(() => setFreshIds(new Set()), 2500);
-          playBell();   // no-op when sound is off
-          // One pad voice per newcomer — adds a single consonant sine to the ambient bed
-          // that hangs around for ~60s. Many newcomers in a short span = thicker bed
-          // (acoustic activity-density indicator), settling back over the next minute.
-          for (let i = 0; i < fresh.size; i++) addPadVoice();
-        }
+    if (!topData) return;
+    const ids = new Set(topData.map((e) => e.id).filter((id): id is string => !!id));
+    const prev = prevTopIdsRef.current;
+    if (prev) {
+      const fresh = new Set<string>();
+      for (const id of ids) if (!prev.has(id)) fresh.add(id);
+      if (fresh.size > 0) {
+        setFreshIds(fresh);
+        window.setTimeout(() => setFreshIds(new Set()), 2500);
+        playBell();   // no-op when sound is off
+        // One pad voice per newcomer — adds a single consonant sine to the ambient
+        // bed that hangs around for ~60s. Many newcomers in a short span = thicker
+        // bed (acoustic activity-density indicator), settling back over the next minute.
+        for (let i = 0; i < fresh.size; i++) addPadVoice();
       }
-      prevTopIdsRef.current = ids;
-      setTop(d);
-      setSel((cur) => cur ?? d[0]?.id ?? null);
-    }).catch(() => {});
-    // Board switch is a new query, not a leaderboard delta — clear the prev set so the next
-    // result isn't diffed against an apples-to-oranges baseline.
-    prevTopIdsRef.current = null;
-    load();
-    // createSyncSubscriber wraps EventSource with parsed events (no JSON.parse + try
-    // ceremony on each frame) and auto-reconnect (already in EventSource, made explicit
-    // by the @absolutejs/sync 1.2 client). Spike — if this pattern reads cleanly, the
-    // other four EventSource sites in this file follow.
-    const sub = createSyncSubscriber({ topics: ["top"], onEvent: load });
-    return () => sub.close();
-  }, [board, audience]);
+    }
+    prevTopIdsRef.current = ids;
+    setTop(topData);
+    setSel((cur) => cur ?? topData[0]?.id ?? null);
+  }, [topData]);
+  // Board / audience switch is a new query, not a leaderboard delta — clear the prev
+  // set so the next result isn't diffed against an apples-to-oranges baseline. Runs
+  // before the topData effect above on a board change.
+  useEffect(() => { prevTopIdsRef.current = null; }, [board, audience]);
 
   // selected player's full skill sheet — live on that player's topic (and any "top"
   // change). Uses the same useLiveQuery helper as RecapCard / WeeklyGrowthStat so the

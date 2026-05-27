@@ -112,15 +112,69 @@ const Dashboard = ({ admin, onSignOut }: { admin: Admin; onSignOut: () => void }
       </section>
 
       <AttestationsPanel />
+      <WebhookDeliveriesPanel />
       <button className="link signout" onClick={onSignOut}>Sign out</button>
     </>
+  );
+};
+
+// Outbound webhook delivery log — one row per attempt. Filtering on `failed` is the
+// useful default for ops; flipping it off shows every successful delivery too. Each
+// row gets a Replay button calling the existing /:id/replay endpoint.
+type DeliveryRow = { id: string; eventKind: string; url: string; payload: unknown; attempt: number; statusCode: number | null; attemptedAt: string; lastError: string | null };
+const WebhookDeliveriesPanel = () => {
+  const [rows, setRows] = useState<DeliveryRow[]>([]);
+  const [failedOnly, setFailedOnly] = useState(true);
+  const [eventKind, setEventKind] = useState("");
+  const load = useCallback(async () => {
+    const q = new URLSearchParams({ n: "100" });
+    if (failedOnly) q.set("failed", "true");
+    if (eventKind) q.set("eventKind", eventKind);
+    const r = await fetch(`/api/admin/webhook-deliveries?${q.toString()}`);
+    if (r.ok) setRows(await r.json());
+  }, [failedOnly, eventKind]);
+  useEffect(() => { load(); }, [load]);
+  const replay = async (id: string) => {
+    if (!confirm("Replay this delivery? It re-runs the retry-and-log loop against the currently-configured webhook URL (RENOWN_ATTESTATION_WEBHOOK), adding fresh rows to this log for each attempt.")) return;
+    const res = await fetch(`/api/admin/webhook-deliveries/${id}/replay`, { method: "POST" });
+    if (res.ok) load();
+    else alert("replay failed");
+  };
+  return (
+    <section className="card">
+      <h2>Webhook deliveries <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {rows.length} {failedOnly ? "failed" : "recent"}</span></h2>
+      <p className="hint">One row per delivery attempt to <code>RENOWN_ATTESTATION_WEBHOOK</code>. Failed deliveries (no status, or HTTP &ge; 400) are the dead-letter pile — use Replay to re-run them through the same retry-and-log loop.</p>
+      <div className="form" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 0 }}>
+        <label className="field" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          <input type="checkbox" checked={failedOnly} onChange={(e) => setFailedOnly(e.target.checked)} /> failed only
+        </label>
+        <div className="field"><input type="text" placeholder="event kind (e.g. attestation.verified)" value={eventKind} onChange={(e) => setEventKind(e.target.value)} /></div>
+      </div>
+      <table className="atable" style={{ marginTop: 12 }}>
+        <thead><tr><th>When</th><th>Event</th><th>URL</th><th>Attempt</th><th>Status</th><th>Error</th><th>Actions</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td className="muted" style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{new Date(r.attemptedAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</td>
+              <td><code style={{ fontSize: 11 }}>{r.eventKind}</code></td>
+              <td className="muted" style={{ fontSize: 11, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.url}>{r.url}</td>
+              <td>{r.attempt}</td>
+              <td>{r.statusCode == null ? <span className="muted">net err</span> : r.statusCode >= 200 && r.statusCode < 300 ? <span style={{ color: "#86efac" }}>{r.statusCode}</span> : <span style={{ color: "#ffb478" }}>{r.statusCode}</span>}</td>
+              <td className="muted" style={{ fontSize: 11, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.lastError ?? ""}>{r.lastError ?? "—"}</td>
+              <td><button className="link" style={{ fontSize: 11 }} onClick={() => replay(r.id)}>replay</button></td>
+            </tr>
+          ))}
+          {rows.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>No deliveries match these filters.</td></tr>}
+        </tbody>
+      </table>
+    </section>
   );
 };
 
 // Admin attestations dashboard — every claim/verify/clear across the platform with
 // per-field filters. Paired with the webhook_deliveries replay endpoint (same admin
 // realm), this is the real ops console for the AI participation layer.
-type AttEvent = { id: string; at: string; kind: string; provider: string | null; evidenceUrl: string | null; verified: boolean; playerId: string; login: string | null; handle: string };
+type AttEvent = { id: string; at: string; kind: string; provider: string | null; evidenceUrl: string | null; verified: boolean; actorKind: string | null; actorSub: string | null; playerId: string; login: string | null; handle: string };
 const AttestationsPanel = () => {
   const [rows, setRows] = useState<AttEvent[]>([]);
   const [providerFilter, setProviderFilter] = useState("");
@@ -155,7 +209,7 @@ const AttestationsPanel = () => {
         <div className="field"><input type="text" placeholder="login (e.g. claude)" value={loginFilter} onChange={(e) => setLoginFilter(e.target.value)} /></div>
       </div>
       <table className="atable" style={{ marginTop: 12 }}>
-        <thead><tr><th>When</th><th>Login</th><th>Kind</th><th>Provider</th><th>Verified</th><th>Evidence</th><th>Actions</th></tr></thead>
+        <thead><tr><th>When</th><th>Login</th><th>Kind</th><th>Provider</th><th>Verified</th><th>Actor</th><th>Evidence</th><th>Actions</th></tr></thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
@@ -164,6 +218,7 @@ const AttestationsPanel = () => {
               <td><span className={`tierChip ${r.kind === "verified" ? "pro" : r.kind === "cleared" ? "free" : "supporter"}`}>{r.kind}</span></td>
               <td>{r.provider ?? <span className="muted">—</span>}</td>
               <td>{r.verified ? "✓" : <span className="muted">—</span>}</td>
+              <td className="muted" style={{ fontSize: 11 }}>{r.actorKind ? r.actorKind : <span style={{ opacity: .6 }}>—</span>}</td>
               <td>{r.evidenceUrl ? <a href={r.evidenceUrl} target="_blank" rel="noreferrer">link ↗</a> : <span className="muted">—</span>}</td>
               <td>
                 {r.login && r.kind !== "cleared" && (
@@ -181,7 +236,7 @@ const AttestationsPanel = () => {
               </td>
             </tr>
           ))}
-          {rows.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>No events match these filters.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={8} className="muted" style={{ textAlign: "center", padding: 20 }}>No events match these filters.</td></tr>}
         </tbody>
       </table>
     </section>
