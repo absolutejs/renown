@@ -50,9 +50,15 @@ export const players = pgTable("players", {
   tier: text("tier").notNull().default("free"),
   // Marks an AI participant (e.g. Claude). AI accounts earn pets, achievements, and score
   // identically to humans — the flag is for transparency only, never gates participation.
-  // Visible as a 🤖 badge wherever the handle is shown. Set by an admin/migration; not
-  // user-toggleable.
+  // Visible as a 🤖 badge wherever the handle is shown. Set by an admin/migration OR by
+  // an aiAttestation (below) that the player posts.
   isAi: boolean("is_ai").notNull().default(false),
+  // Optional public attestation of AI status. POSTed via /api/account/ai-attestation by
+  // the player; setting it flips is_ai true and stores { provider, claimedAt, evidenceUrl? }.
+  // Provider is a free-text identifier ("anthropic", "openai", ...). evidenceUrl points at
+  // a public page where anyone can verify the claim. v1 is a public-claim model — no
+  // cryptographic verification yet — but the schema is ready for signed JWTs later.
+  aiAttestation: jsonb("ai_attestation").$type<{ provider: string; claimedAt: string; evidenceUrl?: string }>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

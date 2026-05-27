@@ -2,11 +2,11 @@
 // through the write-behind cache + reactive hub in ../sync.ts so we never hammer Neon
 // on the per-tick hot path. Skill levels are computed from the shared core/skills.ts.
 import { createNeonAccessTokenStore, hasScopes, resolveApiPrincipal } from "@absolutejs/auth";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { generate } from "../../../../core/procgen.ts";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
-import { achievements, playerProjects, players } from "../../../../db/schema.ts";
+import { achievements, playerAchievements, playerProjects, players } from "../../../../db/schema.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
 import { gameDb, hub, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
@@ -44,8 +44,17 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         : board === "rarest-pet" ? players.rarestPetScore
         : board === "biggest-pet" ? players.biggestPetSize
         : players.verifiedScore;
-      const rows = await gameDb.select().from(players).where(eq(players.githubVerified, true)).orderBy(desc(orderCol)).limit(n);
-      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed }));
+      // Audience filter — server-side WHERE so the top-N count stays stable per audience.
+      // Default "all" merges humans + AI on one board (no filter); "humans" hides AI
+      // entries; "ai" shows only AI entries. AI accounts score / earn / rank identically;
+      // this is a viewing preference, not a scoring change.
+      const audience = String(query.audience ?? "all");
+      const aiFilter = audience === "humans" ? eq(players.isAi, false)
+        : audience === "ai" ? eq(players.isAi, true)
+        : undefined;
+      const where = aiFilter ? and(eq(players.githubVerified, true), aiFilter) : eq(players.githubVerified, true);
+      const rows = await gameDb.select().from(players).where(where).orderBy(desc(orderCol)).limit(n);
+      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed }));
     })
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.
@@ -54,7 +63,8 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const p = rows[0];
       if (!p) return { error: "not found" };
       return {
-        login: p.githubLogin, handle: p.handle, tier: normalizeTier(p.tier), isAi: p.isAi,
+        login: p.githubLogin, handle: p.handle, tier: normalizeTier(p.tier),
+        isAi: p.isAi, aiAttestation: p.aiAttestation,
         score: p.verifiedScore, totalLevel: p.totalLevel,
         petsCount: p.petsCount,
         rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed,
@@ -138,6 +148,38 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         petsCount: mergedWild.length, rarestPetScore, rarestPetSeed,
         showcaseSeeds: showcase, verifiedAt: new Date(), verifiedScore: score, wild: mergedWild,
       }).where(eq(players.id, row.id));
+      // ── Server-evaluated co-author + AI-participation achievements ──────────
+      // The catalog rows live in core/achievements/curated.ts with check() = false (the
+      // CLI's client-side eval never grants them); this is the authoritative path. Each
+      // criterion is derived from the player row after the update above, so the values
+      // reflect the latest attribution / AI status. onConflictDoNothing keeps grants
+      // idempotent — re-runs of /api/verify can't double-insert. unlockCount only bumps
+      // for IDs that actually inserted (returning .filter).
+      const candidate = [
+        { id: "better-together", trigger: attributionScore >= 1 },
+        { id: "symbiote-100",    trigger: attributionScore >= 100 },
+        { id: "symbiote-1k",     trigger: attributionScore >= 1000 },
+        { id: "cohabit-10k",     trigger: attributionScore >= 10000 },
+        { id: "ai-revealed",     trigger: !!row.isAi },
+        // ai-attested triggers when ai_attestation is non-null; column lands in the
+        // attestation migration (this read tolerates the column not existing yet).
+        { id: "ai-attested",     trigger: !!(row as { aiAttestation?: unknown }).aiAttestation },
+      ];
+      const grantIds = candidate.filter((c) => c.trigger).map((c) => c.id);
+      if (grantIds.length > 0) {
+        const valid = await gameDb.select({ id: achievements.id }).from(achievements).where(inArray(achievements.id, grantIds));
+        if (valid.length > 0) {
+          const inserted = await gameDb.insert(playerAchievements)
+            .values(valid.map((v) => ({ playerId: row.id, achievementId: v.id })))
+            .onConflictDoNothing()
+            .returning({ id: playerAchievements.achievementId });
+          if (inserted.length > 0) {
+            await gameDb.update(achievements)
+              .set({ unlockCount: sql`${achievements.unlockCount} + 1` })
+              .where(inArray(achievements.id, inserted.map((r) => r.id)));
+          }
+        }
+      }
       // Return the newly-minted SHAs so the client can roll the Summon cinematic. Capped
       // small (<= 6) — the cinematic burns ~2s per pet on-screen so dumping 30 at once
       // would be tedious. Anything beyond the cap still lands in `wild` (the player owns
@@ -160,8 +202,10 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       await gameDb.insert(players).values({ id: playerId, handle, githubLogin: login, githubVerified: true, attributionQuery: `author:${login}` })
         .onConflictDoUpdate({ target: players.id, set: { githubLogin: login, githubVerified: true } });
       await gameDb.delete(players).where(and(eq(players.githubLogin, login), ne(players.id, playerId)));  // one verified row per login
-      // Backfill default query for an existing pre-attribution row.
-      await gameDb.execute(sql`UPDATE players SET attribution_query = ${`author:${login}`} WHERE id = ${playerId} AND attribution_query IS NULL`);
+      // Backfill default query for an existing pre-attribution row. AI rows are skipped —
+      // their query points at a co-author trailer search, not author:<login>, set by
+      // migration/admin/attestation rather than the default path here.
+      await gameDb.execute(sql`UPDATE players SET attribution_query = ${`author:${login}`} WHERE id = ${playerId} AND attribution_query IS NULL AND is_ai = false`);
       const v = await verifyGithub(login);
       if (v) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, playerId));
       return { ok: true, login, verifiedScore: v?.score ?? 0 };

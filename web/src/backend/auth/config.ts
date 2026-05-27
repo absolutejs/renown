@@ -35,15 +35,24 @@ import { providersConfiguration } from "./providersConfiguration";
 // Same formula for everyone: verified_score = base_recompute + accumulated attribution credit.
 // The default `attribution_query = author:<login>` gives every user credit for commits they
 // authored across GitHub — same rule as everyone, no special carve-outs.
+//
+// AI accounts (players.is_ai = true) are a special case: AIs rarely appear as the GitHub
+// commit author — they show up in the `Co-authored-by:` trailer of a human's commit. So if
+// the existing player row is already flagged as AI, we leave its attribution_query alone
+// (it will have been set by an admin/migration to a co-author search). Only set the default
+// for fresh / non-AI rows.
+const defaultAttributionQuery = (login: string) => `author:${login}`;
 const onGithubVerified = async (login: string) => {
   const id = `gh:${login}`;
   await gameDb.insert(players).values({
-    attributionQuery: `author:${login}`,
+    attributionQuery: defaultAttributionQuery(login),
     githubLogin: login, githubVerified: true,
     handle: login.slice(0, 40), id,
   }).onConflictDoUpdate({ target: players.id, set: { githubVerified: true, githubLogin: login } });
-  // Backfill the default query for an existing row that pre-dates this column (was null).
-  await gameDb.execute(sql`UPDATE players SET attribution_query = ${`author:${login}`} WHERE id = ${id} AND attribution_query IS NULL`);
+  // Backfill the default query for an existing non-AI row that pre-dates this column (was
+  // null). AI rows are skipped — their query must point at a co-author trailer, not
+  // author:<login>, and that's set by migration / admin / attestation, not here.
+  await gameDb.execute(sql`UPDATE players SET attribution_query = ${defaultAttributionQuery(login)} WHERE id = ${id} AND attribution_query IS NULL AND is_ai = false`);
   const v = await verifyGithub(login);
   if (v) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, id));
 };

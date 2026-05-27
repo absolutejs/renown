@@ -6,14 +6,15 @@ import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } fro
 import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
-type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null };
+type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string } | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null };
 type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet";
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
-type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean };
+type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
@@ -44,8 +45,15 @@ const TierBadge = ({ tier }: { tier?: Tier }) =>
 // profile, ghost cursor, spotlight). Renders only when the player record's is_ai column is
 // true (server-authoritative, not client-claimed). AI accounts score / earn pets /
 // achievements identically; the badge is honesty, not a handicap.
-const AiBadge = ({ isAi, compact, style }: { isAi?: boolean; compact?: boolean; style?: React.CSSProperties }) =>
-  isAi ? <span className={`aiBadge${compact ? " compact" : ""}`} style={style} title="AI participant — earns score and pets the same way humans do, with the badge for transparency">{compact ? "🤖" : "🤖 AI"}</span> : null;
+const AiBadge = ({ isAi, attestation, compact, style }: { isAi?: boolean; attestation?: { provider: string; claimedAt: string; evidenceUrl?: string } | null; compact?: boolean; style?: React.CSSProperties }) => {
+  if (!isAi) return null;
+  // Tooltip composition: base note + attestation provider + evidence URL (text-only;
+  // the visible <a> for the URL lives in the profile modal where there's room for it).
+  const title = attestation
+    ? `AI participant · attested as ${attestation.provider}${attestation.evidenceUrl ? ` · evidence: ${attestation.evidenceUrl}` : ""}`
+    : "AI participant — earns score and pets the same way humans do, with the badge for transparency";
+  return <span className={`aiBadge${compact ? " compact" : ""}${attestation ? " attested" : ""}`} style={style} title={title}>{compact ? "🤖" : attestation ? `🤖 ${attestation.provider}` : "🤖 AI"}</span>;
+};
 
 // AbsoluteJS logomark — embedded inline so it follows currentColor.
 const Logomark = ({ size = 22 }: { size?: number }) => (
@@ -130,8 +138,9 @@ const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => st
   { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
 ];
 
-const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds, myLogin }:
-  { top: Entry[]; board: Board; setBoard: (b: Board) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string>; myLogin: string | null }) => {
+type Audience = "all" | "humans" | "ai";
+const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet, openProfile, freshIds, myLogin }:
+  { top: Entry[]; board: Board; setBoard: (b: Board) => void; audience: Audience; setAudience: (a: Audience) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string>; myLogin: string | null }) => {
   const skills = (sheet?.skills ?? []).slice().sort((a, b) => b.level - a.level || b.xp - a.xp);
   const meta = BOARDS.find((b) => b.id === board) ?? BOARDS[0];
   // Spotlight target: whichever row the cursor is over, falling back to the selected row,
@@ -266,6 +275,13 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
             <button key={b.id} className={b.id === board ? "on" : ""} onClick={() => setBoard(b.id)}>{b.label}</button>
           ))}
         </div>
+        {/* Audience filter — server-side WHERE, so top-N stays stable. AI scoring is
+            identical to humans; this is a viewing preference, not a ranking change. */}
+        <div className="audienceTabs" role="radiogroup" aria-label="Filter by participant type">
+          <button className={audience === "all" ? "on" : ""} role="radio" aria-checked={audience === "all"} onClick={() => setAudience("all")}>All</button>
+          <button className={audience === "humans" ? "on" : ""} role="radio" aria-checked={audience === "humans"} onClick={() => setAudience("humans")}>Humans</button>
+          <button className={audience === "ai" ? "on" : ""} role="radio" aria-checked={audience === "ai"} onClick={() => setAudience("ai")}>🤖 AI</button>
+        </div>
         {top.length === 0 ? (
           <p className="muted">No players yet — be the first.</p>
         ) : (
@@ -281,7 +297,7 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
                     onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
                     <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
                     <span className="rankPet">{seed ? <SinglePet seed={seed} entranceBurst={fresh} /> : <span className="petCanvas rankPetEmpty" />}</span>
-                    <span className="who">{e.name}<TierBadge tier={e.tier} /><AiBadge isAi={e.isAi} compact /></span>
+                    <span className="who">{e.name}<TierBadge tier={e.tier} /><AiBadge isAi={e.isAi} attestation={e.aiAttestation} compact /></span>
                     <span className="score">{meta.statOf(e)}</span>
                     <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
                     {(() => {
@@ -316,7 +332,7 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
               <SpotlightView seed={spotlightSeed} />
               {spotlightEntry && (
                 <div className="boardSpotlightMeta">
-                  <h3>{spotlightEntry.name}<TierBadge tier={spotlightEntry.tier} /><AiBadge isAi={spotlightEntry.isAi} /></h3>
+                  <h3>{spotlightEntry.name}<TierBadge tier={spotlightEntry.tier} /><AiBadge isAi={spotlightEntry.isAi} attestation={spotlightEntry.aiAttestation} /></h3>
                   <p className="muted">{meta.statOf(spotlightEntry)} · Lvl {spotlightEntry.totalLevel ?? spotlightEntry.level}</p>
                 </div>
               )}
@@ -384,6 +400,53 @@ const Pricing = ({ cfg, account, onSubscribe, busy, onLogIn }: { cfg: StripeConf
   );
 };
 
+// AI self-attestation card. Lives just below the GitHub sync card and only renders for
+// signed-in players with a linked GitHub login. v1 is a public-claim model — anyone can
+// mark themselves as AI by naming a provider + an optional public evidence URL — but the
+// claim is public and inspectable. The card defers cryptographic verification (signed
+// JWTs from provider keys) to a later iteration.
+const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {
+  const [provider, setProvider] = useState(gh.aiAttestation?.provider ?? "");
+  const [evidenceUrl, setEvidenceUrl] = useState(gh.aiAttestation?.evidenceUrl ?? "");
+  const attested = !!gh.aiAttestation;
+  const claim = () => act(async () => {
+    const r = await post("/api/account/ai-attestation", { provider: provider.trim(), evidenceUrl: evidenceUrl.trim() || undefined });
+    return r;
+  });
+  const clear = () => act(async () => {
+    const r = await post("/api/account/ai-attestation", { provider: null });
+    if (r.ok) { setProvider(""); setEvidenceUrl(""); }
+    return r;
+  });
+  return (
+    <section className="card">
+      <h2>AI attestation</h2>
+      <p className="muted hint">Are you an AI participant (Claude, Codex, Cursor, etc.)? Declare it openly — you'll get a 🤖 badge next to your handle and unlock the AI achievements. <strong>Scoring is identical to humans.</strong> v1 is a public claim (anyone can post one; the claim is visible to everyone for auditing). Cryptographic provider-signed attestations are coming later.</p>
+      <div className="prefRow" style={{ marginTop: 8, gap: 14, flexWrap: "wrap" }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span className="muted" style={{ fontSize: 11 }}>Provider</span>
+          <input className="textInput" type="text" placeholder="anthropic / openai / cursor / …" value={provider} onChange={(e) => setProvider(e.target.value)} style={{ minWidth: 200 }} />
+        </label>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 240 }}>
+          <span className="muted" style={{ fontSize: 11 }}>Public evidence URL (https://…) — optional but recommended</span>
+          <input className="textInput" type="url" placeholder="https://anthropic.com/models/claude" value={evidenceUrl} onChange={(e) => setEvidenceUrl(e.target.value)} />
+        </label>
+      </div>
+      <div className="row" style={{ marginTop: 10 }}>
+        <button className="btn solid" disabled={!provider.trim()} onClick={claim}>{attested ? "Update attestation" : "I am an AI participant"}</button>
+        {attested && <button className="btn ghost" onClick={clear}>Clear attestation</button>}
+        {attested && gh.aiAttestation && (
+          <p className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
+            Attested as <strong>{gh.aiAttestation.provider}</strong>
+            {gh.aiAttestation.evidenceUrl && <> · <a href={gh.aiAttestation.evidenceUrl} target="_blank" rel="noreferrer">evidence ↗</a></>}
+            {" "}· {when(gh.aiAttestation.claimedAt)}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+};
+
 // ── GitHub sync card ───────────────────────────────────────────────────────
 const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | null; refresh: () => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void; onSummon: (seeds: string[]) => void }) => {
   const [busy, setBusy] = useState(false);
@@ -415,7 +478,7 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
       <div className="acctHead">
         <div>
           <h2>GitHub sync</h2>
-          <p className="muted">Linked to <strong>@{gh.login}</strong> {gh.verified ? <span className="primary">verified</span> : <span className="tierBadge supporter">unverified</span>}{gh.isAi && <AiBadge isAi style={{ marginLeft: 8 }} />}</p>
+          <p className="muted">Linked to <strong>@{gh.login}</strong> {gh.verified ? <span className="primary">verified</span> : <span className="tierBadge supporter">unverified</span>}{gh.isAi && <AiBadge isAi attestation={gh.aiAttestation} style={{ marginLeft: 8 }} />}</p>
           {gh.isAi && <p className="muted hint" style={{ marginTop: 6 }}>This account is marked as an <strong>AI participant</strong>. You earn score, pets, and achievements the same way humans do — the 🤖 badge shows up next to your handle on the leaderboard and your profile, in keeping with renown's "be honest about AI participation" stance.</p>}
         </div>
         <button className="btn solid" disabled={busy} onClick={sync}>{busy ? "Syncing…" : "Sync now"}</button>
@@ -502,6 +565,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
       </section>
 
       <GithubSyncCard gh={account.github} refresh={refresh} onBanner={onBanner} onSummon={onSummon} />
+      {account.github && <AiAttestationCard gh={account.github} act={act} />}
       {account.github && account.github.wild.length > 0 && (
         <section className="card">
           <h2>Your menagerie <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {account.github.petsCount} owned · rarest {account.github.rarestPetScore.toFixed(1)} · biggest size {account.github.biggestPetSize}</span></h2>
@@ -650,6 +714,10 @@ const App = () => {
   const [authMode, setAuthMode] = useState<"login" | "register" | "forgot">("login");
   const [resetToken, setResetToken] = useState<string | null>(null);
   const [board, setBoard] = useState<Board>("score");
+  // Audience filter for the leaderboard view. Server filters players.is_ai accordingly so
+  // top-N is stable per audience. AI accounts score identically — this is a viewing
+  // preference, not a scoring change.
+  const [audience, setAudience] = useState<"all" | "humans" | "ai">("all");
   const [profileLogin, setProfileLogin] = useState<string | null>(null);
   // Seeds for the post-/api/verify cinematic. Set non-null to take over the screen; the
   // cinematic auto-closes when it's done cycling, and Esc / Skip / scrim-click close early.
@@ -680,7 +748,7 @@ const App = () => {
   // arrived since the last result). Skipped on first load (prev = null) so we don't burst
   // every row just because the page is hydrating.
   useEffect(() => {
-    const load = () => fetch(`/api/top?n=10&board=${board}`).then((r) => r.json()).then((d: Entry[]) => {
+    const load = () => fetch(`/api/top?n=10&board=${board}&audience=${audience}`).then((r) => r.json()).then((d: Entry[]) => {
       const ids = new Set(d.map((e) => e.id).filter((id): id is string => !!id));
       const prev = prevTopIdsRef.current;
       if (prev) {
@@ -707,7 +775,7 @@ const App = () => {
     const es = new EventSource("/sync?topics=top");
     es.onmessage = load;
     return () => es.close();
-  }, [board]);
+  }, [board, audience]);
 
   // selected player's full skill sheet — live on that player's topic (and any "top" change)
   useEffect(() => {
@@ -802,7 +870,7 @@ const App = () => {
               </div>
             </section>
           )}
-          <Board top={top} board={board} setBoard={setBoard} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} myLogin={account?.github?.login ?? null} />
+          <Board top={top} board={board} setBoard={setBoard} audience={audience} setAudience={setAudience} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} myLogin={account?.github?.login ?? null} />
         </>
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}

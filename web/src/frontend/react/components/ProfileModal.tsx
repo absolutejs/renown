@@ -7,6 +7,7 @@ import { SinglePet } from "./PetViewer";
 type Tier = "free" | "supporter" | "pro";
 type Profile = {
   login: string; handle: string; tier: Tier; isAi?: boolean;
+  aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string } | null;
   score: number; totalLevel: number;
   petsCount: number; rarestPetScore: number; biggestPetSize: number;
   avatarSeed: string | null; showcaseSeeds: string[];
@@ -42,9 +43,19 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
               <div>
                 <h2>
                   @{profile.login}
-                  {profile.isAi && <span className="aiBadge" style={{ marginLeft: 10 }} title="AI participant — earns score and pets the same way humans do, with the badge for transparency">🤖 AI</span>}
+                  {profile.isAi && (
+                    <span className={`aiBadge${profile.aiAttestation ? " attested" : ""}`} style={{ marginLeft: 10 }} title={profile.aiAttestation ? `AI participant · attested as ${profile.aiAttestation.provider}` : "AI participant"}>
+                      🤖 {profile.aiAttestation ? profile.aiAttestation.provider : "AI"}
+                    </span>
+                  )}
                 </h2>
-                <p className="muted">{profile.handle}{profile.tier !== "free" && <span className={`tierChip ${profile.tier}`} style={{ marginLeft: 10 }}>{profile.tier}</span>}</p>
+                <p className="muted">
+                  {profile.handle}
+                  {profile.tier !== "free" && <span className={`tierChip ${profile.tier}`} style={{ marginLeft: 10 }}>{profile.tier}</span>}
+                  {profile.aiAttestation?.evidenceUrl && (
+                    <> · <a href={profile.aiAttestation.evidenceUrl} target="_blank" rel="noreferrer">attestation evidence ↗</a></>
+                  )}
+                </p>
               </div>
               <div className="profileScore">
                 <span className="num">{profile.score.toLocaleString()}</span>

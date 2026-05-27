@@ -134,6 +134,11 @@ a:hover { text-decoration: underline; }
    per-user opt-ins that live here). */
 .prefRow { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
 .prefRow input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+/* Plain text/url input used by AI attestation + future forms. Inherits the card palette
+   so it doesn't read as a CTA — it's a field, not a button. */
+.textInput { background: rgba(255,255,255,.04); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 8px; outline: none; transition: border-color .12s, background .12s; }
+.textInput:focus { border-color: var(--accent-line); background: rgba(255,255,255,.06); }
+.textInput::placeholder { color: var(--muted); opacity: .7; }
 
 /* Hover spotlight: ranks on the left, a sticky big preview on the right. The drei View
    inside SpotlightView renders its own DOM element (.rankSpotlight) which we size here
@@ -205,6 +210,10 @@ a:hover { text-decoration: underline; }
    chip is used in profile/spotlight headers. */
 .aiBadge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; letter-spacing: .5px; padding: 2px 7px; border-radius: 5px; margin-left: 8px; vertical-align: middle; background: rgba(180,120,255,.15); color: #d6a3ff; border: 1px solid rgba(180,120,255,.35); }
 .aiBadge.compact { padding: 2px 4px; font-size: 11px; line-height: 1; margin-left: 6px; }
+/* Attested variant — slightly stronger background + subtle glow, signalling the
+   claim is backed by a public provider identifier (and ideally an evidence URL).
+   Cryptographic verification comes later; for v1 the visual is the trust signal. */
+.aiBadge.attested { background: rgba(180,120,255,.25); border-color: rgba(180,120,255,.55); box-shadow: 0 0 10px rgba(180,120,255,.25); }
 
 /* Ghost-cursor decoration for AI viewers: ringed in the AI accent (purple) regardless
    of the sid-derived color, and a tiny 🤖 pip in the corner so it reads at-a-glance. */
@@ -302,6 +311,13 @@ a:hover { text-decoration: underline; }
 .boardTabs button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; padding: 8px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .12s, border-color .12s; }
 .boardTabs button:hover { color: var(--text); }
 .boardTabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+/* Audience filter — pill row sitting under the board tabs. Smaller weight than the
+   board tabs (it's a viewing preference, not a different leaderboard), but visible
+   enough that the "all/humans/AI" choice is one-click obvious. */
+.audienceTabs { display: inline-flex; gap: 2px; margin: 0 0 14px; padding: 3px; background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 999px; }
+.audienceTabs button { background: transparent; border: 0; color: var(--muted); font: inherit; font-size: 12px; padding: 4px 12px; cursor: pointer; border-radius: 999px; transition: background .12s, color .12s; }
+.audienceTabs button:hover { color: var(--text); }
+.audienceTabs button.on { background: var(--accent-soft); color: var(--accent); }
 
 /* ── Avatar star + size badge on pet cards ────────────────── */
 .petCard { position: relative; }

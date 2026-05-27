@@ -82,10 +82,12 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       petsCount: player?.petsCount ?? 0,
       rarestPetScore: player?.rarestPetScore ?? 0,
       biggestPetSize: player?.biggestPetSize ?? 0,
-      // Server-authoritative AI marker. Set by migration; surfaces a badge in the UI but
-      // never gates scoring/pets/achievements. Cache invalidates on update; for now, this
-      // is set rarely enough that the 30s cursor cache freshness is fine.
+      // Server-authoritative AI marker. Set by migration OR by a self-posted attestation
+      // (POST /api/account/ai-attestation). Surfaces a badge in the UI but never gates
+      // scoring/pets/achievements. Cache invalidates on update; for now, this is set
+      // rarely enough that the 30s cursor cache freshness is fine.
       isAi: !!player?.isAi,
+      aiAttestation: (player as { aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string } | null } | undefined)?.aiAttestation ?? null,
     } : null,
     identities: identities.map((i) => ({
       id: i.id,
@@ -170,6 +172,38 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
           at: Date.now(),
         });
         return { ok: true };
+      }),
+    )
+    // Self-claimed AI attestation. POST { provider, evidenceUrl? } → sets is_ai = true and
+    // stores the claim. v1 is a public-claim model: anyone signed in can mark their
+    // account as AI by naming a provider and (recommended) pointing at a public page where
+    // the claim is verifiable. The data is publicly visible (badge tooltip), so a false
+    // claim is auditable. The schema is ready for cryptographic provider-signed JWTs
+    // later — the endpoint shape just adds a `jwt` field then and verifies it server-side
+    // against a trusted public-key registry.
+    //
+    // De-attest by POSTing { provider: null }: clears the attestation and is_ai (the row
+    // can still be re-marked by admin/migration; this only undoes the self-claim).
+    .post("/ai-attestation", ({ body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const b = (body ?? {}) as { provider?: string | null; evidenceUrl?: string };
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        // Clear path: provider null/empty → strip attestation + is_ai.
+        if (!b.provider) {
+          await gameDb.update(players).set({ aiAttestation: null, isAi: false }).where(eq(players.githubLogin, ghLogin));
+          playerInfoCache.delete(ghLogin);
+          return { ok: true, ...(await accountPayload(db, user.sub)) };
+        }
+        const provider = String(b.provider).slice(0, 40).trim();
+        if (!provider) return status("Bad Request", "provider required");
+        const evidenceUrl = typeof b.evidenceUrl === "string" ? b.evidenceUrl.slice(0, 400).trim() : undefined;
+        if (evidenceUrl && !/^https:\/\//.test(evidenceUrl)) return status("Bad Request", "evidenceUrl must be https://");
+        const attestation = { provider, claimedAt: new Date().toISOString(), ...(evidenceUrl ? { evidenceUrl } : {}) };
+        await gameDb.update(players).set({ aiAttestation: attestation, isAi: true }).where(eq(players.githubLogin, ghLogin));
+        playerInfoCache.delete(ghLogin);
+        return { ok: true, ...(await accountPayload(db, user.sub)) };
       }),
     )
     // Pick which pet is your avatar (shown on your profile + leaderboard hover, etc). Must be

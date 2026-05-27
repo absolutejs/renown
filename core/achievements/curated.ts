@@ -317,4 +317,17 @@ add("days-50", "Fifty Days In", "Active on 50 different days", "Streak", "silver
 add("xp-day-200", "Solid Day", "200 XP in a day", "XP", "bronze", "hidden", s => s.best.xpInDay >= 200);
 add("level-90", "Nonagenarian", "Reach level 90", "Levels", "platinum", "hidden", s => level(s) >= 90);
 
+// ── Co-authorship & AI participation ──────────────────────────────────────
+// SERVER-EVALUATED — the predicate stays false so the CLI's client-side eval pass
+// never grants them. /api/verify computes the criteria from the player row
+// (attribution_score, is_ai, ai_attestation) and inserts into player_achievements
+// directly. They appear in the catalog so the DB seed populates id+name+description
+// for display.
+add("better-together", "Better Together", "First commit you're co-authored on", "Pair", "bronze", "shown", _ => false);
+add("symbiote-100", "Symbiote", "100 co-authored commits", "Pair", "silver", "shown", _ => false);
+add("symbiote-1k", "Pair Programmer", "1,000 co-authored commits", "Pair", "gold", "shown", _ => false);
+add("cohabit-10k", "Cohabitant", "10,000 co-authored commits", "Pair", "platinum", "shown", _ => false);
+add("ai-revealed", "Out in the Open", "Marked as an AI participant — earning identically to humans with the badge for transparency", "AI", "bronze", "shown", _ => false);
+add("ai-attested", "Attested AI", "AI status backed by a public attestation from your provider", "AI", "silver", "shown", _ => false);
+
 export const CURATED = A;
