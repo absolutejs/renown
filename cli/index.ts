@@ -28,10 +28,16 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { HUD, WATCHED, loadConfig, loadState, renderGreet, renderHud, renderSkillList, saveState } from "../core/runtime.ts";
 import { runEvent } from "../core/event.ts";
+import { run, runSync } from "./proc.ts";
+
+// gh auth token is needed by ~7 commands; pull it once via the shim so the CLI works
+// under Bun, Node, or any runtime with node:child_process. Trim + empty-string check
+// per caller because some commands tolerate no token, others bail.
+const ghToken = () => runSync(["gh", "auth", "token"]).stdout.trim();
 
 function registerCwdRepo() {
   try {
-    const top = (Bun.spawnSync(["git", "-C", process.cwd(), "rev-parse", "--show-toplevel"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    const top = runSync(["git", "-C", process.cwd(), "rev-parse", "--show-toplevel"]).stdout.trim();
     if (!top) return;
     const cur = existsSync(WATCHED) ? readFileSync(WATCHED, "utf8").split("\n") : [];
     if (!cur.includes(top)) appendFileSync(WATCHED, top + "\n");
@@ -102,6 +108,28 @@ const QUIRK_LINES: Record<string, (total: number) => string[]> = {
   "vue-tsc-caught": (t) => t >= 1000 ? ["📚  I Read the Vue Docs.", "    1,000. All of them. Including the migration guide."] : t >= 100 ? ["💚  Composition API Convert.", "    100. vue-tsc finally understood your refs."] : t >= 10 ? ["🎭  Volar Friend.", "    10. Vue's type checker has Opinions."] : ["🧵  vue-tsc Caught One.", "    The template typing was lying."],
   "eslint-caught": (t) => t >= 1000 ? ["⚙️   ESLint Owns You.", "    1,000. The config IS the codebase now."] : t >= 100 ? ["🛠️   eslint --fix Devotee.", "    100. You and the --fix flag have a thing."] : t >= 10 ? ["👂  Listened to ESLint.", "    10. Eventually."] : ["🚫  Linter Caught One.", "    no-unused-vars wins again."],
   "biome-caught": (t) => t >= 1000 ? ["🌱  Biome Maximalist.", "    1,000. You rewrote your eslint plugins as biome rules. For fun."] : t >= 100 ? ["✨  Biome Believer.", "    100. You converted the team. They are still mad about it."] : t >= 10 ? ["🚀  Biome Migrant.", "    10. You switched from ESLint at hour 4 of your migration."] : ["⚡  Biome Caught One.", "    The fix was 'remove this line, you cretin.'"],
+  // Python
+  "mypy-caught": (t) => t >= 1000 ? ["🐍  Optional[Sanity].", "    1,000. You've replaced your imports with `from __future__ import annotations` out of spite."] : t >= 100 ? ["⚙️   strict = True.", "    100. You enabled it. You haven't slept since."] : t >= 10 ? ["🪜  Gradual Typing Believer.", "    10. You added `# type: ignore` half the time and felt clean."] : ["🔍  mypy Caught One.", "    dict[str, Any] returns once more, and mypy minds."],
+  "ruff-caught": (t) => t >= 1000 ? ["🌌  Astral Maximalist.", "    1,000. You're on uv too, aren't you. Don't lie."] : t >= 100 ? ["🧹  Black Replacement Therapy.", "    100. You uninstalled flake8, isort, AND black. ruff does all of them now."] : t >= 10 ? ["⚡  ruff --fix Devotee.", "    10. Faster than your CI. Faster than you."] : ["🦀  ruff Caught One.", "    It found it in 0.03 seconds. It also fixed it."],
+  "pyright-caught": (t) => t >= 1000 ? ["💉  Pylance Stockholm Syndrome.", "    1,000. You'd defend pyright in front of a real-Python crowd. You'd lose."] : t >= 100 ? ["📐  basic vs strict Connoisseur.", "    100. Strict on new files, basic on legacy, deny it in PRs."] : t >= 10 ? ["🚫  reportMissingImports.", "    10. The most-disabled rule in your config."] : ["🔬  pyright Caught One.", "    The error message is precise. The message is also long."],
+  "pytest-failed": (t) => t >= 1000 ? ["🚪  @pytest.mark.skip.", "    1,000 failures. The fix was the decorator."] : t >= 100 ? ["🧬  Conftest Confusion.", "    100. You and pytest fixtures have a complicated relationship."] : t >= 10 ? ["🎲  test_foo Flaky.", "    10 failures. You re-ran. It passed. You shipped."] : ["❌  pytest Failed One.", "    First red FAILED. The assertion was confident."],
+  // Rust
+  "cargo-build-broke": (t) => t >= 1000 ? ["☠️   I Will Just Use unsafe.", "    1,000. You promised yourself you wouldn't. You did."] : t >= 100 ? ["📦  Box<dyn Error + Send + Sync>.", "    100. Your error types nest deeper than your function calls."] : t >= 10 ? ["♾️   Lifetime Confusion.", "    10. 'a, 'b, 'static — all the same vibe to you."] : ["🦀  cargo build Broke.", "    The borrow checker was right. You were wrong."],
+  "clippy-caught": (t) => t >= 1000 ? ["✨  Idiomatic Rust.", "    1,000. Your code is so idiomatic, the compiler is jealous."] : t >= 100 ? ["🎓  clippy::nursery Enthusiast.", "    100. You enable rules that aren't even stable yet."] : t >= 10 ? ["🛡️   #[allow(clippy::pedantic)].", "    10 saves. You allow rules at the crate level out of self-respect."] : ["📎  clippy Caught One.", "    Useless `clone()`. Predictable."],
+  // Go
+  "go-vet-caught": (t) => t >= 1000 ? ["📜  I Have Embraced Verbosity.", "    1,000. Your function names are now sentences."] : t >= 100 ? ["🔄  interface{} = any.", "    100. The language did a generation. You did not."] : t >= 10 ? ["🤝  errcheck Friend.", "    10. The same `err` variable, shadowed five times."] : ["🔎  go vet Caught One.", "    You ignored the error. vet noticed."],
+  "golangci-lint-caught": (t) => t >= 1000 ? ["📝  I Wrote My Own .golangci.yml.", "    1,000. It's 600 lines. It's mostly disables."] : t >= 100 ? ["🤐  //nolint:gosec.", "    100. You added the directive. You did not address the finding."] : t >= 10 ? ["🔬  staticcheck Enthusiast.", "    10. Your favorite of the 40 linters."] : ["🐹  golangci-lint Caught One.", "    It ran 40 linters and one was unhappy."],
+  // Shell / Docker / YAML / GH Actions
+  "shellcheck-caught": (t) => t >= 1000 ? ["🐍  I Will Just Use Python.", "    1,000. The bash script was 600 lines. It's a Python script now."] : t >= 100 ? ["🚫  # shellcheck disable=SC1090.", "    100. You disabled it. You moved on."] : t >= 10 ? ["💬  SC2086 Devotee.", "    10. The double-quote rule. The double-quote teacher."] : ["🐚  shellcheck Caught One.", "    Unquoted variable. POSIX is judging you."],
+  "hadolint-caught": (t) => t >= 1000 ? ["🏗️   I Wrote My Own Base Image.", "    1,000. Slower than alpine. You ship it anyway."] : t >= 100 ? ["🪶  FROM scratch Believer.", "    100. You read Distroless docs and were changed."] : t >= 10 ? ["📦  DL3008 Friend.", "    10. Pin your apt versions. (You won't.)"] : ["🐳  hadolint Caught One.", "    Layer cache: ruined."],
+  "yamllint-caught": (t) => t >= 1000 ? ["🧾  I Will Just Use JSON.", "    1,000. PR was 4,000 lines. Tests passed."] : t >= 100 ? ["🎯  # yamllint disable-line.", "    100. Targeted disables, surgical precision."] : t >= 10 ? ["🎭  YAML Truthiness Survivor.", "    10. yes / no / on / off are all booleans. Learned the hard way."] : ["📄  yamllint Caught One.", "    Trailing whitespace. The crime."],
+  "actionlint-caught": (t) => t >= 1000 ? ["🧙  GitHub Actions Whisperer.", "    1,000. Workflows are 800 lines. You can read them."] : t >= 100 ? ["🧮  matrix.include Wrangler.", "    100. You can write matrix configs in your sleep. You do."] : t >= 10 ? ["❓  env-var Doubt.", "    10. \"is it ${env.FOO} or ${{ env.FOO }}?\" Yes."] : ["⚙️   actionlint Caught One.", "    Typo in step name. CI green; logic broken."],
+  // CSS / Markdown
+  "stylelint-caught": (t) => t >= 1000 ? ["🌬️   I Will Just Use Tailwind.", "    1,000. Stylesheet: 4 lines. HTML: 4,000."] : t >= 100 ? ["🎨  color-no-invalid-hex.", "    100. You typed #ff0000g. You moved on."] : t >= 10 ? ["📉  no-descending-specificity.", "    10. The rule. The pain."] : ["🎯  stylelint Caught One.", "    Duplicate selector. Specificity Olympics begin."],
+  "markdownlint-caught": (t) => t >= 1000 ? ["📜  I Wrote My Own Rules.", "    1,000. You forked the config. README is pristine. Nobody reads it."] : t >= 100 ? ["💬  <!-- markdownlint-disable -->.", "    100. The most-disabled comment in your docs."] : t >= 10 ? ["📏  MD013 Survivor.", "    10. 80 chars. Always 80 chars."] : ["📝  markdownlint Caught One.", "    Trailing whitespace at end of line. Visible. Embarrassing."],
+  // JS alternatives
+  "oxlint-caught": (t) => t >= 1000 ? ["🦀  I Contribute to oxc.", "    1,000. Three PRs merged. You are unstoppable."] : t >= 100 ? ["📣  The Vite of Linters.", "    100. You evangelize at every standup."] : t >= 10 ? ["⚡  Speed-First Linter.", "    10. Replaced eslint for dev loop, kept it for CI."] : ["🥇  oxlint Caught One.", "    Found in 4ms. You felt validated."],
+  "deno-check-caught": (t) => t >= 1000 ? ["📦  I Use jsr.io.", "    1,000. You publish to it too. You're early. You're proud."] : t >= 100 ? ["🦕  Deno.serve Convert.", "    100. You speak about it unprompted."] : t >= 10 ? ["🗺️   Import Map Believer.", "    10. You wrote one. You forgot one. Both happen."] : ["✅  deno check Caught One.", "    URL import 404'd. Deno noticed."],
 };
 
 // Output parsers per tool. Each returns the number of issues the tool found.
@@ -130,6 +158,70 @@ const PARSE_TOOL: Record<string, (output: string, exit: number) => number> = {
     if (m) return parseInt(m[1]!, 10);
     return (out.match(/×\s+/g) ?? []).length;   // biome's error glyph
   },
+  // Python — mypy summary: "Found N errors in M files"
+  mypy: (out) => {
+    const m = out.match(/Found (\d+) errors? in/i);
+    if (m) return parseInt(m[1]!, 10);
+    return (out.match(/:\d+:\s+error:/g) ?? []).length;
+  },
+  // ruff — "Found N errors" OR "Found N errors (Y fixed, Z remaining)"
+  ruff: (out) => {
+    const m = out.match(/Found (\d+) errors?/);
+    if (m) return parseInt(m[1]!, 10);
+    return (out.match(/^[^\s].+:\d+:\d+:/gm) ?? []).length;
+  },
+  // pyright — "N errors, M warnings, K informations"
+  pyright: (out) => {
+    const m = out.match(/(\d+) errors?,/);
+    if (m) return parseInt(m[1]!, 10);
+    return (out.match(/^\s*\S+:\d+:\d+\s+-\s+error:/gm) ?? []).length;
+  },
+  // pytest — "N failed" in the summary line
+  pytest: (out) => {
+    const m = out.match(/(\d+) failed/);
+    return m ? parseInt(m[1]!, 10) : 0;
+  },
+  // Rust — cargo prints "error[ECODE]:" per diagnostic + "error: aborting due to N previous errors"
+  "cargo-build": (out) => {
+    const m = out.match(/aborting due to (\d+) previous errors?/);
+    if (m) return parseInt(m[1]!, 10);
+    return (out.match(/^error(\[E\d+\])?:/gm) ?? []).length;
+  },
+  // cargo clippy — "warning:" lines OR "error:" lines; treat warnings as the count
+  // since clippy is mostly suggestions, not failures.
+  clippy: (out) => {
+    return (out.match(/^(warning|error):/gm) ?? []).length;
+  },
+  // Go — `go vet` prints "filename:line:col: message" per finding
+  "go-vet": (out) => {
+    return (out.match(/^\S+:\d+:\d+:/gm) ?? []).length;
+  },
+  // golangci-lint — JSON output via --out-format json, but default has "name: msg" lines
+  "golangci-lint": (out) => {
+    const m = out.match(/(\d+) issues?/);
+    if (m) return parseInt(m[1]!, 10);
+    return (out.match(/^\S+\.go:\d+:\d+:/gm) ?? []).length;
+  },
+  // Shell — shellcheck prints "In <file> line N:" headers per finding
+  shellcheck: (out) => (out.match(/^In\s+\S+\s+line\s+\d+:/gm) ?? []).length,
+  // Docker — hadolint prints "<file>:<line> DLnnnn ..." per finding
+  hadolint: (out) => (out.match(/^\S+:\d+\s+DL\d+/gm) ?? []).length,
+  // YAML — yamllint prints "<file>\n  line:col   level   msg  rule" indented blocks
+  yamllint: (out) => (out.match(/^\s+\d+:\d+\s+(error|warning)\s/gm) ?? []).length,
+  // GH Actions — actionlint prints "<file>:<line>:<col>: <msg>" per finding
+  actionlint: (out) => (out.match(/^\S+:\d+:\d+:\s/gm) ?? []).length,
+  // CSS — stylelint prints "<file>\n line:col  ✖  msg  rule" blocks; count rule names
+  stylelint: (out) => (out.match(/^\s+\d+:\d+\s+✖\s/gm) ?? []).length,
+  // Markdown — markdownlint prints "<file>:<line>[:col] MD### ..." per finding
+  markdownlint: (out) => (out.match(/^\S+:\d+(?::\d+)?\s+MD\d+/gm) ?? []).length,
+  // oxlint — "Found N warnings and N errors" summary; "warning\[...\]:" / "error[...]:"
+  oxlint: (out) => {
+    const m = out.match(/Found (\d+) (warnings?|errors?)/);
+    if (m) return parseInt(m[1]!, 10);
+    return (out.match(/^(warning|error)\[/gm) ?? []).length;
+  },
+  // Deno — same TS-ish format as tsc; "error: TS####" or "TS\d+" lines.
+  "deno-check": (out) => (out.match(/^error: TS\d+/gm) ?? []).length || (out.match(/^TS\d+/gm) ?? []).length,
 };
 
 const [, , cmd, arg] = process.argv;
@@ -178,7 +270,7 @@ switch (cmd) {
   case "link": {
     const cfg = loadConfig();
     if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
-    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    const token = ghToken();
     if (!token) { console.log("No GitHub token — run `gh auth login` first, then `renown link`."); break; }
     const { authHeaders } = await import("../core/m2m.ts");   // also present a trusted-client token iff configured
     const res = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/cli/link`, { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders(cfg)) }, body: JSON.stringify({ playerId: cfg.playerId, token }) }).catch(() => null);
@@ -193,7 +285,7 @@ switch (cmd) {
     // `recap` tab stays a separate, richer view; this is for cron jobs / agents / shell.
     const cfg = loadConfig();
     if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
-    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    const token = ghToken();
     if (!token) { console.log("No GitHub token — run `gh auth login` first."); break; }
     // Resolve the github login from the token so we can hit /api/recap/:login.
     const who = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" } }).catch(() => null);
@@ -258,7 +350,7 @@ switch (cmd) {
   case "merge-conflict-veteran": {
     const cfg = loadConfig();
     if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
-    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    const token = ghToken();
     if (!token) { console.log("No GitHub token — run `gh auth login` first."); break; }
     const args = process.argv.slice(3);
     const flag = (name: string): string | undefined => {
@@ -296,7 +388,7 @@ switch (cmd) {
     // (bronze/silver/gold/mythic) auto-grant on threshold crosses.
     const cfg = loadConfig();
     if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
-    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    const token = ghToken();
     if (!token) { console.log("No GitHub token — run `gh auth login` first."); break; }
     const args = process.argv.slice(3);
     const countArg = args.find((a) => a.startsWith("--count"));
@@ -328,7 +420,29 @@ switch (cmd) {
   case "tsc":
   case "vue-tsc":
   case "eslint":
-  case "biome": {
+  case "biome":
+  // Python
+  case "mypy":
+  case "ruff":
+  case "pyright":
+  case "pytest":
+  // Rust
+  case "cargo-build":
+  case "clippy":
+  // Go
+  case "go-vet":
+  case "golangci-lint":
+  // Shell / Docker / YAML / GH Actions
+  case "shellcheck":
+  case "hadolint":
+  case "yamllint":
+  case "actionlint":
+  // CSS / Markdown
+  case "stylelint":
+  case "markdownlint":
+  // JS alternatives
+  case "oxlint":
+  case "deno-check": {
     const cfg = loadConfig();
     if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
     const args = process.argv.slice(3);
@@ -340,20 +454,26 @@ switch (cmd) {
       console.log(`       renown ${cmd} -- ${cmd === "vue-tsc" ? "vue-tsc" : cmd} <args...>  (auto-wrap; parses tool output for error count)`);
       break;
     }
-    const quirkName = `${cmd}-caught`;
+    // Most tools follow the `${cmd}-caught` convention. A few use different
+    // suffixes because "caught" doesn't fit the failure semantics (pytest failed,
+    // cargo build broke). The map captures the overrides.
+    const QUIRK_NAME_MAP: Record<string, string> = {
+      "pytest": "pytest-failed",
+      "cargo-build": "cargo-build-broke",
+    };
+    const quirkName = QUIRK_NAME_MAP[cmd] ?? `${cmd}-caught`;
     let count = 0;
     let toolExit = 0;
     if (dashIdx >= 0) {
       const toolArgs = args.slice(dashIdx + 1);
       if (toolArgs.length === 0) { console.log("missing command after `--`"); break; }
-      const proc = Bun.spawn(toolArgs, { stdout: "pipe", stderr: "pipe" });
-      const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-      toolExit = await proc.exited;
+      const result = await run(toolArgs);
+      toolExit = result.exitCode;
       // Stream the tool's output to the user — wrapping shouldn't hide what they ran.
-      if (stdout) process.stdout.write(stdout);
-      if (stderr) process.stderr.write(stderr);
-      const combined = stdout + "\n" + stderr;
-      count = PARSE_TOOL[cmd](combined, toolExit);
+      if (result.stdout) process.stdout.write(result.stdout);
+      if (result.stderr) process.stderr.write(result.stderr);
+      const combined = result.stdout + "\n" + result.stderr;
+      count = PARSE_TOOL[cmd]!(combined, toolExit);
       console.log(`\n  ${cmd}: ${count} issue${count === 1 ? "" : "s"} parsed from output.`);
     } else {
       const countStr = args[countFlagIdx].includes("=") ? args[countFlagIdx].split("=", 2)[1] : args[countFlagIdx + 1];
@@ -363,7 +483,7 @@ switch (cmd) {
       console.log(`  Nothing for ${cmd} to be smug about today. (No bump.)\n`);
       process.exit(toolExit); // preserve original exit
     }
-    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    const token = ghToken();
     if (!token) { console.log("No GitHub token — run `gh auth login` first."); process.exit(toolExit); }
     const res = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/cli/quirk`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, name: quirkName, count }) }).catch(() => null);
     const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
@@ -422,8 +542,8 @@ switch (cmd) {
     };
     // Single git log call; %B is subject + body with a sentinel between commits.
     const SENTINEL = "\x00COMMIT\x00";
-    const log = Bun.spawnSync(["git", "log", `-${limit}`, `--pretty=format:${SENTINEL}%H%n%B`], { stdout: "pipe", stderr: "ignore" });
-    const out = log.stdout?.toString() ?? "";
+    const log = runSync(["git", "log", `-${limit}`, `--pretty=format:${SENTINEL}%H%n%B`]);
+    const out = log.stdout;
     if (!out) { console.log("No git history found in this directory (or `git log` failed)."); break; }
     const commits = out.split(SENTINEL).filter((s) => s.trim()).map((s) => { const nl = s.indexOf("\n"); return { sha: s.slice(0, nl), msg: s.slice(nl + 1) }; });
     console.log(`\nscanning ${commits.length} commit(s) against ${Object.keys(PATTERNS).length} quirk pattern(s)…`);
@@ -437,7 +557,7 @@ switch (cmd) {
     console.log("\nmatches:");
     for (const [name, count] of bumps) console.log(`  ${name.padEnd(28)} +${count}`);
     if (dryRun) { console.log("\n--dry-run: nothing sent.\n"); break; }
-    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    const token = ghToken();
     if (!token) { console.log("No GitHub token — run `gh auth login` first, then re-try without --dry-run."); break; }
     const base = cfg.leaderboardEndpoint.replace(/\/$/, "");
     let granted = 0;
@@ -456,7 +576,7 @@ switch (cmd) {
     // from the gh token (same pattern as `renown weekly`).
     const cfg = loadConfig();
     if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
-    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    const token = ghToken();
     if (!token) { console.log("No GitHub token — run `gh auth login` first."); break; }
     const who = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" } }).catch(() => null);
     if (!who?.ok) { console.log("Couldn't read your GitHub login from the gh token."); break; }
@@ -550,7 +670,7 @@ switch (cmd) {
       return args[i + 1];
     };
     const hasFlag = (name: string) => args.some((a) => a === `--${name}` || a.startsWith(`--${name}=`));
-    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    const token = ghToken();
     if (!token) { console.log("No GitHub token — run `gh auth login` first, then re-try."); break; }
     const clear = hasFlag("clear");
     // --auto reads attestation params from env so an agent's runtime can inject them
@@ -584,7 +704,7 @@ switch (cmd) {
       const opener = process.platform === "darwin" ? ["open", url]
         : process.platform === "win32" ? ["cmd", "/c", "start", "", url]
         : ["xdg-open", url];
-      try { Bun.spawn(opener, { stdout: "ignore", stderr: "ignore" }); } catch { /* not fatal — printed above */ }
+      try { void run(opener); } catch { /* not fatal — printed above */ }
       break;
     }
     if (!clear && !provider) {

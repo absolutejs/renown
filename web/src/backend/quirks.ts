@@ -372,6 +372,162 @@ export const QUIRKS: Record<string, QuirkDef> = {
       ["Biome Maximalist", "1,000. You rewrote your eslint plugins as biome rules. For fun."],
     ),
   },
+
+  // ── Python ───────────────────────────────────────────────────────
+  "mypy-caught": {
+    id: "mypy-caught", label: "mypy saves", frame: "Optional[Any]: a love story.",
+    tiers: tiers("mypy-caught",
+      ["mypy Caught One", "First. dict[str, Any] returns once more, and mypy minds."],
+      ["Gradual Typing Believer", "10. You added `# type: ignore` half the time and felt clean."],
+      ["strict = True", "100. You enabled it. You haven't slept since."],
+      ["Optional[Sanity]", "1,000. You've replaced your imports with `from __future__ import annotations` out of spite."],
+    ),
+  },
+  "ruff-caught": {
+    id: "ruff-caught", label: "ruff saves", frame: "It found 47 things in 0.03 seconds.",
+    tiers: tiers("ruff-caught",
+      ["ruff Caught One", "First. It also offered to fix it. You let it."],
+      ["ruff --fix Devotee", "10. Faster than your CI. Faster than you."],
+      ["Black Replacement Therapy", "100. You uninstalled flake8, isort, AND black. ruff does all of them now."],
+      ["Astral Maximalist", "1,000. You're on uv too, aren't you. Don't lie."],
+    ),
+  },
+  "pyright-caught": {
+    id: "pyright-caught", label: "pyright saves", frame: "Microsoft's revenge for TypeScript.",
+    tiers: tiers("pyright-caught",
+      ["pyright Caught One", "First. The error message is precise. The message is also long."],
+      ["reportMissingImports", "10. The most-disabled rule in your config."],
+      ["basic vs strict Connoisseur", "100. You strict-mode the new files; basic-mode the legacy ones; deny it exists in PRs."],
+      ["Pylance Stockholm Syndrome", "1,000. You'd defend pyright in front of a real-Python-developer crowd. You'd lose."],
+    ),
+  },
+  "pytest-failed": {
+    id: "pytest-failed", label: "pytest failures", frame: "AssertionError: assert 1 == 2",
+    tiers: tiers("pytest-failed",
+      ["pytest Failed One", "First red FAILED. The assertion was confident."],
+      ["test_foo Flaky", "10 failures. You re-ran. It passed. You shipped."],
+      ["Conftest Confusion", "100. You and pytest fixtures have a complicated relationship."],
+      ["@pytest.mark.skip", "1,000 failures. The fix was the decorator."],
+    ),
+  },
+
+  // ── Rust ─────────────────────────────────────────────────────────
+  "cargo-build-broke": {
+    id: "cargo-build-broke", label: "cargo build failures", frame: "the borrow checker was right",
+    tiers: tiers("cargo-build-broke",
+      ["cargo build Broke", "First. The borrow checker was right. You were wrong."],
+      ["Lifetime Confusion", "10. 'a, 'b, 'static — they're all the same vibe to you."],
+      ["Box<dyn Error + Send + Sync>", "100. Your error types nest deeper than your function calls."],
+      ["I Will Just Use unsafe", "1,000. You promised yourself you wouldn't. You did."],
+    ),
+  },
+  "clippy-caught": {
+    id: "clippy-caught", label: "clippy saves", frame: "You should know better.",
+    tiers: tiers("clippy-caught",
+      ["clippy Caught One", "First. Useless `clone()`. Predictable."],
+      ["#[allow(clippy::pedantic)]", "10 saves. You allow rules at the crate level out of self-respect."],
+      ["clippy::nursery Enthusiast", "100. You enable rules that aren't even stable yet."],
+      ["Idiomatic Rust", "1,000. Your code is so idiomatic, the compiler is jealous."],
+    ),
+  },
+
+  // ── Go ───────────────────────────────────────────────────────────
+  "go-vet-caught": {
+    id: "go-vet-caught", label: "go vet saves", frame: "if err != nil { return err }",
+    tiers: tiers("go-vet-caught",
+      ["go vet Caught One", "First. You ignored the error. vet noticed."],
+      ["errcheck Friend", "10. The same `err` variable, shadowed five times."],
+      ["interface{} = any", "100. The language did a generation. You did not."],
+      ["I Have Embraced Verbosity", "1,000. Your function names are now sentences."],
+    ),
+  },
+  "golangci-lint-caught": {
+    id: "golangci-lint-caught", label: "golangci-lint saves", frame: "Run it. It will find things.",
+    tiers: tiers("golangci-lint-caught",
+      ["golangci-lint Caught One", "First. It ran 40 linters and one of them was unhappy."],
+      ["staticcheck Enthusiast", "10. Your favorite of the 40."],
+      ["//nolint:gosec", "100. You added the directive. You did not address the finding."],
+      ["I Wrote My Own .golangci.yml", "1,000. It's 600 lines. It's mostly disables."],
+    ),
+  },
+
+  // ── Shell / Docker / YAML / Actions ─────────────────────────────────
+  "shellcheck-caught": {
+    id: "shellcheck-caught", label: "shellcheck saves", frame: "Use $((...)) not `expr`.",
+    tiers: tiers("shellcheck-caught",
+      ["shellcheck Caught One", "First. Unquoted variable. POSIX is judging you."],
+      ["SC2086 Devotee", "10. The double-quote rule. The double-quote teacher."],
+      ["# shellcheck disable=SC1090", "100. You disabled it. You moved on."],
+      ["I Will Just Use Python", "1,000. The bash script was 600 lines. It's a Python script now."],
+    ),
+  },
+  "hadolint-caught": {
+    id: "hadolint-caught", label: "hadolint saves", frame: "Don't `apt-get update` without `&& apt-get install`.",
+    tiers: tiers("hadolint-caught",
+      ["hadolint Caught One", "First. Layer cache: ruined."],
+      ["DL3008 Friend", "10. Pin your apt versions. (You won't.)"],
+      ["FROM scratch Believer", "100. You read Distroless docs and were changed."],
+      ["I Wrote My Own Base Image", "1,000. It's slower than alpine. You ship it anyway."],
+    ),
+  },
+  "yamllint-caught": {
+    id: "yamllint-caught", label: "yamllint saves", frame: "Indentation: 2 spaces. NOT 4. ABSOLUTELY NOT TABS.",
+    tiers: tiers("yamllint-caught",
+      ["yamllint Caught One", "First. Trailing whitespace. The crime."],
+      ["YAML Truthiness Survivor", "10. yes / no / on / off are all booleans. You learned the hard way."],
+      ["# yamllint disable-line", "100. Targeted disables, surgical precision."],
+      ["I Will Just Use JSON", "1,000. You converted the whole config. The PR was 4,000 lines. Tests passed."],
+    ),
+  },
+  "actionlint-caught": {
+    id: "actionlint-caught", label: "actionlint saves", frame: "GitHub Actions: now with types.",
+    tiers: tiers("actionlint-caught",
+      ["actionlint Caught One", "First. Typo in the step name. CI green; logic broken."],
+      ["env-var Doubt", "10. \"is it ${env.FOO} or ${{ env.FOO }}?\" Yes."],
+      ["matrix.include Wrangler", "100. You can write matrix configs in your sleep. You do."],
+      ["GitHub Actions Whisperer", "1,000. The workflows are 800 lines. You can read them."],
+    ),
+  },
+
+  // ── CSS / Markdown ──────────────────────────────────────────────────
+  "stylelint-caught": {
+    id: "stylelint-caught", label: "stylelint saves", frame: "!important: yes, important.",
+    tiers: tiers("stylelint-caught",
+      ["stylelint Caught One", "First. Duplicate selector. Specificity Olympics begin."],
+      ["no-descending-specificity", "10. The rule. The pain."],
+      ["color-no-invalid-hex", "100. You typed #ff0000g. You moved on."],
+      ["I Will Just Use Tailwind", "1,000. You did. The stylesheet is 4 lines now. The HTML is 4,000."],
+    ),
+  },
+  "markdownlint-caught": {
+    id: "markdownlint-caught", label: "markdownlint saves", frame: "MD013: line length.",
+    tiers: tiers("markdownlint-caught",
+      ["markdownlint Caught One", "First. Trailing whitespace at end of line. Visible. Embarrassing."],
+      ["MD013 Survivor", "10. 80 chars. Always 80 chars."],
+      ["<!-- markdownlint-disable -->", "100. The most-disabled block-comment in your docs."],
+      ["I Wrote My Own Rules", "1,000. You forked the config. The README is pristine. Nobody reads it."],
+    ),
+  },
+
+  // ── JS alternatives ────────────────────────────────────────────────
+  "oxlint-caught": {
+    id: "oxlint-caught", label: "oxlint saves", frame: "Rust-powered. 100× faster. Half the rules.",
+    tiers: tiers("oxlint-caught",
+      ["oxlint Caught One", "First. It found it in 4ms. You felt validated."],
+      ["Speed-First Linter", "10. You replaced eslint for the dev loop, kept eslint for CI."],
+      ["The Vite of Linters", "100. You evangelize at every standup."],
+      ["I Contribute to oxc", "1,000. You filed three PRs. They were merged. You are unstoppable."],
+    ),
+  },
+  "deno-check-caught": {
+    id: "deno-check-caught", label: "deno check saves", frame: "Did you remember the import map?",
+    tiers: tiers("deno-check-caught",
+      ["deno check Caught One", "First. The URL import 404'd. Deno noticed."],
+      ["Import Map Believer", "10. You wrote one. You forgot one. Both happen."],
+      ["Deno.serve Convert", "100. You switched from Node. You speak about it unprompted."],
+      ["I Use jsr.io", "1,000. You publish to it too. You're early. You're proud."],
+    ),
+  },
 };
 
 export const TIER_BY_THRESHOLD: Record<number, string> = { 1: "bronze", 10: "silver", 100: "gold", 1000: "mythic" };

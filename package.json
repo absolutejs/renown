@@ -5,8 +5,15 @@
   "description": "Renown — earn XP and renown for real, meritorious dev work. Editor-agnostic, with 10k achievements and competitive per-project leaderboards. By AbsoluteJS.",
   "type": "module",
   "bin": {
-    "renown": "cli/index.ts"
+    "renown": "dist/cli.mjs"
   },
+  "files": [
+    "dist/cli.mjs",
+    "cli/",
+    "core/",
+    "db/schema.ts",
+    "README.md"
+  ],
   "scripts": {
     "test": "bun test",
     "demo": "bun run cli/index.ts gallery",
@@ -27,6 +34,22 @@
     "vue-tsc": "bun run cli/index.ts vue-tsc",
     "eslint": "bun run cli/index.ts eslint",
     "biome": "bun run cli/index.ts biome",
+    "mypy": "bun run cli/index.ts mypy",
+    "ruff": "bun run cli/index.ts ruff",
+    "pyright": "bun run cli/index.ts pyright",
+    "pytest": "bun run cli/index.ts pytest",
+    "cargo-build": "bun run cli/index.ts cargo-build",
+    "clippy": "bun run cli/index.ts clippy",
+    "go-vet": "bun run cli/index.ts go-vet",
+    "golangci-lint": "bun run cli/index.ts golangci-lint",
+    "shellcheck": "bun run cli/index.ts shellcheck",
+    "hadolint": "bun run cli/index.ts hadolint",
+    "yamllint": "bun run cli/index.ts yamllint",
+    "actionlint": "bun run cli/index.ts actionlint",
+    "stylelint": "bun run cli/index.ts stylelint",
+    "markdownlint": "bun run cli/index.ts markdownlint",
+    "oxlint": "bun run cli/index.ts oxlint",
+    "deno-check": "bun run cli/index.ts deno-check",
     "rate-limited": "bun run cli/index.ts rate-limited",
     "quirk": "bun run cli/index.ts quirk",
     "context-overflow": "bun run cli/index.ts context-overflow",
@@ -43,6 +66,8 @@
     "greet": "bun run cli/index.ts greet",
     "recap": "bun run cli/index.ts recap",
     "tui": "bun run cli/index.ts",
+    "build:cli": "bun build cli/api.ts --target=node --outfile=dist/cli.mjs && chmod +x dist/cli.mjs",
+    "prepack": "bun run build:cli",
     "tick": "bun run cli/index.ts tick",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
