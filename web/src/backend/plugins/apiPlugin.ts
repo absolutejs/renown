@@ -15,6 +15,32 @@ import { verifyGithub } from "../verify.ts";
 
 const TOP_MAX = 100, ACH_MAX = 2000;
 
+// In-process tracker for the current weekly AI leader (login → most recent broadcast).
+// Single-instance assumption already holds for the rest of sync.ts (in-memory hub +
+// write-behind cache); when this app scales horizontally, both this and the hub move
+// to Redis cluster pub/sub together. /api/verify recomputes after each successful sync
+// and only publishes when the login changes — silent ticks don't spam the SSE topic.
+let weeklyAiLeaderLogin: string | null = null;
+const recomputeWeeklyAiLeader = async () => {
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const weeklyOrder = sql<number>`(${players.attributionScore} - coalesce((select ${playerAttributionSnapshots.attributionScore} from ${playerAttributionSnapshots} where ${playerAttributionSnapshots.playerId} = ${players.id} and ${playerAttributionSnapshots.snapshotDate} >= ${cutoff} order by ${playerAttributionSnapshots.snapshotDate} asc limit 1), ${players.attributionScore}))`;
+  const rows = await gameDb.select().from(players)
+    .where(and(eq(players.githubVerified, true), eq(players.isAi, true)))
+    .orderBy(desc(weeklyOrder))
+    .limit(1);
+  const top = rows[0];
+  if (!top?.githubLogin) return;
+  if (top.githubLogin === weeklyAiLeaderLogin) return;
+  weeklyAiLeaderLogin = top.githubLogin;
+  hub.publish("weekly-ai-leader", {
+    login: top.githubLogin,
+    verifiedScore: top.verifiedScore,
+    isAi: true,
+    aiAttestation: top.aiAttestation,
+    avatarSeed: top.avatarSeed,
+  });
+};
+
 type ApiDeps = { accessTokenStore: ReturnType<typeof createNeonAccessTokenStore> };
 
 export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
@@ -207,6 +233,9 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         !!att?.verified           && "ai-verified",
       ].filter((x): x is string => typeof x === "string");
       await grantAchievements(row.id, grantIds);
+      // Update the live AI-of-the-Week tracker. Cheap (one indexed query); only fans
+      // out via SSE when the leader login actually changes.
+      void recomputeWeeklyAiLeader();
       // Return the newly-minted SHAs so the client can roll the Summon cinematic. Capped
       // small (<= 6) — the cinematic burns ~2s per pet on-screen so dumping 30 at once
       // would be tedious. Anything beyond the cap still lands in `wild` (the player owns

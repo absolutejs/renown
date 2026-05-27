@@ -109,6 +109,11 @@ const Logomark = ({ size = 22 }: { size?: number }) => (
 // the platform. 8s auto-fade; multiple events queue so a burst doesn't clobber itself.
 // Only fires on cryptographically-verified events (the matching hub.publish in
 // applyAttestation is gated on `verified === true`) — public claims stay quiet.
+//
+// Pairs with a Notifications API path: when the tab is hidden AND the user has granted
+// notification permission, also raise a real OS notification so they don't miss the
+// moment. Honest scope — this is the foreground Notifications API path; full cross-tab
+// Push API (service worker + VAPID + web-push) is a future upgrade and not done here.
 type Announcement = { id: number; login: string; provider: string; claimedAt: string };
 const VerifiedAttestationAnnouncer = ({ openProfile }: { openProfile: (login: string) => void }) => {
   const [queue, setQueue] = useState<Announcement[]>([]);
@@ -123,10 +128,21 @@ const VerifiedAttestationAnnouncer = ({ openProfile }: { openProfile: (login: st
         const ann: Announcement = { id, ...evt.payload };
         setQueue((q) => [...q, ann]);
         window.setTimeout(() => setQueue((q) => q.filter((a) => a.id !== id)), 8000);
+        // OS notification when the tab is hidden — keeps the moment visible to a user
+        // who's looking at another tab. Conditional on the user having opted in via
+        // the SoundToggle's Notifications request (see SoundToggle below). When the
+        // user clicks the OS notification the tab focuses and the profile opens.
+        if (typeof Notification !== "undefined" && Notification.permission === "granted" && typeof document !== "undefined" && document.hidden) {
+          const notif = new Notification("🤖 Verified AI attestation", {
+            body: `@${ann.login} attested as ${ann.provider} ✓`,
+            tag: `attestation:${ann.login}:${ann.claimedAt}`,
+          });
+          notif.onclick = () => { window.focus(); openProfile(ann.login); notif.close(); };
+        }
       } catch { /* malformed frame */ }
     };
     return () => es.close();
-  }, []);
+  }, [openProfile]);
   if (queue.length === 0) return null;
   return (
     <div className="announceStack" role="status" aria-live="polite">
@@ -188,6 +204,11 @@ const SoundToggle = () => {
   // Toggling sound off mid-session should kill the pad too; turning sound back on while
   // the menagerie is in view doesn't auto-restart it (the view effect below will catch
   // the next re-entry). This keeps the pad lifecycle owned by the view, not by global state.
+  //
+  // Enabling sound is also the gesture-bound moment to ask for OS notifications — the
+  // browser only allows the prompt from a user gesture, and people who opted into sound
+  // are the right cohort to also opt into background notifications (both are "make this
+  // page notice me even when I'm not looking"). Requested at most once per session.
   return (
     <button
       className="soundToggle"
@@ -196,6 +217,11 @@ const SoundToggle = () => {
         setSoundOn(next);
         setOn(next);
         if (!next) stopAmbientPad();
+        else if (typeof Notification !== "undefined" && Notification.permission === "default") {
+          // Fire-and-forget; the user will see (and act on) the browser's permission
+          // chrome themselves. We don't need to wait for the result here.
+          void Notification.requestPermission();
+        }
       }}
       title={on ? "Sound on — click to mute" : "Sound off — click to enable"}
       aria-label={on ? "Mute sound" : "Enable sound"}
@@ -224,8 +250,9 @@ const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => vo
   const [entry, setEntry] = useState<Entry | null>(null);
   const [weekDelta, setWeekDelta] = useState<number | null>(null);
   useEffect(() => {
-    // Pull the top AI this week (7-day attribution delta); fall back to all-time leader
-    // if no one's racked up a delta yet (otherwise the banner blanks during quiet weeks).
+    // Initial pull on mount; then live updates via the 'weekly-ai-leader' hub topic
+    // (server publishes on each /api/verify when the leader login changes — no spam on
+    // unchanged ticks). Falls back to all-time leader if the week-window is empty.
     const load = async () => {
       try {
         const wk = await fetch("/api/top?n=1&audience=ai&window=week").then((r) => r.json()) as Entry[];
@@ -238,8 +265,22 @@ const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => vo
       } catch { /* leave previous state */ }
     };
     load();
-    const es = new EventSource("/sync?topics=top");
-    es.onmessage = load;
+    // Two subscriptions: 'weekly-ai-leader' for leader-change events (cheap, fires only
+    // when the login changes), 'top' as a fallback nudge to re-pull delta numbers since
+    // the leader's own attribution might update without a leader-change.
+    const es = new EventSource("/sync?topics=weekly-ai-leader,top");
+    es.onmessage = (e) => {
+      try {
+        const evt = JSON.parse(e.data) as { topic: string; payload?: { login?: string; verifiedScore?: number; aiAttestation?: Entry["aiAttestation"]; avatarSeed?: string | null } };
+        if (evt.topic === "weekly-ai-leader" && evt.payload?.login) {
+          // Patch the entry with the new leader's info; refetch the delta for the badge text.
+          setEntry((cur) => ({ ...(cur ?? { name: evt.payload!.login!, level: 0, xp: 0, streak: 0, ach: 0 }), login: evt.payload!.login!, score: evt.payload!.verifiedScore, aiAttestation: evt.payload!.aiAttestation, avatarSeed: evt.payload!.avatarSeed ?? null, isAi: true }));
+          fetch(`/api/growth/${encodeURIComponent(evt.payload.login)}?days=7`).then((r) => r.json()).then((g: { delta?: number }) => setWeekDelta(g?.delta ?? null)).catch(() => {});
+        } else if (evt.topic === "top") {
+          load();
+        }
+      } catch { /* malformed frame */ }
+    };
     return () => es.close();
   }, []);
   if (!entry?.login) return null;

@@ -115,6 +115,22 @@ export const playerAttributionSnapshots = pgTable("player_attribution_snapshots"
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.snapshotDate] }) }));
 
+// Outbound webhook delivery log — one row per ATTEMPT (not per event), so a payload
+// retried 3 times leaves 3 rows. Lets admins inspect what failed and why; doubles as
+// the dead-letter store for ones that never succeeded (admin can query "where
+// status_code is null or status_code >= 400"). Append-only; we don't update rows in
+// place because the row IS the attempt receipt.
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: text("id").primaryKey(),                                     // ulid-ish
+  eventKind: text("event_kind").notNull(),                         // e.g. "attestation.verified"
+  url: text("url").notNull(),                                      // target webhook URL at the time of attempt
+  payload: jsonb("payload").notNull(),                             // the JSON body we POSTed
+  attempt: integer("attempt").notNull(),                           // 1, 2, 3 (counted from 1)
+  statusCode: integer("status_code"),                              // HTTP code on success/4xx/5xx; null on network error
+  attemptedAt: timestamp("attempted_at").notNull().defaultNow(),
+  lastError: text("last_error"),                                   // brief message on failure; null on success
+});
+
 // Audit log of every ai_attestation state change. One row per claim / verification /
 // clear. Append-only; lets anyone inspect the full history of an account's AI claims
 // for transparency. Render in ProfileModal as a compact timeline; expose via

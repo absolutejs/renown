@@ -5,7 +5,7 @@
 // "the CLI doesn't grant ai-verified" edge cases.
 
 import { eq } from "drizzle-orm";
-import { aiAttestationEvents, players } from "../../../db/schema.ts";
+import { aiAttestationEvents, players, webhookDeliveries } from "../../../db/schema.ts";
 import { defaultAuthorQuery, resolveProvider } from "./aiProviders.ts";
 import { gameDb, grantAchievements, hub } from "./sync.ts";
 
@@ -143,6 +143,12 @@ type WebhookPayload = {
   profileUrl: string;
   verified: boolean;
 };
+// 1s → 4s → 16s exponential backoff (counted from the first attempt). Three attempts
+// total before we give up and leave the deliveries log as the dead-letter store. The
+// loop runs detached from the caller; the attestation endpoint never waits for it.
+const RETRY_DELAYS_MS = [0, 4000, 16000];   // attempt 1 immediate, then +4s, then +16s
+const deliveryId = () => `whd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
 const postAttestationWebhook = async (payload: WebhookPayload): Promise<void> => {
   const url = process.env.RENOWN_ATTESTATION_WEBHOOK;
   if (!url) return;
@@ -153,16 +159,38 @@ const postAttestationWebhook = async (payload: WebhookPayload): Promise<void> =>
   };
   const secret = process.env.RENOWN_ATTESTATION_WEBHOOK_SECRET;
   if (secret) {
-    // Hand-rolled HMAC via WebCrypto (no node:crypto dep). Same algorithm as the comment
-    // above — receivers should verify with constant-time comparison, not ===.
     const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
     const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)));
     headers["x-renown-signature"] = "sha256=" + Array.from(sig).map((b) => b.toString(16).padStart(2, "0")).join("");
   }
-  try {
-    const r = await fetch(url, { method: "POST", headers, body, signal: AbortSignal.timeout(5000) });
-    if (!r.ok) console.error(`attestation webhook ${url} returned ${r.status}`);
-  } catch (e) {
-    console.error("attestation webhook error", e);
+  for (let attempt = 1; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 1) await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt - 1]));
+    let statusCode: number | null = null;
+    let lastError: string | null = null;
+    try {
+      const r = await fetch(url, { method: "POST", headers, body, signal: AbortSignal.timeout(5000) });
+      statusCode = r.status;
+      if (!r.ok) lastError = `HTTP ${r.status}`;
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+    }
+    // Log every attempt — successes AND failures — so ops have full delivery receipts.
+    try {
+      await gameDb.insert(webhookDeliveries).values({
+        id: deliveryId(),
+        eventKind: payload.event,
+        url,
+        payload: payload as unknown as Record<string, unknown>,
+        attempt,
+        statusCode,
+        lastError,
+      });
+    } catch (e) {
+      console.error("webhook_deliveries insert failed", e);
+    }
+    if (statusCode !== null && statusCode >= 200 && statusCode < 300) return;   // success → done
+    if (attempt === RETRY_DELAYS_MS.length) {
+      console.error(`attestation webhook ${url} gave up after ${attempt} attempts; last error: ${lastError}`);
+    }
   }
 };
