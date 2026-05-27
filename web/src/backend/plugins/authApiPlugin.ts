@@ -92,6 +92,8 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       isAi: !!player?.isAi,
       aiAttestation: (player as { aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null } | undefined)?.aiAttestation ?? null,
       pushPrefs: (player as { pushPrefs?: { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean } } | undefined)?.pushPrefs ?? {},
+      rateLimitCount: (player as { rateLimitCount?: number } | undefined)?.rateLimitCount ?? 0,
+      quirks: (player as { quirks?: Record<string, number> } | undefined)?.quirks ?? {},
       // Earned achievements — same join shape as /api/profile/:login so the panel
       // component can render from either endpoint with no client-side massaging.
       achievements: player

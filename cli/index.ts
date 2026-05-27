@@ -20,6 +20,7 @@
 //   quirk <name>     → bump any easter-egg counter; aliases below (--count N to batch)
 //   context-overflow / hallucinated / sycophant / wip / revert-revert / friday-deploy
 //   late-night / force-push / stack-overflow  → quirk aliases (see /api/cli/quirk registry)
+//   scan-commits     → read git log from cwd; auto-bump quirks whose regex matches commit messages (--limit N --dry-run)
 //   adopt [seed]      → adopt a wild find (default: your rarest) as your companion
 //   companion         → watch your adopted companion (animated)
 //   watch            → editor-agnostic activity daemon (next on the roadmap)
@@ -76,6 +77,26 @@ const QUIRK_LINES: Record<string, (total: number) => string[]> = {
     : t >= 100 ? ["🚪  Question Closed as Off-Topic.", "    100 visits. You stopped asking. You only consume now."]
     : t >= 10 ? ["📌  Marked as Duplicate.", "    10 visits. Half were closed before you finished reading them."]
     : ["🔍  Stack Overflow Visitor.", "    First Google-result-to-Stack-Overflow. Welcome. The answer is from 2014."],
+  "off-by-one": (t) => t >= 1000 ? ["⏰  Time Zones Are Hard.", "    1,000 OBOs. Dates: the new arrays."] : t >= 100 ? ["🎰  Index Roulette.", "    100 OBOs. Loop bounds are a vibe."] : t >= 10 ? ["🔢  Magic Numbers Connoisseur.", "    10 OBOs. range() expert status: honorary."] : ["📏  Off-by-One.", "    Index 0 was the friend you didn't know you had."],
+  "console-log-shipped": (t) => t >= 1000 ? ["📡  Telemetry Pioneer.", "    1,000 console.logs in prod. You out-instrumented Datadog."] : t >= 100 ? ["📓  Debug Confession.", "    100 logs. Every page-load logs a small autobiography."] : t >= 10 ? ["🖨️   Print Statement Programming.", "    10 logs. console.log IS your debugger."] : ["📋  console.log in Prod.", "    Production users now know about 'here1'."],
+  "eslint-disable": (t) => t >= 1000 ? ["🙅  ESLint Was Wrong Anyway.", "    1,000 disables. You wrote your own config."] : t >= 100 ? ["🤫  Linter Whisperer.", "    100 disables. The linter feels heard, not obeyed."] : t >= 10 ? ["📝  Rules Are Suggestions.", "    10 disables. The eslint config is now mostly overrides."] : ["🚫  eslint-disable-next-line.", "    The rule did not stand a chance."],
+  "mocked-in-prod": (t) => t >= 1000 ? ["🏘️   It Was Always Mocked.", "    1,000 mocks. Potemkin village. Works fine."] : t >= 100 ? ["🛠️   Stub of Theseus.", "    100 mocks. Every part replaced. Still a mock."] : t >= 10 ? ["📝  // TODO: real implementation.", "    10 mocks. The TODO is older than the codebase."] : ["🎭  Mock Left In Production.", "    The mock is now load-bearing."],
+  "any-type": (t) => t >= 1000 ? ["🌫️   Types Are Just Suggestions.", "    1,000 anys. You've contributed PRs adding `any` to library defs."] : t >= 100 ? ["🚢  @ts-expect-error: SHIP IT.", "    100 anys. You and strict-mode aren't on speaking terms."] : t >= 10 ? ["🤝  ts-ignore Friend.", "    10 anys. The TS compiler is your collaborator now."] : ["🎲  any: any.", "    Type-checking? More like type-vibing."],
+  "try-catch-empty": (t) => t >= 1000 ? ["🌌  If It's Not Logged, It Didn't Happen.", "    1,000 silences. Error nirvana achieved."] : t >= 100 ? ["📭  Catch and Forget.", "    100 silences. Error log is a haiku of empty braces."] : t >= 10 ? ["🤐  Swallowed Exception.", "    10 silences. Stack traces forgiven."] : ["🤫  Silenced Error.", "    The error was probably nothing."],
+  "commented-out-code": (t) => t >= 1000 ? ["🏛️   Archaeology Department.", "    1,000. Your repos are a lossy backup of every iteration."] : t >= 100 ? ["🔮  Future Me Will Need This.", "    100. Future-you needs a therapist, not the code."] : t >= 10 ? ["🛟  Just In Case.", "    10. The future-you that needs this hasn't arrived."] : ["💬  Commented-Out Code.", "    Just in case."],
+  "fix-typo": (t) => t >= 1000 ? ["📖  git log Reads Like a Dictionary.", "    1,000 typo fixes. Every commit corrects the previous one."] : t >= 100 ? ["✏️   Renamed Variable Three Times.", "    100 typo fixes. git blame on this file is mostly you."] : t >= 10 ? ["🐝  Spelling Bee.", "    10 typo fixes. Your spell-checker is a second pair of eyes."] : ["🔤  Typo Fix.", "    We've all been there."],
+  "rebase-disaster": (t) => t >= 1000 ? ["🌳  I Should Have Branched.", "    1,000 disasters. Every git op preceded by `git branch backup-$(date +%s)`."] : t >= 100 ? ["🕵️   Reflog Detective.", "    100 disasters. Connoisseur of `git reflog | grep HEAD@`."] : t >= 10 ? ["👻  Lost Commits.", "    10 disasters. Found them via git fsck more than once."] : ["💣  Rebase Disaster.", "    The reflog will know."],
+  "prod-debug": (t) => t >= 1000 ? ["🤷  Worked on the Last Deploy.", "    1,000 sessions. You blame the deploy before reading the diff."] : t >= 100 ? ["💻  It Works on My Machine.", "    100 sessions. Said weekly."] : t >= 10 ? ["🌃  Reading Prod Logs at 2am.", "    10 sessions. On-call rotation knows your sleep schedule."] : ["🚨  Debugging in Production.", "    Brave."],
+  "chmod-777": (t) => t >= 1000 ? ["🙏  It Works Now Please Stop.", "    1,000 chmods. The security audit closed early."] : t >= 100 ? ["⚖️   Security Through Apathy.", "    100 chmods. `sudo chmod -R 777 /opt/*`: war crime."] : t >= 10 ? ["🚪  Permissions for Everyone.", "    10 chmods. Path of least resistance."] : ["🔓  chmod 777.", "    It works now please stop."],
+  "dependabot-merge": (t) => t >= 1000 ? ["💍  Library Upgrade Champion.", "    1,000 merges. You and Dependabot are legally married in 14 countries."] : t >= 100 ? ["🤖  Auto-Merge: Self-Approved.", "    100 merges. PR history is mostly bots."] : t >= 10 ? ["✅  Dependabot Will Be My Reviewer Now.", "    10 merges. Anything green is good."] : ["🧪  Dependabot Merged Without Reading.", "    The diff was too long anyway."],
+  "node-modules-rm": (t) => t >= 1000 ? ["🏠  I Live Here Now.", "    1,000 reinstalls. node_modules has more reinstalls than your laptop has restarts."] : t >= 100 ? ["🔒  package-lock Disagreed Again.", "    100 reinstalls. The lockfile lies. You delete it anyway."] : t >= 10 ? ["🔄  Have You Tried Reinstalling.", "    10 reinstalls. Debugging strategy: bandwidth."] : ["🧹  The Classic.", "    rm -rf node_modules && npm install. Tale as old as npm."],
+  "mcp-crash": (t) => t >= 1000 ? ["🛡️   You Wrote a Watchdog.", "    1,000 crashes. Then the watchdog needed a watchdog."] : t >= 100 ? ["🔁  Restarted the Agent (Again).", "    100 crashes. The agent IS the application now."] : t >= 10 ? ["💥  Tool Failed Spectacularly.", "    10 crashes. You've memorized the restart command."] : ["🛑  MCP Server Crashed.", "    Orphan process count incremented."],
+  "wrong-model": (t) => t >= 1000 ? ["🦉  Should Have Used Opus.", "    1,000 wrong-model picks. Every retro ends the same way."] : t >= 100 ? ["💸  Token Budget Optimist.", "    100. 4k-context models, 32k-context questions."] : t >= 10 ? ["⚡  Speed Over Wisdom.", "    10. Cheaper model has limits. Found them."] : ["🎯  Wrong Model Picked.", "    Output was confident and very, very wrong."],
+  "prompt-leaked": (t) => t >= 1000 ? ["🎭  System Prompt is a Mood.", "    1,000 leaks. It's basically a suggestion now."] : t >= 100 ? ["🎬  Stayed in Character Until It Didn't.", "    100 leaks. Sometimes mid-sentence."] : t >= 10 ? ["🤖  The Model Said \"As an AI\".", "    10. You begged it not to. It did."] : ["🗣️   Prompt Injection Survivor.", "    System prompt is now in someone's tweet."],
+  "linter-disagreed": (t) => t >= 1000 ? ["⚔️   Linter Wars Veteran.", "    1,000. You wrote the config. You disagree with the config."] : t >= 100 ? ["🌓  Tabs vs Spaces: Both.", "    100. You contain multitudes."] : t >= 10 ? ["💾  Format-On-Save Champion.", "    10. git blame is mostly whitespace."] : ["📐  Prettier Reformatted Everything.", "    PR diff: 6,000 lines. Yours: zero."],
+  "wifi-died": (t) => t >= 1000 ? ["🐦  Offline-First Believer.", "    1,000 outages. You'd use git over carrier pigeon."] : t >= 100 ? ["☕  Coffee Shop Survivor.", "    100. You know which booth has the strong signal."] : t >= 10 ? ["📱  Hotspot Veteran.", "    10. Your phone's data plan respects you."] : ["📡  WiFi Died.", "    git push hangs. Hotspot engaged."],
+  "vscode-crashed": (t) => t >= 1000 ? ["🔧  Reinstall Whole IDE.", "    1,000 reloads. Done it on five machines."] : t >= 100 ? ["💀  TypeScript Server Crashed.", "    100. Memory: 8.6GB. Vibe: not great."] : t >= 10 ? ["⌨️   Restart Connoisseur.", "    10. Cmd+Shift+P, reload, enter."] : ["♻️   Reload Window Was the Fix.", "    The TypeScript server filed for divorce."],
+  "merge-conflict-veteran": (t) => t >= 1000 ? ["🪖  I Live in the Conflicts.", "    1,000. The merge IS the workflow."] : t >= 100 ? ["📜  Conflict Cartographer.", "    100. Reading conflict markers like braille."] : t >= 10 ? ["🤝  Three-Way Merge Survivor.", "    10. You know what // <<<<<<<< theirs means."] : ["⚔️   Merge Conflict Veteran.", "    Picked the wrong side. It compiled."],
 };
 
 const [, , cmd, arg] = process.argv;
@@ -181,7 +202,27 @@ switch (cmd) {
   case "friday-deploy":
   case "late-night":
   case "force-push":
-  case "stack-overflow": {
+  case "stack-overflow":
+  case "off-by-one":
+  case "console-log-shipped":
+  case "eslint-disable":
+  case "mocked-in-prod":
+  case "any-type":
+  case "try-catch-empty":
+  case "commented-out-code":
+  case "fix-typo":
+  case "rebase-disaster":
+  case "prod-debug":
+  case "chmod-777":
+  case "dependabot-merge":
+  case "node-modules-rm":
+  case "mcp-crash":
+  case "wrong-model":
+  case "prompt-leaked":
+  case "linter-disagreed":
+  case "wifi-died":
+  case "vscode-crashed":
+  case "merge-conflict-veteran": {
     const cfg = loadConfig();
     if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
     const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
@@ -243,6 +284,80 @@ switch (cmd) {
     console.log("");
     for (const l of lines) console.log(l);
     console.log(`\n  total: ${total.toLocaleString()}  ·  newly granted: ${granted.length === 0 ? "(none — already in this tier)" : granted.join(", ")}\n`);
+    break;
+  }
+  case "scan-commits": {
+    // Read git log from cwd, regex-match each commit's subject+body against the
+    // server's quirk registry, bump matching quirks. --dry-run shows what would bump
+    // without sending. Player-controlled: the player runs it explicitly, so no
+    // server-side GitHub API access is needed, and the audit is the printed report.
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const args = process.argv.slice(3);
+    const flag = (name: string): string | undefined => {
+      const i = args.findIndex((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+      if (i < 0) return undefined;
+      if (args[i].includes("=")) return args[i].split("=", 2)[1];
+      return args[i + 1];
+    };
+    const hasFlag = (name: string) => args.some((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+    const limit = Math.max(1, Math.min(500, Number(flag("limit") ?? 100)));
+    const dryRun = hasFlag("dry-run");
+    // Fetch the registry from the server (same source of truth as /api/cli/quirk).
+    const regRes = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/quirks/list`).catch(() => null);
+    if (!regRes?.ok) { console.log("Couldn't fetch quirk registry; is the server reachable?"); break; }
+    type RegEntry = { id: string; label: string; frame: string; keywordPatterns?: string[] };
+    const registry = await regRes.json() as RegEntry[];
+    // Need the actual RegExp patterns — fetch from a tiny extension of /quirks/list?
+    // For now, re-derive by hardcoding the patterns client-side from the registry id.
+    // (The /quirks/list endpoint doesn't ship JS RegExp objects.) Keep the matcher
+    // simple: a static map of well-known patterns.
+    const PATTERNS: Record<string, RegExp[]> = {
+      "wip": [/^wip\b/i, /^\[wip\]/i, /\bwip:\s/i],
+      "revert-revert": [/^revert\b/i, /\brevert\s+"?revert/i],
+      "off-by-one": [/\boff[- ]?by[- ]?one\b/i, /\bindex.*out.*of.*bounds\b/i],
+      "console-log-shipped": [/console\.log/i, /\bprintln!?\(/i, /\bdbg!\(/i],
+      "eslint-disable": [/eslint-disable/i, /@ts-(ignore|expect-error|nocheck)/i],
+      "mocked-in-prod": [/\bmock(?:ed|ing)?\b.*prod/i, /\btodo.*(real|actual|proper)\s+impl/i, /\bstub\b/i],
+      "any-type": [/:\s*any\b/, /as\s+any\b/i, /@ts-expect-error/i],
+      "try-catch-empty": [/catch\s*\([^)]*\)\s*\{\s*\}/, /catch\s*\{\s*\}/],
+      "commented-out-code": [/\b(remove|cleanup|clean up)\s+commented[- ]?out\b/i],
+      "fix-typo": [/^typo$/i, /^fix\s+typo/i, /\b(fix(?:es|ed)?)\s+typo\b/i],
+      "rebase-disaster": [/\brebase\b.*(disaster|broke|wrong|conflict)/i],
+      "chmod-777": [/chmod\s+777/i, /chmod\s+-R\s+777/i],
+      "dependabot-merge": [/dependabot/i, /^bump\s+\S+\s+from\s+\S+\s+to\s+\S+/i, /^chore\(deps?\)/i],
+      "node-modules-rm": [/rm\s+-rf\s+node_modules/i],
+      "linter-disagreed": [/^(format|prettier|lint(?:fix)?)\b/i],
+      "merge-conflict-veteran": [/merge\s+conflict/i, /resolve\s+conflict/i],
+    };
+    // Single git log call; %B is subject + body with a sentinel between commits.
+    const SENTINEL = "\x00COMMIT\x00";
+    const log = Bun.spawnSync(["git", "log", `-${limit}`, `--pretty=format:${SENTINEL}%H%n%B`], { stdout: "pipe", stderr: "ignore" });
+    const out = log.stdout?.toString() ?? "";
+    if (!out) { console.log("No git history found in this directory (or `git log` failed)."); break; }
+    const commits = out.split(SENTINEL).filter((s) => s.trim()).map((s) => { const nl = s.indexOf("\n"); return { sha: s.slice(0, nl), msg: s.slice(nl + 1) }; });
+    console.log(`\nscanning ${commits.length} commit(s) against ${Object.keys(PATTERNS).length} quirk pattern(s)…`);
+    const bumps = new Map<string, number>();
+    for (const c of commits) {
+      for (const [name, pats] of Object.entries(PATTERNS)) {
+        if (pats.some((re) => re.test(c.msg))) bumps.set(name, (bumps.get(name) ?? 0) + 1);
+      }
+    }
+    if (bumps.size === 0) { console.log("  (no matches)\n"); break; }
+    console.log("\nmatches:");
+    for (const [name, count] of bumps) console.log(`  ${name.padEnd(28)} +${count}`);
+    if (dryRun) { console.log("\n--dry-run: nothing sent.\n"); break; }
+    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first, then re-try without --dry-run."); break; }
+    const base = cfg.leaderboardEndpoint.replace(/\/$/, "");
+    let granted = 0;
+    for (const [name, count] of bumps) {
+      const res = await fetch(`${base}/cli/quirk`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, name, count }) }).catch(() => null);
+      const j = res ? await res.json().catch(() => ({})) : {};
+      if (Array.isArray(j.granted)) granted += j.granted.length;
+    }
+    void registry;
+    console.log(`\n✓ bumped ${bumps.size} quirk(s); ${granted} achievement(s) newly granted across them.\n`);
     break;
   }
   case "ai-stats": {

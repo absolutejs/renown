@@ -11,6 +11,18 @@ import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { QUIRKS } from "../quirks.ts";
+
+// Deterministic ISO-week index → quirk id rotation so the "quirk of the week" is the
+// same for every viewer in the same week, and cycles through the whole registry over
+// time. ~52 weeks per year × however many quirks; with 29 quirks each gets featured
+// ~1.8× per year. Plenty of variety; predictable enough to be referenceable.
+const isoWeekIndex = (d: Date = new Date()): number => {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil((((t.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+};
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
 import { gameDb, grantAchievements, hub, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";
@@ -69,11 +81,21 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // Boarded leaderboards: same player pool (github_verified), different sort. Same formula
       // for everyone, no special carve-outs — just a different axis of "best."
       const board = String(query.board ?? "score");
-      const orderCol = board === "pets-count" ? players.petsCount
+      // Cope leaderboards — board=quirk:<name> orders by players.quirks[name]::int.
+      // Validates the name against the registry so a typo doesn't silently fall back
+      // to verified_score; returns the verified board if the quirk doesn't exist.
+      const quirkPrefix = "quirk:";
+      const quirkName = board.startsWith(quirkPrefix) ? board.slice(quirkPrefix.length) : null;
+      const quirkOrder = quirkName && QUIRKS[quirkName]
+        ? sql<number>`coalesce((${players.quirks} ->> ${quirkName})::int, 0)`
+        : null;
+      const orderCol = quirkOrder ?? (
+        board === "pets-count" ? players.petsCount
         : board === "rarest-pet" ? players.rarestPetScore
         : board === "biggest-pet" ? players.biggestPetSize
         : board === "rate-limited" ? players.rateLimitCount
-        : players.verifiedScore;
+        : players.verifiedScore
+      );
       // Audience filter — server-side WHERE so the top-N count stays stable per audience.
       // Default "all" merges humans + AI on one board (no filter); "humans" hides AI
       // entries; "ai" shows only AI entries. AI accounts score / earn / rank identically;
@@ -96,10 +118,10 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         // Drizzle SQL builder keeps this typed; the inner select is parameterized.
         const weeklyOrder = sql<number>`(${players.attributionScore} - coalesce((select ${playerAttributionSnapshots.attributionScore} from ${playerAttributionSnapshots} where ${playerAttributionSnapshots.playerId} = ${players.id} and ${playerAttributionSnapshots.snapshotDate} >= ${cutoff} order by ${playerAttributionSnapshots.snapshotDate} asc limit 1), ${players.attributionScore}))`;
         const rows = await gameDb.select().from(players).where(where).orderBy(desc(weeklyOrder)).limit(n);
-        return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount }));
+        return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks }));
       }
       const rows = await gameDb.select().from(players).where(where).orderBy(desc(orderCol)).limit(n);
-      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount }));
+      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks }));
     })
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.
@@ -124,6 +146,8 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed,
         biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed,
         avatarSeed: p.avatarSeed, showcaseSeeds: Array.isArray(p.showcaseSeeds) ? p.showcaseSeeds : [],
+        rateLimitCount: p.rateLimitCount,
+        quirks: p.quirks ?? {},
         achievements: ach,
         // Public audit trail of AI attestation events for this player. Append-only,
         // ordered newest-first. Anyone can read it (transparency is the point); the
@@ -427,6 +451,32 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       configured: isPushConfigured(),
       publicKey: getPushPublicKey(),
     }))
+    // Quirks registry — client-facing list of { id, label, frame } per quirk. Cached
+    // for an hour because the registry rarely changes (and requires a deploy when it
+    // does). Powers the Quirks dropdown in the cope-leaderboard tab.
+    .get("/quirks/list", () => new Response(JSON.stringify(Object.values(QUIRKS).map((q) => ({ id: q.id, label: q.label, frame: q.frame }))), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=3600" } }))
+    // Quirk of the week — rotating featured quirk + the player with the highest
+    // count for that quirk. Deterministic per ISO week so caches behave; cycles
+    // through the whole QUIRKS registry over the year.
+    .get("/quirks/featured", async () => {
+      const ids = Object.keys(QUIRKS);
+      if (ids.length === 0) return { quirk: null, leader: null };
+      const week = isoWeekIndex();
+      const quirkId = ids[week % ids.length]!;
+      const def = QUIRKS[quirkId]!;
+      const rows = await gameDb.select({
+        login: players.githubLogin,
+        avatarSeed: players.avatarSeed,
+        count: sql<number>`coalesce((${players.quirks} ->> ${quirkId})::int, 0)`,
+      })
+        .from(players)
+        .where(eq(players.githubVerified, true))
+        .orderBy(desc(sql`coalesce((${players.quirks} ->> ${quirkId})::int, 0)`))
+        .limit(1);
+      const top = rows[0];
+      const leader = top && top.count > 0 ? { login: top.login, avatarSeed: top.avatarSeed, count: Number(top.count) } : null;
+      return { quirk: { id: def.id, label: def.label, frame: def.frame }, leader, weekIndex: week };
+    })
     // Aggregate rate-limit counts per attestation provider. Lets the UI show
     // "anthropic 47k 429s · openai 12k · cursor 3k" — friendly competition for whose
     // model gets throttled the most. Excludes accounts without an attestation since

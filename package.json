@@ -22,6 +22,7 @@
     "weekly": "bun run cli/index.ts weekly",
     "digest-test": "bun run cli/index.ts digest-test",
     "ai-stats": "bun run cli/index.ts ai-stats",
+    "scan-commits": "bun run cli/index.ts scan-commits",
     "rate-limited": "bun run cli/index.ts rate-limited",
     "quirk": "bun run cli/index.ts quirk",
     "context-overflow": "bun run cli/index.ts context-overflow",

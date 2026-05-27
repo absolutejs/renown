@@ -15,11 +15,15 @@ type Profile = {
   avatarSeed: string | null; showcaseSeeds: string[];
   achievements?: AchievementRow[];
   attestationEvents?: AttestationEvent[];
+  rateLimitCount?: number;
+  quirks?: Record<string, number>;
 };
 
 // Mirrors AchievementsPanel from RenownHome — same data, sized for the modal context.
 // Kept inline so ProfileModal doesn't have to import from a page module (one-way deps).
 const TIER_ORDER: Record<string, number> = { mythic: 0, platinum: 1, gold: 2, silver: 3, bronze: 4, secret: 5 };
+const QUIRK_TIER: Record<number, [string, string]> = { 1: ["🥉", "bronze"], 10: ["🥈", "silver"], 100: ["🥇", "gold"], 1000: ["🏆", "mythic"] };
+const quirkTierFor = (n: number): [string, string] => n >= 1000 ? QUIRK_TIER[1000]! : n >= 100 ? QUIRK_TIER[100]! : n >= 10 ? QUIRK_TIER[10]! : QUIRK_TIER[1]!;
 
 export const ProfileModal = ({ login, onClose }: { login: string; onClose: () => void }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -134,6 +138,26 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
                         </div>
                       </div>
                     ))}
+                  </div>
+                </>
+              );
+            })()}
+            {profile.quirks && Object.values(profile.quirks).some((n) => n > 0) && (() => {
+              const entries = Object.entries(profile.quirks!).filter(([, n]) => n > 0).sort(([, a], [, b]) => b - a);
+              return (
+                <>
+                  <h3 className="muted" style={{ marginTop: 18, fontSize: 13, textTransform: "uppercase", letterSpacing: 0.8 }}>Quirks · {entries.length}</h3>
+                  <p className="muted hint" style={{ marginTop: 4 }}>Self-reported cope ladder — the badge is real, the cope is the achievement.</p>
+                  <div className="achList" style={{ marginTop: 8 }}>
+                    {entries.map(([id, count]) => {
+                      const [emoji, tier] = quirkTierFor(count);
+                      return (
+                        <div key={id} className={`achChip tier-${tier}`} title={`${id} · ${count.toLocaleString()}`}>
+                          <span className="achName">{emoji} {id}</span>
+                          <span className="achTier">{count.toLocaleString()}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               );

@@ -7,8 +7,10 @@ import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } fro
 import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
-type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number };
-type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited";
+type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number> };
+// Board ids: well-known fixed strings + a "quirk:<name>" dynamic family for the
+// cope leaderboards (one per registered quirk in web/src/backend/quirks.ts).
+type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | `quirk:${string}`;
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
@@ -18,7 +20,7 @@ type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
 type WebauthnCredential = { id: string; label: string; transports: string[]; createdAt: string; lastUsedAt: string | null };
 type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean };
-type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[] };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[]; rateLimitCount?: number; quirks?: Record<string, number> };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievements?: AchievementRow[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
@@ -81,6 +83,40 @@ const AchievementsPanel = ({ items, title = "Achievements" }: { items: Achieveme
             </div>
           </div>
         ))}
+      </div>
+    </section>
+  );
+};
+
+// Quirks panel — renders every quirk the player has hit at least once, with its
+// count and the funniest tier reached. Uses the fetched /api/quirks/list registry
+// for labels; tier copy is server-authoritative via the catalog. The frame matters:
+// these are public cope-as-badges, the joke IS the achievement. Used by AccountView
+// (your own quirks) and ProfileModal (someone else's).
+const QUIRK_TIER_LABELS: Record<number, [string, string]> = {
+  1: ["🥉", "bronze"], 10: ["🥈", "silver"], 100: ["🥇", "gold"], 1000: ["🏆", "mythic"],
+};
+const tierFor = (n: number): [string, string] => n >= 1000 ? QUIRK_TIER_LABELS[1000]! : n >= 100 ? QUIRK_TIER_LABELS[100]! : n >= 10 ? QUIRK_TIER_LABELS[10]! : QUIRK_TIER_LABELS[1]!;
+const QuirksPanel = ({ quirks, title = "Quirks" }: { quirks: Record<string, number>; title?: string }) => {
+  const [registry, setRegistry] = useState<{ id: string; label: string; frame: string }[]>([]);
+  useEffect(() => { fetch("/api/quirks/list").then((r) => r.json()).then(setRegistry).catch(() => {}); }, []);
+  const entries = Object.entries(quirks).filter(([, n]) => n > 0).sort(([, a], [, b]) => b - a);
+  if (entries.length === 0) return null;
+  const labelFor = (id: string) => registry.find((q) => q.id === id)?.label ?? id;
+  return (
+    <section className="card">
+      <h2>{title} <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {entries.length}</span></h2>
+      <p className="muted hint">Self-reported cope ladder. Each is a 4-tier achievement family in the catalog — the bronze starts at 1, mythic at 1,000. <code>renown scan-commits</code> bumps them from your git log; CLI aliases (<code>renown wip</code>, <code>renown sycophant</code>, etc.) bump them manually.</p>
+      <div className="achList" style={{ marginTop: 8 }}>
+        {entries.map(([id, count]) => {
+          const [emoji, tier] = tierFor(count);
+          return (
+            <div key={id} className={`achChip tier-${tier}`} title={registry.find((q) => q.id === id)?.frame ?? id}>
+              <span className="achName">{emoji} {labelFor(id)}</span>
+              <span className="achTier">{count.toLocaleString()}</span>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -377,11 +413,47 @@ const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => vo
   );
 };
 
+// Rotating "quirk of the week" featured banner. Server picks the quirk by ISO week
+// (deterministic) and returns the current leader. Cycles through all 29 quirks over
+// the year. Reads from /api/quirks/featured.
+type FeaturedQuirk = { quirk: { id: string; label: string; frame: string } | null; leader: { login: string | null; avatarSeed: string | null; count: number } | null };
+const QuirkOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => void }) => {
+  const [data, setData] = useState<FeaturedQuirk | null>(null);
+  useEffect(() => {
+    fetch("/api/quirks/featured").then((r) => r.json()).then(setData).catch(() => {});
+  }, []);
+  if (!data?.quirk || !data.leader?.login) return null;
+  return (
+    <button
+      className="aiOtwBanner"
+      style={{ background: "linear-gradient(90deg, rgba(255,200,80,.18), rgba(180,120,255,.10))", borderColor: "rgba(255,200,80,.45)" }}
+      onClick={() => openProfile(data.leader!.login!)}
+      title={`This week's featured quirk: ${data.quirk!.frame}`}
+    >
+      <span className="aiOtwLabel" style={{ color: "#ffe9b3" }}>🏆 Quirk of the Week — {data.quirk.label}</span>
+      <span className="aiOtwName">@{data.leader.login}</span>
+      <span className="aiOtwScore">{data.leader.count.toLocaleString()}</span>
+      <span className="muted" style={{ fontSize: 11 }}>and counting</span>
+    </button>
+  );
+};
+
 type Audience = "all" | "humans" | "ai";
 const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet, openProfile, freshIds, myLogin }:
   { top: Entry[]; board: Board; setBoard: (b: Board) => void; audience: Audience; setAudience: (a: Audience) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string>; myLogin: string | null }) => {
   const skills = (sheet?.skills ?? []).slice().sort((a, b) => b.level - a.level || b.xp - a.xp);
-  const meta = BOARDS.find((b) => b.id === board) ?? BOARDS[0];
+  // Client-side quirks registry, fetched once. Used to populate the cope-leaderboard
+  // dropdown AND to derive the meta (label / hint / statOf) when a quirk:* board is
+  // active. Cached for an hour by the server's cache-control header.
+  const [quirkRegistry, setQuirkRegistry] = useState<{ id: string; label: string; frame: string }[]>([]);
+  useEffect(() => { fetch("/api/quirks/list").then((r) => r.json()).then(setQuirkRegistry).catch(() => {}); }, []);
+  const quirkName = typeof board === "string" && board.startsWith("quirk:") ? board.slice("quirk:".length) : null;
+  const activeQuirk = quirkName ? quirkRegistry.find((q) => q.id === quirkName) : null;
+  // Derive meta dynamically for quirk:* boards; fall back to the static BOARDS array
+  // for fixed boards.
+  const meta = activeQuirk
+    ? { id: board, label: `🎭 ${activeQuirk.label}`, hint: `${activeQuirk.frame} The cope leaderboard for this quirk. Self-reported via \`renown ${activeQuirk.id}\` (or scan-commits). The badge is real; the cope is the achievement.`, statOf: (e: Entry) => `${(e.quirks?.[activeQuirk.id] ?? 0).toLocaleString()}`, seedOf: (e: Entry) => e.avatarSeed }
+    : (BOARDS.find((b) => b.id === board) ?? BOARDS[0]);
   // Spotlight target: whichever row the cursor is over, falling back to the selected row,
   // then the leader. Decoupled from `sel` because hover should be ephemeral (no click cost).
   const [hovered, setHovered] = useState<string | null>(null);
@@ -511,6 +583,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
   return (
     <>
       <AiOfTheWeekBanner openProfile={openProfile} />
+      <QuirkOfTheWeekBanner openProfile={openProfile} />
       <section className={`card boardCard board-${board}`}>
         <h2>Global leaderboard</h2>
         <p className="muted hint">{meta.hint} Same formula for everyone. <em>Hover</em> any row to spotlight its pet; <em>click</em> for the player's profile.</p>
@@ -518,6 +591,18 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
           {BOARDS.map((b) => (
             <button key={b.id} className={b.id === board ? "on" : ""} onClick={() => setBoard(b.id)}>{b.label}</button>
           ))}
+          {quirkRegistry.length > 0 && (
+            <select
+              className={quirkName ? "on" : ""}
+              value={quirkName ?? ""}
+              onChange={(e) => { if (e.target.value) setBoard(`quirk:${e.target.value}` as Board); }}
+              style={{ background: "none", border: 0, borderBottom: quirkName ? "2px solid var(--accent)" : "2px solid transparent", color: quirkName ? "var(--text)" : "var(--muted)", font: "inherit", fontSize: 13, padding: "8px 14px", cursor: "pointer", marginBottom: -1 }}
+              title="Cope leaderboards — one per quirk in the registry"
+            >
+              <option value="">🎭 Quirks…</option>
+              {quirkRegistry.map((q) => <option key={q.id} value={q.id}>{q.label}</option>)}
+            </select>
+          )}
         </div>
         {/* Audience filter — server-side WHERE, so top-N stays stable. AI scoring is
             identical to humans; this is a viewing preference, not a ranking change. */}
@@ -1256,6 +1341,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
       {account.github && <RecapCard login={account.github.login} />}
       {account.github && <AiAttestationCard gh={account.github} act={act} />}
       {account.achievements && <AchievementsPanel items={account.achievements} title="Your achievements" />}
+      {account.github?.quirks && <QuirksPanel quirks={account.github.quirks} title="Your quirks" />}
       {account.github && account.github.wild.length > 0 && (
         <section className="card">
           <h2>Your menagerie <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {account.github.petsCount} owned · rarest {account.github.rarestPetScore.toFixed(1)} · biggest size {account.github.biggestPetSize}</span></h2>
