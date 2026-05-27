@@ -7,16 +7,22 @@ import { SinglePet } from "./PetViewer";
 type Tier = "free" | "supporter" | "pro";
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
 type AttestationEvent = { id: string; at: string; kind: string; provider: string | null; evidenceUrl: string | null; verified: boolean; actorKind?: string | null };
+type MeritBlock = {
+  score: number; reviews: number; crossRepo: number; authored: number; merged: number;
+  mergeRatio: number; downloads: number; substanceScore: number; substanceSampleSize: number;
+  lastSyncAt: string | null;
+};
 type Profile = {
   login: string; handle: string; tier: Tier; isAi?: boolean;
   aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean } | null;
-  score: number; totalLevel: number;
+  score: number; baseScore?: number; meritScore?: number; totalLevel: number;
   petsCount: number; rarestPetScore: number; biggestPetSize: number;
   avatarSeed: string | null; showcaseSeeds: string[];
   achievements?: AchievementRow[];
   attestationEvents?: AttestationEvent[];
   rateLimitCount?: number;
   quirks?: Record<string, number>;
+  merit?: MeritBlock;
 };
 
 // Mirrors AchievementsPanel from RenownHome — same data, sized for the modal context.
@@ -85,6 +91,26 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
               <div className="stat"><span className="num">{profile.biggestPetSize}</span><span className="lbl">biggest size</span></div>
               <div className="stat"><span className="num">{profile.totalLevel.toLocaleString()}</span><span className="lbl">total level</span></div>
             </div>
+            {profile.merit && profile.merit.score > 0 && (
+              <>
+                <h3 className="muted" style={{ marginTop: 18, fontSize: 13, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                  Merit · {profile.merit.score.toLocaleString()} pts
+                </h3>
+                <p className="muted hint" style={{ marginTop: 4 }}>
+                  Hard-to-game signals — reviews, cross-repo merges, ratio, downloads, commit substance.
+                  {profile.merit.lastSyncAt && <> Last synced {new Date(profile.merit.lastSyncAt).toLocaleDateString()}.</>}
+                </p>
+                <div className="profileStats" style={{ marginTop: 8 }}>
+                  <div className="stat"><span className="num">{profile.merit.reviews.toLocaleString()}</span><span className="lbl">PR reviews</span></div>
+                  <div className="stat"><span className="num">{profile.merit.crossRepo.toLocaleString()}</span><span className="lbl">cross-repo PRs</span></div>
+                  <div className="stat"><span className="num">{profile.merit.merged.toLocaleString()}</span><span className="lbl">PRs merged{profile.merit.authored > 0 ? ` (${Math.round(profile.merit.mergeRatio * 100)}%)` : ""}</span></div>
+                  <div className="stat"><span className="num">{profile.merit.downloads >= 1_000_000 ? (profile.merit.downloads / 1_000_000).toFixed(1) + "M" : profile.merit.downloads.toLocaleString()}</span><span className="lbl">npm DLs/mo</span></div>
+                  {profile.merit.substanceSampleSize >= 10 && (
+                    <div className="stat"><span className="num">{Math.round(profile.merit.substanceScore * 100)}%</span><span className="lbl">substance</span></div>
+                  )}
+                </div>
+              </>
+            )}
             {profile.showcaseSeeds.length > 0 && (
               <>
                 <h3 className="muted" style={{ marginTop: 18, fontSize: 13, textTransform: "uppercase", letterSpacing: 0.8 }}>Showcase</h3>

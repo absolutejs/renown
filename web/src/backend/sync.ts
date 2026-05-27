@@ -91,5 +91,11 @@ export const grantAchievements = async (playerId: string, ids: string[]): Promis
   await gameDb.update(achievements)
     .set({ unlockCount: sql`${achievements.unlockCount} + 1` })
     .where(inArray(achievements.id, inserted.map((r) => r.id)));
+  // Broadcast on the 'unlock' topic so the home-page activity feed live-refreshes
+  // (visitors see other players' progression in real time — the social-discovery
+  // loop). Payload is just the new IDs + the player id; clients re-fetch
+  // /api/recent-unlocks to get the display fields. Re-fetch is cheap (one
+  // indexed query, capped at 50 rows).
+  hub.publish("unlock", { playerId, ids: inserted.map((r) => r.id), at: new Date().toISOString() });
   return inserted.map((r) => r.id);
 };

@@ -160,13 +160,34 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       return {
         login: p.githubLogin, handle: p.handle, tier: normalizeTier(p.tier),
         isAi: p.isAi, aiAttestation: p.aiAttestation,
-        score: p.verifiedScore, totalLevel: p.totalLevel,
+        // Score = the headline number (base + attribution + merit) so /profile/:login
+        // matches the leaderboard's sort. meritScore is also broken out so the panel
+        // can render "X merit · Y base + Z merit" if it wants.
+        score: Number(p.verifiedScore) + Number(p.meritScore),
+        baseScore: Number(p.verifiedScore),
+        meritScore: Number(p.meritScore),
+        totalLevel: p.totalLevel,
         petsCount: p.petsCount,
         rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed,
         biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed,
         avatarSeed: p.avatarSeed, showcaseSeeds: Array.isArray(p.showcaseSeeds) ? p.showcaseSeeds : [],
         rateLimitCount: p.rateLimitCount,
         quirks: p.quirks ?? {},
+        // Per-signal merit numbers — power the Merit panel in ProfileModal.
+        // Same shape the /api/merit/:login endpoint returns, but inlined here so the
+        // profile modal can render everything from one round-trip.
+        merit: {
+          score: Number(p.meritScore),
+          reviews: p.prReviewsCount,
+          crossRepo: p.crossRepoPrsCount,
+          authored: p.prsAuthoredCount,
+          merged: p.prsMergedCount,
+          mergeRatio: p.prsAuthoredCount > 0 ? p.prsMergedCount / p.prsAuthoredCount : 0,
+          downloads: Number(p.packageDownloads),
+          substanceScore: p.substanceScore,
+          substanceSampleSize: p.substanceSampleSize,
+          lastSyncAt: p.lastMeritSyncAt,
+        },
         achievements: ach,
         // Public audit trail of AI attestation events for this player. Append-only,
         // ordered newest-first. Anyone can read it (transparency is the point); the
@@ -537,6 +558,38 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         ladders,
         lastSyncAt: row.lastMeritSyncAt,
       };
+    })
+    // Recent unlocks across the whole network — the social-discovery feed. Returns
+    // the most recently unlocked achievements with player login + achievement display
+    // fields, hidden achievements filtered out so secrets stay secret. Powers the
+    // "Live across the network" panel on the home page — visitors see live
+    // progression and want to participate. Cheap query (one indexed join), capped at
+    // 50; the home page polls every ~10s OR subscribes to the 'unlock' SSE topic.
+    .get("/recent-unlocks", async ({ query }) => {
+      const limit = Math.min(Number(query.limit ?? 30), 50);
+      // Filter: shown-visibility only (hidden/secret stay hidden until the player
+      // unlocks them; we don't broadcast someone else's secret unlock). Also exclude
+      // players without a github_login (anon submitters) since the feed link target
+      // is the profile route.
+      const rows = await gameDb.execute(sql`
+        SELECT pa.unlocked_at, a.id AS ach_id, a.name AS ach_name, a.tier AS ach_tier, a.category AS ach_category, a.description AS ach_description,
+               p.github_login AS login, p.handle AS handle, p.avatar_seed AS avatar_seed, p.is_ai AS is_ai, p.tier AS player_tier
+        FROM player_achievements pa
+        JOIN achievements a ON a.id = pa.achievement_id
+        JOIN players p ON p.id = pa.player_id
+        WHERE a.visibility = 'shown'
+          AND p.github_login IS NOT NULL
+          AND p.github_verified = true
+        ORDER BY pa.unlocked_at DESC
+        LIMIT ${limit}
+      `);
+      type Row = { unlocked_at: string | Date; ach_id: string; ach_name: string; ach_tier: string; ach_category: string; ach_description: string; login: string; handle: string; avatar_seed: string | null; is_ai: boolean; player_tier: string };
+      const out = (rows.rows as unknown as Row[]).map((r) => ({
+        unlockedAt: typeof r.unlocked_at === "string" ? r.unlocked_at : new Date(r.unlocked_at).toISOString(),
+        achievement: { id: r.ach_id, name: r.ach_name, tier: r.ach_tier, category: r.ach_category, description: r.ach_description },
+        player: { login: r.login, handle: r.handle, avatarSeed: r.avatar_seed, isAi: r.is_ai, tier: normalizeTier(r.player_tier) },
+      }));
+      return out;
     })
     // Top-N by a specific merit dimension. Powers the per-dimension cope-style
     // leaderboards on the home page ("Top reviewers", "Top maintainers", …).

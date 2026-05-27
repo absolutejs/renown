@@ -122,6 +122,71 @@ const QuirksPanel = ({ quirks, title = "Quirks" }: { quirks: Record<string, numb
   );
 };
 
+// RecentUnlocks — the cross-network activity feed. Shows the last N achievement
+// unlocks across all verified players, newest first. Live-updates on the 'unlock'
+// SSE topic (the grantAchievements call broadcasts on every batch). Clicking a
+// row opens that player's profile — the social-discovery loop the leaderboard
+// alone doesn't give. Hidden achievements stay hidden (the server filter is in
+// /api/recent-unlocks).
+type UnlockRow = {
+  unlockedAt: string;
+  achievement: { id: string; name: string; tier: string; category: string; description: string };
+  player: { login: string; handle: string; avatarSeed: string | null; isAi: boolean; tier: Tier };
+};
+const RecentUnlocks = ({ openProfile }: { openProfile: (login: string) => void }) => {
+  const [rows, setRows] = useState<UnlockRow[]>([]);
+  useEffect(() => {
+    const load = () => {
+      fetch("/api/recent-unlocks?limit=20").then((r) => r.json()).then((data) => {
+        if (Array.isArray(data)) setRows(data);
+      }).catch(() => {});
+    };
+    load();
+    // Live: every batch grant publishes on the 'unlock' topic. Cheap to re-fetch
+    // (one indexed join, 20-row cap). No polling — SSE only.
+    const sub = createSyncSubscriber({
+      topics: ["unlock"],
+      onEvent: () => load(),
+    });
+    return () => sub.close();
+  }, []);
+  if (rows.length === 0) return null;
+  // Friendly relative-time formatter (avoid pulling intl libs for a few rows).
+  const ago = (iso: string) => {
+    const s = Math.max(1, Math.round((Date.now() - Date.parse(iso)) / 1000));
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.round(s / 60)}m ago`;
+    if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+    return `${Math.round(s / 86400)}d ago`;
+  };
+  return (
+    <section className="card">
+      <h2>Across the network <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· live</span></h2>
+      <p className="muted hint">The {rows.length} most recent shown-visibility unlocks anywhere on renown. Click to open a player's profile.</p>
+      <div className="achList" style={{ marginTop: 8, flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+        {rows.map((r, i) => (
+          <button
+            key={`${r.player.login}:${r.achievement.id}:${i}`}
+            onClick={() => openProfile(r.player.login)}
+            className={`achChip tier-${r.achievement.tier}`}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", textAlign: "left", cursor: "pointer", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}
+            title={r.achievement.description}
+          >
+            <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 6, fontWeight: 500 }}>
+                @{r.player.login}{r.player.isAi && <span style={{ fontSize: 11, opacity: 0.7 }}>🤖</span>}
+                <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>unlocked</span>
+                <span style={{ fontSize: 13 }}>{r.achievement.name}</span>
+              </span>
+              <span className="muted" style={{ fontSize: 11 }}>{r.achievement.category} · {r.achievement.tier} · {ago(r.unlockedAt)}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+};
+
 // MeritPanel — the meritorious half of the leaderboard. One row per signal with
 // current sub-counter, tier (I-V), and a progress bar toward the next threshold.
 // Sourced from /api/merit/:login. Re-fetches on `merit` SSE topic so a player
@@ -754,6 +819,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
           </div>
         )}
       </section>
+      <RecentUnlocks openProfile={openProfile} />
       {sheet && (
         <section className="card">
           <h2>{sheet.name ?? "Player"} — Total Level {sheet.totalLevel} <span className="muted">/ {skills.length}</span></h2>
@@ -1057,8 +1123,13 @@ const WebauthnKeyRow = ({ cred, act }: { cred: WebauthnCredential; act: (fn: () 
 // Subscribers that DO more on each update (leaderboard freshIds diff + sound) stay on
 // createSyncSubscriber where the explicit control is worth the verbosity.
 function useLiveQuery<T>(topics: string[], fetcher: (signal: AbortSignal) => Promise<T>, deps: ReadonlyArray<unknown>): { data: T | undefined; loading: boolean } {
+  // SSR guard: createLiveQuery → createSyncSubscriber requires globalThis.EventSource,
+  // which doesn't exist during server render. Return a no-op stub during SSR; the
+  // browser hydration pass re-creates a real query. (The previous SSR throw was
+  // crashing the whole streaming render with "SSR Error - AbsoluteJS".)
+  const isBrowser = typeof globalThis !== "undefined" && typeof (globalThis as { EventSource?: unknown }).EventSource !== "undefined";
   const query = useMemo(
-    () => createLiveQuery<T>({ topics, fetcher }),
+    () => (isBrowser ? createLiveQuery<T>({ topics, fetcher }) : { subscribe: () => () => {}, get: () => undefined as { data: T | undefined; loading: boolean } | undefined, close: () => {} }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     deps,
   );

@@ -107,20 +107,84 @@ export const classifyCommitHeuristic = (
 // pays one embedding call.
 type Vector = number[];
 type Reference = { exemplar: string; score: number; reason: string };
+// Hand-curated reference set spanning the substance ladder. Multiple exemplars
+// per score bucket so cosine-K-NN has more anchor points and is less brittle to
+// any single exemplar's phrasing. Scores are calibrated against developer
+// intuition: typo ~5%, breaking change ~90%. Each exemplar carries the same
+// `reason` string the heuristic classifier returns, so explanation strings stay
+// stable across the two classifiers.
 const REFERENCES: Reference[] = [
-  { exemplar: "chore: bump @types/node to 20.10.0",          score: 0.05, reason: "version/deps bump" },
-  { exemplar: "Fix typo in README contributor guide",         score: 0.05, reason: "typo fix" },
-  { exemplar: "chore: format files with prettier",            score: 0.10, reason: "formatting" },
-  { exemplar: "Bump dependencies to latest minor",            score: 0.10, reason: "deps update" },
-  { exemplar: "docs(api): document the new /events endpoint", score: 0.20, reason: "documentation" },
-  { exemplar: "Merge pull request #1234 from foo/bar",        score: 0.15, reason: "merge commit" },
-  { exemplar: "Revert \"feat: add experimental cache layer\"", score: 0.30, reason: "revert" },
-  { exemplar: "refactor(scheduler): extract priority queue into its own module", score: 0.50, reason: "refactor" },
-  { exemplar: "test(auth): cover token-refresh edge cases",    score: 0.45, reason: "tests" },
-  { exemplar: "perf(parser): O(n²) → O(n log n) on large inputs", score: 0.70, reason: "perf" },
-  { exemplar: "fix(billing): retry idempotently on 5xx from Stripe", score: 0.65, reason: "bug fix" },
-  { exemplar: "feat(streaming): add backpressure support to the writer", score: 0.75, reason: "feature" },
-  { exemplar: "feat!: drop Node 16 support; default to native fetch (BREAKING CHANGE)", score: 0.90, reason: "breaking change" },
+  // ── 0.05 bucket: deps bumps, typo fixes, version bumps ─────────────────
+  { exemplar: "chore: bump @types/node to 20.10.0",                                       score: 0.05, reason: "version/deps bump" },
+  { exemplar: "bump react from 18.2 to 18.3",                                              score: 0.05, reason: "version/deps bump" },
+  { exemplar: "Bump @typescript-eslint/parser from 6.7 to 6.8",                            score: 0.05, reason: "version/deps bump" },
+  { exemplar: "Update version to 1.2.4",                                                   score: 0.05, reason: "version/deps bump" },
+  { exemplar: "Fix typo in README contributor guide",                                      score: 0.05, reason: "typo fix" },
+  { exemplar: "fix: typo (their → there) in onboarding email",                             score: 0.05, reason: "typo fix" },
+  { exemplar: "Correct misspelling in JSDoc",                                              score: 0.05, reason: "typo fix" },
+
+  // ── 0.10 bucket: formatting, dependency bots, build-tooling tweaks ─────
+  { exemplar: "chore: format files with prettier",                                         score: 0.10, reason: "formatting" },
+  { exemplar: "style: run prettier on src/",                                                score: 0.10, reason: "formatting" },
+  { exemplar: "chore(lint): apply biome auto-fixes",                                       score: 0.10, reason: "formatting" },
+  { exemplar: "Bump dependencies to latest minor",                                          score: 0.10, reason: "deps update" },
+  { exemplar: "build(deps-dev): bump @vitest/coverage-v8 from 1.1 to 1.2",                 score: 0.10, reason: "deps update" },
+  { exemplar: "Update package-lock.json after npm audit fix",                              score: 0.10, reason: "deps update" },
+  { exemplar: "chore: rename .eslintrc.cjs to eslint.config.js",                           score: 0.10, reason: "build config tweak" },
+
+  // ── 0.15-0.20 bucket: merges, docs ─────────────────────────────────────
+  { exemplar: "Merge pull request #1234 from foo/bar",                                     score: 0.15, reason: "merge commit" },
+  { exemplar: "Merge branch 'main' into feature/cache-layer",                              score: 0.15, reason: "merge commit" },
+  { exemplar: "Merge remote-tracking branch 'origin/main' into HEAD",                      score: 0.15, reason: "merge commit" },
+  { exemplar: "docs(api): document the new /events endpoint",                              score: 0.20, reason: "documentation" },
+  { exemplar: "docs: explain how to configure rate limits",                                score: 0.20, reason: "documentation" },
+  { exemplar: "README: add quickstart section + screenshot",                               score: 0.20, reason: "documentation" },
+  { exemplar: "changelog: 1.4.0 — new aggregation API + bug fixes",                        score: 0.20, reason: "documentation" },
+  { exemplar: "docs(contributing): clarify commit message convention",                     score: 0.20, reason: "documentation" },
+
+  // ── 0.25-0.30 bucket: CI tweaks, chore: maintenance, reverts ───────────
+  { exemplar: "ci: cache pnpm store between jobs",                                         score: 0.25, reason: "ci" },
+  { exemplar: "ci(release): publish on tag push instead of merge",                         score: 0.25, reason: "ci" },
+  { exemplar: "chore: rotate API keys after credentials leak",                             score: 0.30, reason: "chore: maintenance" },
+  { exemplar: "Revert \"feat: add experimental cache layer\"",                             score: 0.30, reason: "revert" },
+  { exemplar: "Revert \"perf: parallelize image resize pipeline\"",                        score: 0.30, reason: "revert" },
+
+  // ── 0.45-0.50 bucket: refactor, tests ──────────────────────────────────
+  { exemplar: "refactor(scheduler): extract priority queue into its own module",           score: 0.50, reason: "refactor" },
+  { exemplar: "refactor: replace switch with strategy object",                             score: 0.50, reason: "refactor" },
+  { exemplar: "cleanup: drop deprecated v1 endpoints",                                      score: 0.50, reason: "refactor" },
+  { exemplar: "refactor(db): use prepared statements throughout query layer",              score: 0.50, reason: "refactor" },
+  { exemplar: "test(auth): cover token-refresh edge cases",                                score: 0.45, reason: "tests" },
+  { exemplar: "test: add property-based tests for rate-limiter",                           score: 0.45, reason: "tests" },
+  { exemplar: "tests: increase coverage on session expiry paths to 95%",                   score: 0.45, reason: "tests" },
+
+  // ── 0.65 bucket: bug fixes ─────────────────────────────────────────────
+  { exemplar: "fix(billing): retry idempotently on 5xx from Stripe",                       score: 0.65, reason: "bug fix" },
+  { exemplar: "fix: race condition on concurrent session-refresh",                         score: 0.65, reason: "bug fix" },
+  { exemplar: "fix(query-cache): invalidate stale entries on schema migration",            score: 0.65, reason: "bug fix" },
+  { exemplar: "bugfix: handle empty result set in pagination cursor",                      score: 0.65, reason: "bug fix" },
+  { exemplar: "fix: prevent infinite loop when retry-after header is malformed",           score: 0.65, reason: "bug fix" },
+  { exemplar: "hotfix: 5xx on /api/v2/users after schema change (resolves #4421)",         score: 0.65, reason: "bug fix" },
+
+  // ── 0.70 bucket: perf ──────────────────────────────────────────────────
+  { exemplar: "perf(parser): O(n²) → O(n log n) on large inputs",                          score: 0.70, reason: "perf" },
+  { exemplar: "perf: cache compiled regex; 35% faster on validation hot path",             score: 0.70, reason: "perf" },
+  { exemplar: "optimize: batch jsonb_set updates; reduces lock contention by 8x",          score: 0.70, reason: "perf" },
+  { exemplar: "perf(stream): switch to backpressure-aware writer (40% less RSS)",          score: 0.70, reason: "perf" },
+
+  // ── 0.75 bucket: features ──────────────────────────────────────────────
+  { exemplar: "feat(streaming): add backpressure support to the writer",                   score: 0.75, reason: "feature" },
+  { exemplar: "feat: implement WebAuthn passkey login",                                    score: 0.75, reason: "feature" },
+  { exemplar: "feat(api): add /export endpoint with progressive JSON streaming",           score: 0.75, reason: "feature" },
+  { exemplar: "feat(billing): SCA-compliant 3DS challenge flow",                           score: 0.75, reason: "feature" },
+  { exemplar: "feat: introduce new aggregation primitive (rolling window)",                score: 0.75, reason: "feature" },
+  { exemplar: "Add support for OIDC discovery + dynamic client registration",              score: 0.75, reason: "feature" },
+
+  // ── 0.90 bucket: breaking changes / major releases ─────────────────────
+  { exemplar: "feat!: drop Node 16 support; default to native fetch (BREAKING CHANGE)",    score: 0.90, reason: "breaking change" },
+  { exemplar: "BREAKING CHANGE: rename `subscribe()` → `attach()` to match RxJS semantics", score: 0.90, reason: "breaking change" },
+  { exemplar: "v2.0.0 — new plugin system; deprecates the v1 hooks API",                    score: 0.90, reason: "breaking change" },
+  { exemplar: "feat(api)!: switch default response shape from snake_case to camelCase",    score: 0.90, reason: "breaking change" },
 ];
 
 // Cosine similarity for two equal-length vectors. The embedding provider always
