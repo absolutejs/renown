@@ -90,5 +90,49 @@ export const applyAttestation = async (githubLogin: string, input: AttestationIn
     ...(verified ? ["ai-verified"] : []),
   ]);
 
+  // Outbound webhook on verified attestation only — public-claim attestations stay quiet
+  // (anyone can post one; not worth notifying about) but a cryptographically-verified
+  // claim is a real social moment, and operators can wire RENOWN_ATTESTATION_WEBHOOK to
+  // Mastodon / Bluesky / Discord / etc. for cross-surface auditability. Fire-and-forget
+  // (.catch swallows errors so a webhook outage can't 500 the attestation endpoint).
+  if (verified) void postAttestationWebhook({
+    event: "attestation.verified",
+    login: githubLogin,
+    provider: providerId,
+    claimedAt: attestation.claimedAt,
+    evidenceUrl: input.evidenceUrl,
+    profileUrl: `${process.env.RENOWN_PUBLIC_BASE ?? "https://renown.local"}/?profile=${encodeURIComponent(githubLogin)}`,
+    verified: true,
+  });
+
   return { ok: true, cleared: false, provider: providerId, verified, resolvedKnownProvider: !!resolved };
+};
+
+// POST to RENOWN_ATTESTATION_WEBHOOK on verified attestations. Generic JSON payload so
+// operators can wire it to any service (Mastodon `statuses` API, Bluesky bot,
+// Discord/Slack webhook, IFTTT, etc.). 5s timeout — outbound webhook should never block
+// our request lifecycle. Errors are console-logged but never thrown.
+type WebhookPayload = {
+  event: "attestation.verified";
+  login: string;
+  provider: string;
+  claimedAt: string;
+  evidenceUrl?: string;
+  profileUrl: string;
+  verified: boolean;
+};
+const postAttestationWebhook = async (payload: WebhookPayload): Promise<void> => {
+  const url = process.env.RENOWN_ATTESTATION_WEBHOOK;
+  if (!url) return;
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "user-agent": "renown-attestation-webhook" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) console.error(`attestation webhook ${url} returned ${r.status}`);
+  } catch (e) {
+    console.error("attestation webhook error", e);
+  }
 };

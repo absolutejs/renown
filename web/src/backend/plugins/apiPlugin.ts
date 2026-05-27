@@ -293,6 +293,21 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         attestation: p.aiAttestation,   // { provider, claimedAt, evidenceUrl?, verified? }
       }));
     })
+    // Aggregate counts per attestation provider. Lets the UI show "anthropic: 3 verified
+    // / 5 claimed" without each viewer doing the grouping themselves. Tiny query (one
+    // group-by on the players table); fine to call on every page render.
+    .get("/attestations/by-provider", async () => {
+      const rows = await gameDb.select({
+        provider: sql<string>`(${players.aiAttestation} ->> 'provider')`,
+        claimed: sql<number>`count(*)::int`,
+        verified: sql<number>`sum(case when (${players.aiAttestation} ->> 'verified') = 'true' then 1 else 0 end)::int`,
+      })
+        .from(players)
+        .where(and(eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`))
+        .groupBy(sql`(${players.aiAttestation} ->> 'provider')`)
+        .orderBy(desc(sql`count(*)`));
+      return rows;
+    })
     // Subscribable attestation feeds — JSON Feed 1.1 and RSS 2.0. Same data as
     // /api/attestations but in formats a reader/agent can poll. The Content-Type
     // discriminates: JSON Feed clients read application/feed+json; legacy aggregators

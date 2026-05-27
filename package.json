@@ -19,6 +19,7 @@
     "companion": "bun run cli/index.ts companion",
     "link": "bun run cli/index.ts link",
     "ai-attest": "bun run cli/index.ts ai-attest",
+    "weekly": "bun run cli/index.ts weekly",
     "sync": "bun run cli/index.ts sync",
     "adopt": "bun run cli/index.ts adopt",
     "greet": "bun run cli/index.ts greet",

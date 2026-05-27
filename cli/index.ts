@@ -13,6 +13,7 @@
 //   summon [seed]     → procedurally generate & animate a unique creature ('gallery' = 6)
 //   link             → link this install to your GitHub identity (browserless, via gh auth token)
 //   ai-attest        → mark this account as an AI participant (--provider, --jwt, --evidence-url)
+//   weekly           → 7-day attribution + verified-score delta + new achievements (read /api/recap)
 //   adopt [seed]      → adopt a wild find (default: your rarest) as your companion
 //   companion         → watch your adopted companion (animated)
 //   watch            → editor-agnostic activity daemon (next on the roadmap)
@@ -82,6 +83,40 @@ switch (cmd) {
     const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
     if (j.ok) console.log(`✓ Linked to GitHub @${j.login} — verified score ${j.verifiedScore}. Your progress is now on the real leaderboard.`);
     else console.log("link failed:", j.error);
+    break;
+  }
+  case "weekly": {
+    // Headless companion to the AccountView RecapCard. Auths via the gh token (same as
+    // `renown link`), fetches /api/recap/:login, prints a compact ASCII summary. The TUI
+    // `recap` tab stays a separate, richer view; this is for cron jobs / agents / shell.
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first."); break; }
+    // Resolve the github login from the token so we can hit /api/recap/:login.
+    const who = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" } }).catch(() => null);
+    if (!who?.ok) { console.log("Couldn't read your GitHub login from the gh token."); break; }
+    const login = (await who.json() as { login?: string }).login;
+    if (!login) { console.log("No login in the GitHub /user response."); break; }
+    const r = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/recap/${encodeURIComponent(login)}?days=7`).catch(() => null);
+    const j = r ? await r.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+    if (j.error) { console.log("recap failed:", j.error); break; }
+    type Recap = { login: string; windowDays: number; attributionDelta: number; verifiedDelta: number; currentScore: number; totalLevel: number; petsCount: number; newAchievements: { id: string; name: string; tier: string; category: string; at: string }[] };
+    const x = j as Recap;
+    const empty = x.attributionDelta === 0 && x.verifiedDelta === 0 && x.newAchievements.length === 0;
+    console.log(`\nrenown — past ${x.windowDays} days for @${x.login}`);
+    console.log("─".repeat(48));
+    if (empty) {
+      console.log("  (no growth or new unlocks this week — quiet stretches are normal)");
+    } else {
+      const fmt = (n: number) => `${n > 0 ? "+" : ""}${n.toLocaleString()}`;
+      console.log(`  verified score:  ${fmt(x.verifiedDelta).padStart(10)}    (now ${x.currentScore.toLocaleString()})`);
+      console.log(`  attributions:    ${fmt(x.attributionDelta).padStart(10)}`);
+      console.log(`  new achievements: ${x.newAchievements.length}`);
+      for (const a of x.newAchievements) console.log(`    · [${a.tier.padEnd(8)}] ${a.name}`);
+    }
+    console.log(`  pets owned:       ${x.petsCount}    total level: ${x.totalLevel}`);
+    console.log("");
     break;
   }
   case "ai-attest": {

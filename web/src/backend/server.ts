@@ -10,6 +10,7 @@ import { authApiPlugin } from "./plugins/authApiPlugin";
 import { credentialsPlugin } from "./plugins/credentialsPlugin";
 import { pagesPlugin } from "./plugins/pagesPlugin";
 import { stripePlugin } from "./plugins/stripePlugin";
+import { wellKnownPlugin } from "./plugins/wellKnownPlugin";
 import { rateLimiting } from "./rateLimit";
 import { hub, playerCache } from "./sync";
 import { schema, type User } from "../../db/schema";
@@ -39,6 +40,7 @@ const server = new Elysia()
   .use(authApiPlugin({ authSessionStore, db: authDb }))   // /api/account/* — manage your linked logins
   .use(adminAuthPlugin({ db: authDb }))   // /admin/login + /api/admin/* (separate cookie realm)
   .use(stripePlugin({ authSessionStore, db: authDb }))   // /stripe/config, /billing/*, /webhooks/stripe (no-op without keys)
+  .use(wellKnownPlugin())   // /.well-known/renown-providers.json — self-discovery for AI providers
   .use(pagesPlugin(manifest))
   .use(networking)
   .onStop(async () => { await playerCache.flush(); })

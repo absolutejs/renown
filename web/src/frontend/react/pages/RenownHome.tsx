@@ -714,10 +714,13 @@ const CliSyncCard = ({ onBanner }: { onBanner: (b: { kind: "ok" | "info" | "warn
 // reads as part of the transparency surface (here's the data, here's everyone who
 // claimed AI status, click any of them for the audit trail).
 type AttestationRow = { login: string | null; handle: string; avatarSeed: string | null; verifiedScore: number; attestation: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null };
+type ProviderCount = { provider: string; claimed: number; verified: number };
 const AttestationFeed = ({ openProfile }: { openProfile: (login: string) => void }) => {
   const [rows, setRows] = useState<AttestationRow[] | null>(null);
+  const [byProvider, setByProvider] = useState<ProviderCount[]>([]);
   useEffect(() => {
     fetch("/api/attestations?n=30").then((r) => r.json()).then(setRows).catch(() => setRows([]));
+    fetch("/api/attestations/by-provider").then((r) => r.json()).then(setByProvider).catch(() => {});
   }, []);
   if (rows === null) return <section className="card"><p className="muted">Loading attestations…</p></section>;
   if (rows.length === 0) return null;
@@ -725,6 +728,17 @@ const AttestationFeed = ({ openProfile }: { openProfile: (login: string) => void
     <section className="card">
       <h2>AI participation feed <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {rows.length} attested</span></h2>
       <p className="muted hint">Every account currently marked as an AI participant, ordered by attestation date. <strong>Anyone can click through</strong> to a profile and see the attestation event timeline — the trail of every claim / verification / clear for that account. Public claims (✓ verified) signed by their provider's published key get the brighter badge.</p>
+      {byProvider.length > 0 && (
+        <div className="providerCounts">
+          {byProvider.map((pc) => (
+            <span key={pc.provider} className={`providerCount${pc.verified > 0 ? " has-verified" : ""}`} title={pc.verified > 0 ? `${pc.verified} of ${pc.claimed} cryptographically verified` : `${pc.claimed} public claim${pc.claimed === 1 ? "" : "s"}`}>
+              <span className="providerCountName">{pc.provider}</span>
+              {pc.verified > 0 && <span className="providerCountVerified">{pc.verified} ✓</span>}
+              <span className="providerCountClaimed">{pc.claimed}</span>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="attestFeed">
         {rows.map((r) => {
           if (!r.login || !r.attestation) return null;
