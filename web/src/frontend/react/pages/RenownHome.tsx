@@ -1,6 +1,6 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { isSoundOn, playBell, playGong, setSoundOn } from "../../audio";
+import { isSoundOn, playBell, playGong, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
@@ -47,16 +47,44 @@ const Logomark = ({ size = 22 }: { size?: number }) => (
   </svg>
 );
 
+// Per-tab anonymous session id for the ghost-cursor feature. Stored in sessionStorage so
+// each tab stays consistent for its lifetime but no cross-tab linking happens. Server
+// only sees the sid + the rowId you're hovering — no login attached.
+const sidKey = "renown:sid";
+const getSid = () => {
+  if (typeof window === "undefined") return "ssr";
+  let s = window.sessionStorage.getItem(sidKey);
+  if (!s) {
+    s = (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)).replace(/-/g, "").slice(0, 16);
+    window.sessionStorage.setItem(sidKey, s);
+  }
+  return s;
+};
+// Cheap hue from sid — deterministic so the same other-user always reads as the same color.
+const colorForSid = (sid: string) => {
+  let h = 0;
+  for (let i = 0; i < sid.length; i++) h = (h * 31 + sid.charCodeAt(i)) | 0;
+  return `hsl(${Math.abs(h) % 360} 80% 65%)`;
+};
+
 // Tiny header toggle for the synth voices in audio.ts. The toggle click itself is the
 // user-gesture that authorizes the AudioContext to start, so enabling sound here is what
 // unlocks playback for the rest of the session — no separate "unmute" prompts elsewhere.
 const SoundToggle = () => {
   const [on, setOn] = useState(false);
   useEffect(() => setOn(isSoundOn()), []);
+  // Toggling sound off mid-session should kill the pad too; turning sound back on while
+  // the menagerie is in view doesn't auto-restart it (the view effect below will catch
+  // the next re-entry). This keeps the pad lifecycle owned by the view, not by global state.
   return (
     <button
       className="soundToggle"
-      onClick={() => { const next = !on; setSoundOn(next); setOn(next); }}
+      onClick={() => {
+        const next = !on;
+        setSoundOn(next);
+        setOn(next);
+        if (!next) stopAmbientPad();
+      }}
       title={on ? "Sound on — click to mute" : "Sound off — click to enable"}
       aria-label={on ? "Mute sound" : "Enable sound"}
     >
@@ -95,6 +123,53 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
     lastGongRef.current = now;
     playGong();
   };
+
+  // ── Ghost cursors ────────────────────────────────────────────────────────
+  // POST our hover to /api/cursor (throttled), subscribe to /sync?topics=cursors, render
+  // small colored dots next to each row that another tab is currently hovering. Anonymous
+  // and ephemeral — entries auto-expire 2.5s after the last update from that sid.
+  const mySid = getSid();
+  const [cursors, setCursors] = useState<Map<string, { rowId: string | null; board: string | null; at: number }>>(() => new Map());
+  const lastCursorPostRef = useRef({ at: 0, rowId: null as string | null });
+  const postCursor = useCallback((rowId: string | null) => {
+    const now = performance.now();
+    // Throttle: same rowId within 800ms is suppressed; different rowId may post every 150ms.
+    if (rowId === lastCursorPostRef.current.rowId && now - lastCursorPostRef.current.at < 800) return;
+    if (now - lastCursorPostRef.current.at < 150) return;
+    lastCursorPostRef.current = { at: now, rowId };
+    void fetch("/api/cursor", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sid: mySid, rowId, board }) }).catch(() => {});
+  }, [mySid, board]);
+  // SSE: subscribe once; update the cursor map per incoming event. Cleanup interval
+  // discards entries older than the fade window so the overlay self-empties.
+  useEffect(() => {
+    const es = new EventSource("/sync?topics=cursors");
+    es.onmessage = (e) => {
+      try {
+        const evt = JSON.parse(e.data) as { topic: string; payload?: { sid: string; rowId: string | null; board: string | null; at: number } };
+        if (evt.topic !== "cursors" || !evt.payload) return;
+        const { sid, rowId, board: b, at } = evt.payload;
+        if (sid === mySid) return;     // never render our own ghost
+        setCursors((m) => { const n = new Map(m); n.set(sid, { rowId, board: b, at }); return n; });
+      } catch { /* ignore malformed frames */ }
+    };
+    const sweep = window.setInterval(() => {
+      const cutoff = Date.now() - 2500;
+      setCursors((m) => {
+        let changed = false;
+        const n = new Map(m);
+        for (const [sid, v] of n) if (v.at < cutoff) { n.delete(sid); changed = true; }
+        return changed ? n : m;
+      });
+    }, 600);
+    return () => { es.close(); window.clearInterval(sweep); };
+  }, [mySid]);
+  // For each row, list of ghost colors currently hovering it (other tabs only, same board).
+  const ghostsFor = (rowId: string | undefined) => {
+    if (!rowId) return [] as string[];
+    const out: string[] = [];
+    for (const [sid, v] of cursors) if (v.rowId === rowId && v.board === board) out.push(colorForSid(sid));
+    return out;
+  };
   const spotlightEntry = top.find((e) => e.id === hovered)
     ?? top.find((e) => e.id === sel)
     ?? top[0];
@@ -119,14 +194,28 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
                 const fresh = !!e.id && freshIds.has(e.id);
                 return (
                   <li key={e.id ?? i} className={`${e.id === sel ? "sel" : ""}${fresh ? " fresh" : ""}`}
-                    onMouseEnter={() => { if (e.id) { setHovered(e.id); trySoundOnHover(); } }}
-                    onMouseLeave={() => { if (e.id && hovered === e.id) setHovered(null); }}
+                    onMouseEnter={() => { if (e.id) { setHovered(e.id); trySoundOnHover(); postCursor(e.id); } }}
+                    onMouseLeave={() => { if (e.id && hovered === e.id) { setHovered(null); postCursor(null); } }}
                     onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
                     <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
                     <span className="rankPet">{seed ? <SinglePet seed={seed} entranceBurst={fresh} /> : <span className="petCanvas rankPetEmpty" />}</span>
                     <span className="who">{e.name}<TierBadge tier={e.tier} /></span>
                     <span className="score">{meta.statOf(e)}</span>
                     <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
+                    {(() => {
+                      const ghosts = ghostsFor(e.id);
+                      if (ghosts.length === 0) return null;
+                      // Cap visible dots at 4 so a swarm doesn't overflow the row; show
+                      // "+N" if there are more eyes on this entry than will fit.
+                      const shown = ghosts.slice(0, 4);
+                      const extra = ghosts.length - shown.length;
+                      return (
+                        <span className="rankGhosts" aria-label={`${ghosts.length} other viewer${ghosts.length === 1 ? "" : "s"}`}>
+                          {shown.map((color, gi) => <span key={gi} className="ghostDot" style={{ background: color, boxShadow: `0 0 8px ${color}` }} />)}
+                          {extra > 0 && <span className="ghostMore">+{extra}</span>}
+                        </span>
+                      );
+                    })()}
                   </li>
                 );
               })}
@@ -551,6 +640,14 @@ const App = () => {
   const act = useCallback((fn: () => Promise<{ ok: boolean; data: unknown }>) => {
     (async () => { const r = await fn(); if (r.ok && r.data && typeof r.data === "object" && "identities" in (r.data as object)) setAccount(r.data as Account); else loadAccount(); })();
   }, [loadAccount]);
+
+  // Ambient pad lives only on the account view (where the menagerie is). Started on entry,
+  // released on exit. startAmbientPad is a no-op when sound is off, so this is safe to
+  // call unconditionally — the user-gesture unlock happens via SoundToggle, not here.
+  useEffect(() => {
+    if (view === "account") startAmbientPad();
+    return () => stopAmbientPad();
+  }, [view]);
 
   const subscribe = useCallback(async (tier: Tier) => {
     setBusy(tier);

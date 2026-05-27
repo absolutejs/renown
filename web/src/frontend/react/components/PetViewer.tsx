@@ -10,9 +10,10 @@ import { animated, useSpring } from "@react-spring/three";
 import { BlendFunction, KernelSize } from "postprocessing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BoxGeometry, BufferAttribute, type BufferGeometry, ExtrudeGeometry, Float32BufferAttribute, type Group, type PerspectiveCamera as ThreePerspectiveCamera, Shape, Vector2 } from "three";
+import * as CANNON from "cannon-es";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { type Creature, generate, type RGB, voxelize } from "../../../../../core/procgen";
-import { playChime } from "../../audio";
+import { chimeVoiceFor, playChime } from "../../audio";
 import { ProceduralMat } from "./petMaterials";
 
 // One merged BoxGeometry for the whole pet body (per-voxel translation baked in + a custom
@@ -286,6 +287,61 @@ const Pet = ({ seed, autoRotate = 0, entranceBurst = false }: { seed: string; au
   );
 };
 
+// Cannon-es physics shell — wraps a Pet for the spotlight when the creature is a 1/1.
+// The pet drops from above on mount and bounces gently against an invisible floor; the
+// outer group's transform is driven by the rigid body, while Pet's own intrinsic motion
+// (bob, tilt, squash, burst) runs in local space inside, so the two layers compound
+// (bobbing while falling, tilting while resting). One world per mount: callers should
+// key the component on seed so a fresh 1/1 spawns a fresh world, no manual reset needed.
+const PhysicsPet = ({ seed, autoRotate }: { seed: string; autoRotate: number }) => {
+  const worldRef = useRef<CANNON.World | null>(null);
+  const bodyRef = useRef<CANNON.Body | null>(null);
+  const groupRef = useRef<Group>(null);
+
+  useEffect(() => {
+    const c = generate(seed);
+    const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -22, 0) });
+    world.allowSleep = true;
+    // Box collider scaled to the pet's visible footprint. The depth is shorter so a 1/1's
+    // flat voxel slab lands plausibly (it isn't a cube; the body shouldn't act like one).
+    const half = Math.max(1.6, c.sizeN * 0.05);
+    const body = new CANNON.Body({
+      mass: 1,
+      shape: new CANNON.Box(new CANNON.Vec3(half, half, half * 0.55)),
+      position: new CANNON.Vec3(0, 12, 0),
+      angularVelocity: new CANNON.Vec3((Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 2.2, 0),
+      linearDamping: 0.14,
+      angularDamping: 0.30,
+      material: new CANNON.Material({ restitution: 0.52, friction: 0.35 }),
+    });
+    world.addBody(body);
+    // Invisible floor a few units below the natural resting line so the pet doesn't sit
+    // dead-centered after settling — it lands slightly low, reads as "on a surface."
+    const floor = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
+    floor.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+    floor.position.set(0, -4, 0);
+    world.addBody(floor);
+    worldRef.current = world;
+    bodyRef.current = body;
+    return () => { world.removeBody(body); world.removeBody(floor); worldRef.current = null; bodyRef.current = null; };
+  }, [seed]);
+
+  useFrame((_, delta) => {
+    const w = worldRef.current; const b = bodyRef.current; const g = groupRef.current;
+    if (!w || !b || !g) return;
+    // Fixed 60Hz step + delta interpolation so the sim is deterministic at any framerate.
+    w.step(1 / 60, delta, 3);
+    g.position.set(b.position.x, b.position.y, b.position.z);
+    g.quaternion.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w);
+  });
+
+  return (
+    <group ref={groupRef}>
+      <Pet seed={seed} autoRotate={autoRotate} />
+    </group>
+  );
+};
+
 // Pull camera z out of a spring value imperatively per frame. Lives as its own component
 // because useFrame must run inside the Canvas context (which drei View provides for its
 // children but not for the SpotlightView function body itself).
@@ -351,9 +407,13 @@ export const SpotlightView = ({ seed }: { seed: string | null }) => {
       {dramatic && <Stars radius={32} depth={20} count={520} factor={2.6} fade speed={0.45} />}
       {/* Outer animated.group carries the swap-scale; Pet's own intrinsic scale animations
           (squash, burst pop) multiply through, so the transition reads cleanly on top of
-          the per-frame motion. */}
+          the per-frame motion. 1/1 pets get a cannon-es physics shell so they drop from
+          above and bounce on the entrance instead of just floating in — keyed on
+          displaySeed so a fresh 1/1 spawns a fresh world. */}
       <animated.group scale={springs.scale}>
-        <Pet seed={displaySeed} autoRotate={dramatic ? 0.35 : 0.2} />
+        {c.oneOfOne
+          ? <PhysicsPet key={displaySeed} seed={displaySeed} autoRotate={dramatic ? 0.35 : 0.2} />
+          : <Pet seed={displaySeed} autoRotate={dramatic ? 0.35 : 0.2} />}
       </animated.group>
     </View>
   );
@@ -496,14 +556,16 @@ export const SummonCinematic = ({ seeds, onClose }: { seeds: string[]; onClose: 
     : 0;
 
   useEffect(() => {
-    if (!seed) return undefined;
-    playChime();   // no-op when sound is off; otherwise one chime per beat
+    if (!seed || !c) return undefined;
+    // Tier-voiced chime: Common pets get a quiet major third, 1/1 gets a detuned upper
+    // cluster. Same trigger point, different acoustic information per pet.
+    playChime(chimeVoiceFor(c.tier, c.oneOfOne, c.mythicAura));
     const id = window.setTimeout(() => {
       if (index < seeds.length - 1) setIndex(index + 1);
       else window.setTimeout(onClose, 700);     // brief hold on the last pet before closing
     }, dwell);
     return () => window.clearTimeout(id);
-  }, [seed, index, seeds.length, dwell, onClose]);
+  }, [seed, c, index, seeds.length, dwell, onClose]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };

@@ -85,7 +85,7 @@ a:hover { text-decoration: underline; }
 
 /* ── leaderboard ───────────────────────────────────────────── */
 .ranks { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-.ranks li { display: grid; grid-template-columns: 30px 56px 1fr auto auto auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.02); cursor: pointer; transition: background .12s; }
+.ranks li { display: grid; grid-template-columns: 30px 56px 1fr auto auto auto auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.02); cursor: pointer; transition: background .12s; }
 .ranks li:hover { background: var(--card); }
 .ranks li.sel { background: var(--accent-soft); outline: 1px solid var(--accent-line); }
 /* Newcomer flash — matches the in-canvas entranceBurst on the SinglePet to its left.
@@ -104,6 +104,18 @@ a:hover { text-decoration: underline; }
 .rankPet { width: 56px; height: 56px; display: block; }
 .rankPet .petCanvas { width: 56px; height: 56px; aspect-ratio: auto; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
 .rankPetEmpty { display: block; opacity: .35; }
+
+/* Ghost cursors — small colored dots next to a row that another tab is currently
+   hovering. Color is sid-derived (deterministic); the pulse keeps the row feeling
+   "live" without becoming distracting at scale. Capped at 4 dots + an "+N" suffix
+   in the markup. */
+.rankGhosts { display: inline-flex; align-items: center; gap: 4px; padding-left: 6px; }
+.ghostDot { width: 10px; height: 10px; border-radius: 50%; animation: ghostPulse 1.4s ease-in-out infinite; }
+.ghostMore { font-size: 11px; color: var(--ink); padding-left: 2px; opacity: .8; }
+@keyframes ghostPulse {
+  0%, 100% { transform: scale(.85); opacity: .85; }
+  50%      { transform: scale(1.05); opacity: 1; }
+}
 
 /* Hover spotlight: ranks on the left, a sticky big preview on the right. The drei View
    inside SpotlightView renders its own DOM element (.rankSpotlight) which we size here
@@ -234,7 +246,7 @@ a:hover { text-decoration: underline; }
 
 /* Leaderboard score (the ranked number) */
 .score { color: var(--accent); font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
-.ranks li { grid-template-columns: 30px 56px 1fr auto auto; }
+.ranks li { grid-template-columns: 30px 56px 1fr auto auto auto; }
 
 /* ── Menagerie (3D pets) ───────────────────────────────────── */
 .petStage { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }

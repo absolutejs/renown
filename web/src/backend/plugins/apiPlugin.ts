@@ -9,7 +9,7 @@ import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/
 import { achievements, playerProjects, players } from "../../../../db/schema.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
-import { gameDb, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
+import { gameDb, hub, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";
 
 const TOP_MAX = 100, ACH_MAX = 2000;
@@ -61,6 +61,23 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed,
         avatarSeed: p.avatarSeed, showcaseSeeds: Array.isArray(p.showcaseSeeds) ? p.showcaseSeeds : [],
       };
+    })
+    // Live ghost-cursors on the leaderboard — POST a hover ping, server fans it to anyone
+    // subscribed to `cursors`. Deliberately anonymous: the `sid` is a client-generated
+    // per-tab UUID (sessionStorage), no auth needed and no DB persistence. We rely on the
+    // SSE plugin's natural backpressure + the client's own 200ms POST throttle to keep this
+    // cheap. Payload is intentionally small (sid/rowId/board) so the SSE frames stay tight.
+    .post("/cursor", ({ body }) => {
+      const b = (body ?? {}) as { sid?: string; rowId?: string | null; board?: string };
+      const sid = String(b.sid ?? "").slice(0, 40);
+      if (!sid) return { ok: false };
+      hub.publish("cursors", {
+        sid,
+        rowId: typeof b.rowId === "string" ? b.rowId.slice(0, 60) : null,
+        board: typeof b.board === "string" ? b.board.slice(0, 20) : null,
+        at: Date.now(),
+      });
+      return { ok: true };
     })
     // Recompute a player's authoritative score from GitHub. Safe to call by anyone (it only
     // pulls from GitHub — no client data is trusted) but only stores for an OAuth-verified
