@@ -214,6 +214,26 @@ a:hover { text-decoration: underline; }
    claim is backed by a public provider identifier (and ideally an evidence URL).
    Cryptographic verification comes later; for v1 the visual is the trust signal. */
 .aiBadge.attested { background: rgba(180,120,255,.25); border-color: rgba(180,120,255,.55); box-shadow: 0 0 10px rgba(180,120,255,.25); }
+/* Cryptographically verified — stronger purple + a brighter glow than plain attested
+   so the trust signal reads at-a-glance. The ✓ glyph in the badge text seals it. */
+.aiBadge.verified { background: rgba(180,120,255,.35); border-color: rgba(180,120,255,.75); box-shadow: 0 0 16px rgba(180,120,255,.40); color: #efe2ff; }
+
+/* ── Achievements panel ──────────────────────────────────────
+   Tier-colored chips grouped by category. Same rules used in AccountView (your own
+   achievements card) and ProfileModal (someone else's). Tier classes ride on .achChip
+   so the same palette lights up wherever an achievement is shown. */
+.achGroups { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.achGroupName { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 4px; font-weight: 700; }
+.achList { display: flex; flex-wrap: wrap; gap: 6px; }
+.achChip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px 5px 12px; border-radius: 999px; font-size: 12px; background: rgba(255,255,255,.04); border: 1px solid var(--line); }
+.achName { font-weight: 600; color: var(--text); }
+.achTier { font-size: 9px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--ink); }
+.achChip.tier-bronze   { border-color: rgba(205,127,50,.40); } .achChip.tier-bronze .achTier   { background: rgba(205,127,50,.20); color: #f5cba7; }
+.achChip.tier-silver   { border-color: rgba(192,192,192,.40); } .achChip.tier-silver .achTier   { background: rgba(192,192,192,.20); color: #e7e7e7; }
+.achChip.tier-gold     { border-color: rgba(255,215,0,.45); } .achChip.tier-gold .achTier     { background: rgba(255,215,0,.22); color: #ffe28a; }
+.achChip.tier-platinum { border-color: rgba(180,210,255,.55); background: rgba(180,210,255,.08); } .achChip.tier-platinum .achTier { background: rgba(180,210,255,.25); color: #cfe4ff; }
+.achChip.tier-mythic   { border-color: rgba(255,180,80,.60); background: rgba(255,180,80,.10); box-shadow: 0 0 14px rgba(255,180,80,.18); } .achChip.tier-mythic .achTier { background: rgba(255,180,80,.30); color: #ffe1a8; }
+.achChip.tier-secret   { border-color: rgba(180,120,255,.50); } .achChip.tier-secret .achTier { background: rgba(180,120,255,.25); color: #d6a3ff; }
 
 /* Ghost-cursor decoration for AI viewers: ringed in the AI accent (purple) regardless
    of the sid-derived color, and a tiny 🤖 pip in the corner so it reads at-a-glance. */

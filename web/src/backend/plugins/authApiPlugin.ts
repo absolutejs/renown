@@ -4,12 +4,13 @@
 // belonged to another account). Linking a NEW login happens via the OAuth flow itself
 // (visit /oauth2/<provider>/authorization while signed in -> resolveAuthIntent links it).
 import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
-import { players } from "../../../../db/schema.ts";
+import { achievements as achievementsTable, playerAchievements, players } from "../../../../db/schema.ts";
 import { authIdentities, SchemaType, User } from "../../../db/schema";
-import { gameDb, hub } from "../sync.ts";
+import { defaultAuthorQuery, resolveProvider } from "../aiProviders.ts";
+import { gameDb, grantAchievements, hub } from "../sync.ts";
 import {
   deleteDBAuthIdentityMergeRequest,
   getDBUser,
@@ -87,7 +88,17 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       // scoring/pets/achievements. Cache invalidates on update; for now, this is set
       // rarely enough that the 30s cursor cache freshness is fine.
       isAi: !!player?.isAi,
-      aiAttestation: (player as { aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string } | null } | undefined)?.aiAttestation ?? null,
+      aiAttestation: (player as { aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null } | undefined)?.aiAttestation ?? null,
+      // Earned achievements — same join shape as /api/profile/:login so the panel
+      // component can render from either endpoint with no client-side massaging.
+      achievements: player
+        ? await gameDb
+            .select({ id: achievementsTable.id, name: achievementsTable.name, description: achievementsTable.description, tier: achievementsTable.tier, category: achievementsTable.category, unlockCount: achievementsTable.unlockCount })
+            .from(playerAchievements)
+            .innerJoin(achievementsTable, eq(achievementsTable.id, playerAchievements.achievementId))
+            .where(eq(playerAchievements.playerId, player.id))
+            .orderBy(desc(achievementsTable.tier))
+        : [],
     } : null,
     identities: identities.map((i) => ({
       id: i.id,
@@ -186,23 +197,76 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     // can still be re-marked by admin/migration; this only undoes the self-claim).
     .post("/ai-attestation", ({ body, protectRoute, status }) =>
       protectRoute(async (user) => {
-        const b = (body ?? {}) as { provider?: string | null; evidenceUrl?: string };
+        const b = (body ?? {}) as { provider?: string | null; evidenceUrl?: string; attestationJwt?: string };
         const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
         const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
         if (!ghLogin) return status("Bad Request", "link GitHub first");
-        // Clear path: provider null/empty → strip attestation + is_ai.
+        // Resolve the player row early — needed for both clear and claim paths so we can
+        // restore the right default attribution_query on clear / fire achievement grants
+        // on claim. One round-trip either way.
+        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const player = playerRows[0];
+        if (!player) return status("Not Found", "player not found");
+
+        // Clear path: provider null/empty → strip attestation + is_ai, AND restore the
+        // human default attribution_query (otherwise a player who attested then cleared
+        // would be stuck with the co-author query producing zero hits). Reset
+        // last_attribution_sync_at so the next /verify backfills from author:<login>.
         if (!b.provider) {
-          await gameDb.update(players).set({ aiAttestation: null, isAi: false }).where(eq(players.githubLogin, ghLogin));
+          await gameDb.update(players).set({
+            aiAttestation: null,
+            isAi: false,
+            attributionQuery: defaultAuthorQuery(ghLogin),
+            lastAttributionSyncAt: null,
+          }).where(eq(players.id, player.id));
           playerInfoCache.delete(ghLogin);
           return { ok: true, ...(await accountPayload(db, user.sub)) };
         }
-        const provider = String(b.provider).slice(0, 40).trim();
-        if (!provider) return status("Bad Request", "provider required");
+
+        // Claim path. Provider is resolved against the known registry — known providers
+        // get auto-filled coauthorQuery (so attestation also onboards their attribution
+        // tracking), unknown providers are still accepted in v1's public-claim model but
+        // the player keeps their existing attribution_query (admin can edit later).
+        const providerRaw = String(b.provider).slice(0, 40).trim();
+        if (!providerRaw) return status("Bad Request", "provider required");
+        const resolved = resolveProvider(providerRaw);
         const evidenceUrl = typeof b.evidenceUrl === "string" ? b.evidenceUrl.slice(0, 400).trim() : undefined;
         if (evidenceUrl && !/^https:\/\//.test(evidenceUrl)) return status("Bad Request", "evidenceUrl must be https://");
-        const attestation = { provider, claimedAt: new Date().toISOString(), ...(evidenceUrl ? { evidenceUrl } : {}) };
-        await gameDb.update(players).set({ aiAttestation: attestation, isAi: true }).where(eq(players.githubLogin, ghLogin));
+
+        // JWT verification (optional, v1 has no real provider verifiers). If provided AND
+        // the registry entry has a verifier AND it returns true → verified = true.
+        // Otherwise verified stays false (public claim).
+        let verified = false;
+        if (b.attestationJwt && resolved?.config.verifyJwt) {
+          try { verified = await resolved.config.verifyJwt(b.attestationJwt, ghLogin); }
+          catch { verified = false; }
+        }
+
+        const attestation = {
+          provider: resolved?.id ?? providerRaw,
+          claimedAt: new Date().toISOString(),
+          ...(evidenceUrl ? { evidenceUrl } : {}),
+          ...(verified ? { verified: true } : {}),
+        };
+        // Side-effect on attribution_query only for known providers (auto-fill) — leaves
+        // unknown providers' existing query alone. Reset lastAttributionSyncAt so the
+        // next /verify backfills from createdAt with the new query.
+        const update: Partial<typeof players.$inferInsert> = { aiAttestation: attestation, isAi: true };
+        if (resolved) {
+          update.attributionQuery = resolved.config.coauthorQuery;
+          update.lastAttributionSyncAt = null;
+        }
+        await gameDb.update(players).set(update).where(eq(players.id, player.id));
         playerInfoCache.delete(ghLogin);
+
+        // Instant grant: ai-revealed (always on attestation), ai-attested (we just stored
+        // one), and ai-verified (only if JWT verified). /api/verify also grants these on
+        // its next pass; this just makes the achievements show up right away.
+        await grantAchievements(player.id, [
+          "ai-revealed",
+          "ai-attested",
+          ...(verified ? ["ai-verified"] : []),
+        ]);
         return { ok: true, ...(await accountPayload(db, user.sub)) };
       }),
     )

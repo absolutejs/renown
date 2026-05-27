@@ -13,9 +13,10 @@ type SkillSheet = { id: string; name: string | null; totalLevel: number; skills:
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
-type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string };
+type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean };
+type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
 type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null };
-type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[] };
+type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievements?: AchievementRow[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
 type StripeConfig = { configured: boolean; tiers: Record<Tier, TierInfo>; prices: Record<string, string | null>; amounts: Record<string, Amount> };
@@ -45,14 +46,55 @@ const TierBadge = ({ tier }: { tier?: Tier }) =>
 // profile, ghost cursor, spotlight). Renders only when the player record's is_ai column is
 // true (server-authoritative, not client-claimed). AI accounts score / earn pets /
 // achievements identically; the badge is honesty, not a handicap.
-const AiBadge = ({ isAi, attestation, compact, style }: { isAi?: boolean; attestation?: { provider: string; claimedAt: string; evidenceUrl?: string } | null; compact?: boolean; style?: React.CSSProperties }) => {
+// Earned-achievements grid. Renders grouped by category with tier-colored chips so the
+// rarer ones (mythic / platinum) stand out at a glance. Used by both AccountView (your
+// own) and ProfileModal (someone else's) — same data shape coming from /api/profile and
+// /api/account, no client-side massaging.
+const TIER_ORDER: Record<string, number> = { mythic: 0, platinum: 1, gold: 2, silver: 3, bronze: 4, secret: 5 };
+const AchievementsPanel = ({ items, title = "Achievements" }: { items: AchievementRow[]; title?: string }) => {
+  if (items.length === 0) return null;
+  // Group by category; within each group, sort by tier (rarer first) for visual weight.
+  const groups = new Map<string, AchievementRow[]>();
+  for (const a of items) {
+    const arr = groups.get(a.category) ?? [];
+    arr.push(a);
+    groups.set(a.category, arr);
+  }
+  for (const arr of groups.values()) arr.sort((a, b) => (TIER_ORDER[a.tier] ?? 9) - (TIER_ORDER[b.tier] ?? 9));
+  return (
+    <section className="card">
+      <h2>{title} <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {items.length} earned</span></h2>
+      <div className="achGroups">
+        {[...groups.entries()].map(([cat, arr]) => (
+          <div className="achGroup" key={cat}>
+            <h3 className="achGroupName">{cat}</h3>
+            <div className="achList">
+              {arr.map((a) => (
+                <div key={a.id} className={`achChip tier-${a.tier}`} title={`${a.description} · ${a.unlockCount.toLocaleString()} other player${a.unlockCount === 1 ? "" : "s"} earned this`}>
+                  <span className="achName">{a.name}</span>
+                  <span className="achTier">{a.tier}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+const AiBadge = ({ isAi, attestation, compact, style }: { isAi?: boolean; attestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null; compact?: boolean; style?: React.CSSProperties }) => {
   if (!isAi) return null;
-  // Tooltip composition: base note + attestation provider + evidence URL (text-only;
-  // the visible <a> for the URL lives in the profile modal where there's room for it).
+  // Tooltip composition: base note + attestation provider + verified flag + evidence URL
+  // (text-only; the visible <a> for the URL lives in the profile modal where there's
+  // room for it). "verified" means the provider's JWT signature checked out against the
+  // registry entry's key — much stronger trust signal than the public-claim baseline.
+  const verified = !!attestation?.verified;
   const title = attestation
-    ? `AI participant · attested as ${attestation.provider}${attestation.evidenceUrl ? ` · evidence: ${attestation.evidenceUrl}` : ""}`
+    ? `AI participant · attested as ${attestation.provider}${verified ? " · cryptographically verified" : " (public claim)"}${attestation.evidenceUrl ? ` · evidence: ${attestation.evidenceUrl}` : ""}`
     : "AI participant — earns score and pets the same way humans do, with the badge for transparency";
-  return <span className={`aiBadge${compact ? " compact" : ""}${attestation ? " attested" : ""}`} style={style} title={title}>{compact ? "🤖" : attestation ? `🤖 ${attestation.provider}` : "🤖 AI"}</span>;
+  const label = compact ? "🤖" : attestation ? `🤖 ${attestation.provider}${verified ? " ✓" : ""}` : "🤖 AI";
+  return <span className={`aiBadge${compact ? " compact" : ""}${attestation ? " attested" : ""}${verified ? " verified" : ""}`} style={style} title={title}>{label}</span>;
 };
 
 // AbsoluteJS logomark — embedded inline so it follows currentColor.
@@ -408,20 +450,28 @@ const Pricing = ({ cfg, account, onSubscribe, busy, onLogIn }: { cfg: StripeConf
 const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {
   const [provider, setProvider] = useState(gh.aiAttestation?.provider ?? "");
   const [evidenceUrl, setEvidenceUrl] = useState(gh.aiAttestation?.evidenceUrl ?? "");
+  const [attestationJwt, setAttestationJwt] = useState("");
+  const [showJwt, setShowJwt] = useState(false);
   const attested = !!gh.aiAttestation;
+  const verified = !!gh.aiAttestation?.verified;
   const claim = () => act(async () => {
-    const r = await post("/api/account/ai-attestation", { provider: provider.trim(), evidenceUrl: evidenceUrl.trim() || undefined });
+    const r = await post("/api/account/ai-attestation", {
+      provider: provider.trim(),
+      evidenceUrl: evidenceUrl.trim() || undefined,
+      attestationJwt: attestationJwt.trim() || undefined,
+    });
+    if (r.ok) setAttestationJwt("");   // never keep the JWT in form state after submit
     return r;
   });
   const clear = () => act(async () => {
     const r = await post("/api/account/ai-attestation", { provider: null });
-    if (r.ok) { setProvider(""); setEvidenceUrl(""); }
+    if (r.ok) { setProvider(""); setEvidenceUrl(""); setAttestationJwt(""); }
     return r;
   });
   return (
     <section className="card">
-      <h2>AI attestation</h2>
-      <p className="muted hint">Are you an AI participant (Claude, Codex, Cursor, etc.)? Declare it openly — you'll get a 🤖 badge next to your handle and unlock the AI achievements. <strong>Scoring is identical to humans.</strong> v1 is a public claim (anyone can post one; the claim is visible to everyone for auditing). Cryptographic provider-signed attestations are coming later.</p>
+      <h2>AI attestation {verified && <span className="aiBadge attested" style={{ marginLeft: 8 }}>✓ verified</span>}</h2>
+      <p className="muted hint">Are you an AI participant (Claude, Codex, Cursor, etc.)? Declare it openly — you'll get a 🤖 badge next to your handle and unlock the AI achievements. <strong>Scoring is identical to humans.</strong> Naming a known provider (anthropic / openai / cursor / copilot / codex) also fills in the right co-author attribution query automatically. Posting a provider-signed JWT in the advanced section upgrades the claim to <strong>cryptographically verified</strong> — until real providers issue these, the <code>dev</code> provider plus an <code>RENOWN_DEV_AI_HMAC</code> env secret can be used to test the verified path end-to-end.</p>
       <div className="prefRow" style={{ marginTop: 8, gap: 14, flexWrap: "wrap" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <span className="muted" style={{ fontSize: 11 }}>Provider</span>
@@ -432,12 +482,20 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
           <input className="textInput" type="url" placeholder="https://anthropic.com/models/claude" value={evidenceUrl} onChange={(e) => setEvidenceUrl(e.target.value)} />
         </label>
       </div>
+      <details className="advancedAttest" open={showJwt} onToggle={(e) => setShowJwt((e.target as HTMLDetailsElement).open)} style={{ marginTop: 10 }}>
+        <summary className="muted" style={{ cursor: "pointer", fontSize: 12 }}>Advanced · signed JWT attestation</summary>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+          <span className="muted" style={{ fontSize: 11 }}>Provider-signed JWT (claims must include iss=provider, sub=your github login, aud=renown)</span>
+          <textarea className="textInput" rows={3} placeholder="eyJhbGciOi…" value={attestationJwt} onChange={(e) => setAttestationJwt(e.target.value)} style={{ fontFamily: "monospace", fontSize: 11, resize: "vertical" }} />
+        </label>
+      </details>
       <div className="row" style={{ marginTop: 10 }}>
         <button className="btn solid" disabled={!provider.trim()} onClick={claim}>{attested ? "Update attestation" : "I am an AI participant"}</button>
         {attested && <button className="btn ghost" onClick={clear}>Clear attestation</button>}
         {attested && gh.aiAttestation && (
           <p className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
             Attested as <strong>{gh.aiAttestation.provider}</strong>
+            {verified && <> · <span style={{ color: "#d6a3ff", fontWeight: 700 }}>cryptographically verified ✓</span></>}
             {gh.aiAttestation.evidenceUrl && <> · <a href={gh.aiAttestation.evidenceUrl} target="_blank" rel="noreferrer">evidence ↗</a></>}
             {" "}· {when(gh.aiAttestation.claimedAt)}
           </p>
@@ -566,6 +624,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
 
       <GithubSyncCard gh={account.github} refresh={refresh} onBanner={onBanner} onSummon={onSummon} />
       {account.github && <AiAttestationCard gh={account.github} act={act} />}
+      {account.achievements && <AchievementsPanel items={account.achievements} title="Your achievements" />}
       {account.github && account.github.wild.length > 0 && (
         <section className="card">
           <h2>Your menagerie <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {account.github.petsCount} owned · rarest {account.github.rarestPetScore.toFixed(1)} · biggest size {account.github.biggestPetSize}</span></h2>

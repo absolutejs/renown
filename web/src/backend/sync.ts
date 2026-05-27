@@ -73,3 +73,23 @@ export const submitPlayer = (e: PlayerSnapshot) => {
   hub.publish("top");
   hub.publish(`player:${e.id}`);
 };
+
+// Idempotent achievement grant. Used by /api/verify (server-evaluated AI/coauthor
+// family) and by /api/account/ai-attestation (instant-grant on successful claim).
+// Filters to ids that actually exist in the catalog, inserts with onConflictDoNothing
+// so reruns are safe, bumps unlockCount only for ids that newly inserted. Returns the
+// list of newly granted ids so callers can publish a "you earned X" UI notification.
+export const grantAchievements = async (playerId: string, ids: string[]): Promise<string[]> => {
+  if (ids.length === 0) return [];
+  const valid = await gameDb.select({ id: achievements.id }).from(achievements).where(inArray(achievements.id, ids));
+  if (valid.length === 0) return [];
+  const inserted = await gameDb.insert(playerAchievements)
+    .values(valid.map((v) => ({ playerId, achievementId: v.id })))
+    .onConflictDoNothing()
+    .returning({ id: playerAchievements.achievementId });
+  if (inserted.length === 0) return [];
+  await gameDb.update(achievements)
+    .set({ unlockCount: sql`${achievements.unlockCount} + 1` })
+    .where(inArray(achievements.id, inserted.map((r) => r.id)));
+  return inserted.map((r) => r.id);
+};

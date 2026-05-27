@@ -2,14 +2,14 @@
 // through the write-behind cache + reactive hub in ../sync.ts so we never hammer Neon
 // on the per-tick hot path. Skill levels are computed from the shared core/skills.ts.
 import { createNeonAccessTokenStore, hasScopes, resolveApiPrincipal } from "@absolutejs/auth";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { generate } from "../../../../core/procgen.ts";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
 import { achievements, playerAchievements, playerProjects, players } from "../../../../db/schema.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
-import { gameDb, hub, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
+import { gameDb, grantAchievements, hub, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";
 
 const TOP_MAX = 100, ACH_MAX = 2000;
@@ -62,6 +62,15 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const rows = await gameDb.select().from(players).where(and(eq(players.githubLogin, params.login), eq(players.githubVerified, true)));
       const p = rows[0];
       if (!p) return { error: "not found" };
+      // Earned achievements — join player_achievements with the catalog so the response
+      // includes display fields (name/description/tier/category) ready for the UI panel.
+      // No client-side catalog lookup needed; one round-trip is enough.
+      const ach = await gameDb
+        .select({ id: achievements.id, name: achievements.name, description: achievements.description, tier: achievements.tier, category: achievements.category, unlockCount: achievements.unlockCount })
+        .from(playerAchievements)
+        .innerJoin(achievements, eq(achievements.id, playerAchievements.achievementId))
+        .where(eq(playerAchievements.playerId, p.id))
+        .orderBy(desc(achievements.tier));
       return {
         login: p.githubLogin, handle: p.handle, tier: normalizeTier(p.tier),
         isAi: p.isAi, aiAttestation: p.aiAttestation,
@@ -70,6 +79,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed,
         biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed,
         avatarSeed: p.avatarSeed, showcaseSeeds: Array.isArray(p.showcaseSeeds) ? p.showcaseSeeds : [],
+        achievements: ach,
       };
     })
     // Live ghost-cursors on the leaderboard — anonymous path. POST a hover ping, server
@@ -148,38 +158,21 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         petsCount: mergedWild.length, rarestPetScore, rarestPetSeed,
         showcaseSeeds: showcase, verifiedAt: new Date(), verifiedScore: score, wild: mergedWild,
       }).where(eq(players.id, row.id));
-      // ── Server-evaluated co-author + AI-participation achievements ──────────
-      // The catalog rows live in core/achievements/curated.ts with check() = false (the
-      // CLI's client-side eval never grants them); this is the authoritative path. Each
-      // criterion is derived from the player row after the update above, so the values
-      // reflect the latest attribution / AI status. onConflictDoNothing keeps grants
-      // idempotent — re-runs of /api/verify can't double-insert. unlockCount only bumps
-      // for IDs that actually inserted (returning .filter).
-      const candidate = [
-        { id: "better-together", trigger: attributionScore >= 1 },
-        { id: "symbiote-100",    trigger: attributionScore >= 100 },
-        { id: "symbiote-1k",     trigger: attributionScore >= 1000 },
-        { id: "cohabit-10k",     trigger: attributionScore >= 10000 },
-        { id: "ai-revealed",     trigger: !!row.isAi },
-        // ai-attested triggers when ai_attestation is non-null; column lands in the
-        // attestation migration (this read tolerates the column not existing yet).
-        { id: "ai-attested",     trigger: !!(row as { aiAttestation?: unknown }).aiAttestation },
-      ];
-      const grantIds = candidate.filter((c) => c.trigger).map((c) => c.id);
-      if (grantIds.length > 0) {
-        const valid = await gameDb.select({ id: achievements.id }).from(achievements).where(inArray(achievements.id, grantIds));
-        if (valid.length > 0) {
-          const inserted = await gameDb.insert(playerAchievements)
-            .values(valid.map((v) => ({ playerId: row.id, achievementId: v.id })))
-            .onConflictDoNothing()
-            .returning({ id: playerAchievements.achievementId });
-          if (inserted.length > 0) {
-            await gameDb.update(achievements)
-              .set({ unlockCount: sql`${achievements.unlockCount} + 1` })
-              .where(inArray(achievements.id, inserted.map((r) => r.id)));
-          }
-        }
-      }
+      // Server-evaluated co-author + AI-participation achievements. The catalog rows live
+      // in core/achievements/curated.ts with check() = false (the CLI's client-side eval
+      // never grants them); this is the authoritative path. grantAchievements is in
+      // sync.ts so /api/account/ai-attestation can call the same idempotent grant flow.
+      const att = (row as { aiAttestation?: { verified?: boolean } | null }).aiAttestation;
+      const grantIds = [
+        attributionScore >= 1     && "better-together",
+        attributionScore >= 100   && "symbiote-100",
+        attributionScore >= 1000  && "symbiote-1k",
+        attributionScore >= 10000 && "cohabit-10k",
+        !!row.isAi                && "ai-revealed",
+        !!att                     && "ai-attested",
+        !!att?.verified           && "ai-verified",
+      ].filter((x): x is string => typeof x === "string");
+      await grantAchievements(row.id, grantIds);
       // Return the newly-minted SHAs so the client can roll the Summon cinematic. Capped
       // small (<= 6) — the cinematic burns ~2s per pet on-screen so dumping 30 at once
       // would be tedious. Anything beyond the cap still lands in `wild` (the player owns

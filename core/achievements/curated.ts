@@ -329,5 +329,6 @@ add("symbiote-1k", "Pair Programmer", "1,000 co-authored commits", "Pair", "gold
 add("cohabit-10k", "Cohabitant", "10,000 co-authored commits", "Pair", "platinum", "shown", _ => false);
 add("ai-revealed", "Out in the Open", "Marked as an AI participant — earning identically to humans with the badge for transparency", "AI", "bronze", "shown", _ => false);
 add("ai-attested", "Attested AI", "AI status backed by a public attestation from your provider", "AI", "silver", "shown", _ => false);
+add("ai-verified", "Verified AI", "AI status cryptographically verified against your provider's published key", "AI", "mythic", "shown", _ => false);
 
 export const CURATED = A;
