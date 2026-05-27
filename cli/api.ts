@@ -35,6 +35,7 @@ const HOME = homedir();
 const RDIR = join(HOME, ".renown");
 const STATE = join(RDIR, "state.json");
 const HUD = join(RDIR, "hud.txt");
+const TMUX_CONF = join(RDIR, "tmux-status.conf");
 
 // Minimal config-loader — accepts the historical XDG path and the current ~/.renown
 // path used by the local engine.
@@ -160,6 +161,7 @@ const usage = () => {
   console.log("renown — HTTP-API CLI (runtime-agnostic; works under Node, Bun, Deno, pnpm, yarn, npm)\n");
   console.log("commands:");
   console.log("  agent <provider>          count one coding-agent session (codex / claude / cursor / etc.)");
+  console.log("  install-agent <target>    install first-party agent wiring (claude / codex / tmux / all)");
   console.log("  statusline                print the local renown HUD for shells and agent footers");
   console.log("  heartbeat                 refresh local HUD and submit current state");
   console.log("  link                     link this install to GitHub (browserless, via gh auth token)");
@@ -185,6 +187,179 @@ const usage = () => {
   console.log("renown is part of @absolutejs/renown — https://github.com/absolutejs/renown");
 };
 
+const backupFile = (path: string) => {
+  if (!existsSync(path)) return undefined;
+  const backup = `${path}.renown-bak-${Date.now()}`;
+  writeFileSync(backup, readFileSync(path, "utf8"));
+  return backup;
+};
+
+const replaceManagedBlock = (source: string, name: string, body: string) => {
+  const start = `# >>> renown ${name}`;
+  const end = `# <<< renown ${name}`;
+  const block = `${start}\n${body.trim()}\n${end}`;
+  const re = new RegExp(`${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
+  if (re.test(source)) return source.replace(re, block);
+  return `${source.trimEnd()}\n\n${block}\n`;
+};
+
+const addCommandHook = (hooks: Record<string, unknown>, event: string, command: string) => {
+  const groups = Array.isArray(hooks[event]) ? hooks[event] as Array<Record<string, unknown>> : [];
+  const already = groups.some((group) => {
+    const handlers = Array.isArray(group.hooks) ? group.hooks as Array<Record<string, unknown>> : [];
+    return handlers.some((handler) => handler.type === "command" && handler.command === command);
+  });
+  if (!already) groups.push({ hooks: [{ type: "command", command }] });
+  hooks[event] = groups;
+};
+
+const installClaudeAgent = (dryRun: boolean) => {
+  const dir = join(HOME, ".claude");
+  const path = join(dir, "settings.json");
+  const raw = existsSync(path) ? readFileSync(path, "utf8") : "{}";
+  const settings = JSON.parse(raw || "{}") as Record<string, unknown>;
+  settings.statusLine = {
+    type: "command",
+    command: "renown statusline",
+    padding: 2,
+    refreshInterval: 5,
+  };
+  const hooks = (settings.hooks && typeof settings.hooks === "object") ? settings.hooks as Record<string, unknown> : {};
+  addCommandHook(hooks, "SessionStart", "renown agent claude --quiet");
+  addCommandHook(hooks, "Stop", "renown heartbeat --quiet");
+  settings.hooks = hooks;
+  if (dryRun) {
+    console.log(`[dry-run] would write ${path}`);
+    console.log(JSON.stringify(settings, null, 2));
+    return;
+  }
+  mkdirSync(dir, { recursive: true });
+  const backup = backupFile(path);
+  writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`);
+  console.log(`✓ Claude Code wired: ${path}${backup ? ` (backup ${backup})` : ""}`);
+  if (settings.disableAllHooks === true) {
+    console.log("  note: disableAllHooks is true, so Claude hooks remain disabled until you remove or set it false.");
+  }
+};
+
+const ensureTomlBoolean = (source: string, table: string, key: string, value: boolean) => {
+  const tableRe = new RegExp(`(^\\[${table.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]\\n)([\\s\\S]*?)(?=^\\[|$)`, "m");
+  const replacement = (body: string) => {
+    const keyRe = new RegExp(`^${key}\\s*=\\s*(true|false)\\s*$`, "m");
+    if (keyRe.test(body)) return body.replace(keyRe, `${key} = ${value ? "true" : "false"}`);
+    return `${body.trimEnd()}\n${key} = ${value ? "true" : "false"}\n`;
+  };
+  if (tableRe.test(source)) {
+    return source.replace(tableRe, (_match, head: string, body: string) => `${head}${replacement(body)}`);
+  }
+  return `${source.trimEnd()}\n\n[${table}]\n${key} = ${value ? "true" : "false"}\n`;
+};
+
+const ensureWritableRoot = (source: string, root: string) => {
+  const table = "sandbox_workspace_write";
+  const tableRe = new RegExp(`(^\\[${table}\\]\\n)([\\s\\S]*?)(?=^\\[|$)`, "m");
+  const lineRe = /^writable_roots\s*=\s*\[(.*)\]\s*$/m;
+  const quoted = JSON.stringify(root);
+  const replacement = (body: string) => {
+    const match = body.match(lineRe);
+    if (!match) return `${body.trimEnd()}\nwritable_roots = [${quoted}]\n`;
+    if (match[0].includes(quoted) || match[0].includes(`'${root}'`)) return body;
+    return body.replace(lineRe, (_line, inner: string) => {
+      const clean = inner.trim();
+      return `writable_roots = [${clean ? `${clean}, ` : ""}${quoted}]`;
+    });
+  };
+  if (tableRe.test(source)) {
+    return source.replace(tableRe, (_match, head: string, body: string) => `${head}${replacement(body)}`);
+  }
+  return `${source.trimEnd()}\n\n[${table}]\nwritable_roots = [${quoted}]\n`;
+};
+
+const installCodexAgent = (dryRun: boolean) => {
+  const dir = join(HOME, ".codex");
+  const path = join(dir, "config.toml");
+  let source = existsSync(path) ? readFileSync(path, "utf8") : "";
+  source = source.replace(
+    /\n?# Renown coding-agent tracking\.[\s\S]*?\[\[hooks\.Stop\]\]\nhooks = \[\{ type = "command", command = "renown heartbeat(?: --quiet)?" \}\]\n?/,
+    "\n",
+  );
+  source = ensureTomlBoolean(source, "features", "hooks", true);
+  source = ensureWritableRoot(source, RDIR);
+  const hookBlock = `
+# Tracks Codex sessions and refreshes the Renown HUD. Codex's native footer only
+# supports built-in fields today; use the tmux adapter for a visible Renown HUD.
+[[hooks.SessionStart]]
+hooks = [{ type = "command", command = "renown agent codex --quiet" }]
+
+[[hooks.Stop]]
+hooks = [{ type = "command", command = "renown heartbeat --quiet" }]
+`;
+  const stateIndex = source.search(/^\[hooks\.state\]/m);
+  if (stateIndex >= 0) {
+    const before = source.slice(0, stateIndex);
+    const after = source.slice(stateIndex);
+    source = `${replaceManagedBlock(before, "codex", hookBlock).trimEnd()}\n\n${after.trimStart()}`;
+  } else {
+    source = replaceManagedBlock(source, "codex", hookBlock);
+  }
+  if (dryRun) {
+    console.log(`[dry-run] would write ${path}`);
+    console.log(source);
+    return;
+  }
+  mkdirSync(dir, { recursive: true });
+  const backup = backupFile(path);
+  writeFileSync(path, source);
+  console.log(`✓ Codex hooks wired: ${path}${backup ? ` (backup ${backup})` : ""}`);
+  console.log("  run /hooks in Codex if it asks you to trust new hooks.");
+};
+
+const tmuxQuote = (value: string) => JSON.stringify(value);
+
+const readTmuxStatusRight = () => {
+  const fallback = "%H:%M %d-%b";
+  if (!process.env.TMUX) return fallback;
+  const result = runSync(["tmux", "show", "-gqv", "status-right"]);
+  const out = result.stdout.trim();
+  if (!out || out.includes("renown statusline")) return fallback;
+  return out;
+};
+
+const installTmuxStatus = (dryRun: boolean) => {
+  const previous = readTmuxStatusRight();
+  const statusRight = `#(renown statusline)  ${previous}`;
+  const snippet = [
+    "# First-party Renown HUD for Codex and agents without command-backed footers.",
+    "# Source this file from ~/.tmux.conf or let `renown install-agent tmux` manage it.",
+    "set -g status-interval 5",
+    `set -g status-right ${tmuxQuote(statusRight)}`,
+    "",
+  ].join("\n");
+  const tmuxConfPath = join(HOME, ".tmux.conf");
+  const tmuxSourceLine = `source-file ${TMUX_CONF}`;
+  let tmuxConf = existsSync(tmuxConfPath) ? readFileSync(tmuxConfPath, "utf8") : "";
+  if (!tmuxConf.includes(tmuxSourceLine)) tmuxConf = `${tmuxConf.trimEnd()}\n\n${tmuxSourceLine}\n`;
+  if (dryRun) {
+    console.log(`[dry-run] would write ${TMUX_CONF}`);
+    console.log(snippet);
+    console.log(`[dry-run] would ensure ${tmuxConfPath} contains: ${tmuxSourceLine}`);
+    return;
+  }
+  mkdirSync(RDIR, { recursive: true });
+  writeFileSync(TMUX_CONF, snippet);
+  const backup = backupFile(tmuxConfPath);
+  writeFileSync(tmuxConfPath, tmuxConf);
+  console.log(`✓ tmux HUD snippet written: ${TMUX_CONF}`);
+  console.log(`✓ tmux config updated: ${tmuxConfPath}${backup ? ` (backup ${backup})` : ""}`);
+  if (process.env.TMUX) {
+    const sourced = runSync(["tmux", "source-file", TMUX_CONF]);
+    if (sourced.exitCode === 0) console.log("✓ current tmux session reloaded");
+    else console.log("  tmux config written; reload with: tmux source-file ~/.renown/tmux-status.conf");
+  } else {
+    console.log("  start tmux or run: tmux source-file ~/.renown/tmux-status.conf");
+  }
+};
+
 const main = async () => {
   const [, , cmd, ...rest] = process.argv;
   if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") { usage(); return; }
@@ -195,6 +370,22 @@ const main = async () => {
     const s = loadLocalState();
     const line = existsSync(HUD) ? readFileSync(HUD, "utf8").trim() : renderLocalHud(s);
     console.log(line);
+    return;
+  }
+
+  if (cmd === "install-agent" || cmd === "install-agents") {
+    const target = rest.find((arg) => !arg.startsWith("-")) ?? "all";
+    const dryRun = hasFlag(rest, "dry-run");
+    if (!["all", "claude", "codex", "tmux"].includes(target)) {
+      console.log("usage: renown install-agent <all|claude|codex|tmux> [--dry-run]");
+      return;
+    }
+    if (target === "all" || target === "claude") installClaudeAgent(dryRun);
+    if (target === "all" || target === "codex") installCodexAgent(dryRun);
+    if (target === "all" || target === "tmux") installTmuxStatus(dryRun);
+    if (!dryRun && (target === "all" || target === "codex")) {
+      console.log("  Codex note: Renown tracking is native via hooks; visible HUD is via tmux until Codex supports command-backed footer items.");
+    }
     return;
   }
 

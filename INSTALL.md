@@ -27,6 +27,18 @@ bun install -g @absolutejs/renown
 
 Then `renown help` should show the command list.
 
+For coding-agent setup, the installer can wire the supported first-class surfaces:
+
+```bash
+renown install-agent all
+```
+
+Use `--dry-run` to inspect the files before writing:
+
+```bash
+renown install-agent all --dry-run
+```
+
 ### One-shot via npx / pnpm dlx / yarn dlx (no global install)
 
 ```bash
@@ -126,10 +138,19 @@ the same `SKILL.md` body into their project or global instructions.
 
 ### Codex CLI
 
-Codex has its own TUI status line and lifecycle hooks. User config lives in
-`~/.codex/config.toml`; project-local `.codex/config.toml` only loads after the project
-is trusted. To keep Codex and Renown in sync, enable hooks and count a session on
-`SessionStart`:
+Codex has lifecycle hooks and a native TUI footer, but the native footer is not a
+Claude-style command-backed status line. Renown can track Codex natively through hooks;
+for a visible Renown HUD, use the first-party tmux adapter below.
+
+Automatic setup:
+
+```bash
+renown install-agent codex
+renown install-agent tmux
+```
+
+Manual Codex hook setup lives in `~/.codex/config.toml`; project-local
+`.codex/config.toml` only loads after the project is trusted:
 
 ```toml
 [features]
@@ -139,20 +160,78 @@ hooks = true
 hooks = [{ type = "command", command = "renown agent codex --quiet" }]
 
 [[hooks.Stop]]
-hooks = [{ type = "command", command = "renown heartbeat" }]
+hooks = [{ type = "command", command = "renown heartbeat --quiet" }]
 ```
 
-For the footer itself, run Codex's `/statusline` command and keep the Codex-native
-fields you want. Renown also writes `~/.renown/hud.txt` and prints it with:
+Codex's `/statusline` command can still show Codex-native fields such as model,
+directory, git branch, context, limits, tokens, session id, and version. It cannot
+run `renown statusline` today.
+
+Renown writes `~/.renown/hud.txt` and prints it with:
 
 ```bash
 renown statusline
 ```
 
-That gives other terminals, shells, and agents the same one-line HUD even when they
-don't expose Codex's built-in footer controls.
+### First-party tmux HUD for Codex
 
-### Claude Code and other agents
+tmux has a real command-backed status line. Renown uses that directly, without a
+third-party plugin:
+
+```bash
+renown install-agent tmux
+tmux source-file ~/.renown/tmux-status.conf
+```
+
+The installer writes:
+
+```text
+~/.renown/tmux-status.conf
+```
+
+and ensures `~/.tmux.conf` sources it. The snippet prepends `#(renown statusline)` to
+tmux `status-right` and refreshes every 5 seconds. This gives Codex sessions a persistent
+Renown HUD in the terminal chrome while Codex itself remains unpatched.
+
+### Claude Code
+
+Claude Code does support the exact first-class shape Renown wants: a command-backed
+status line. Automatic setup:
+
+```bash
+renown install-agent claude
+```
+
+Manual setup in `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "renown statusline",
+    "padding": 2,
+    "refreshInterval": 5
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "renown agent claude --quiet" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "renown heartbeat --quiet" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Other agents
 
 Any agent with a startup hook should call:
 
