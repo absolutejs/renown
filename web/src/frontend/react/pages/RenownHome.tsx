@@ -1,6 +1,6 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { addPadVoice, isSoundOn, playBell, playGong, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
+import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
@@ -180,6 +180,34 @@ const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => st
   { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
 ];
 
+// Top AI account by current verified score — fetched separately so it stays visible no
+// matter what audience filter the leaderboard is showing. Re-fetches on `top` SSE since
+// the AI's rank can change when anyone (AI or human) syncs. Click → open profile.
+const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => void }) => {
+  const [entry, setEntry] = useState<Entry | null>(null);
+  useEffect(() => {
+    const load = () => fetch("/api/top?n=1&audience=ai").then((r) => r.json()).then((d: Entry[]) => setEntry(d[0] ?? null)).catch(() => {});
+    load();
+    const es = new EventSource("/sync?topics=top");
+    es.onmessage = load;
+    return () => es.close();
+  }, []);
+  if (!entry?.login) return null;
+  return (
+    <button
+      className="aiOtwBanner"
+      onClick={() => openProfile(entry.login!)}
+      title="Top AI participant by verified score · click to open their profile"
+    >
+      <span className="aiOtwLabel">🤖 AI of the Week</span>
+      <span className="aiOtwName">@{entry.login}</span>
+      <AiBadge isAi attestation={entry.aiAttestation} compact />
+      <span className="aiOtwScore">{(entry.score ?? 0).toLocaleString()}</span>
+      <span className="muted" style={{ fontSize: 11 }}>verified score</span>
+    </button>
+  );
+};
+
 type Audience = "all" | "humans" | "ai";
 const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet, openProfile, freshIds, myLogin }:
   { top: Entry[]; board: Board; setBoard: (b: Board) => void; audience: Audience; setAudience: (a: Audience) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string>; myLogin: string | null }) => {
@@ -272,43 +300,48 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
   const SWARM_COOLDOWN_MS = 8000;
   const swarmStartRef = useRef<Map<string, number>>(new Map());
   const swarmCooldownRef = useRef<Map<string, number>>(new Map());
-  const [swarmRow, setSwarmRow] = useState<string | null>(null);
+  // swarmRow tracks { rowId, ai } so the CSS pulse can vary by whether the swarmed
+  // row is an AI participant. AI swarms read as a different KIND of social moment
+  // — community attention on a non-human contributor — so the visual + sound both
+  // shift.
+  const [swarmRow, setSwarmRow] = useState<{ rowId: string; ai: "verified" | "ai" | null } | null>(null);
   useEffect(() => {
     const now = Date.now();
-    // Count ghosts per row in the current board's cursor map.
     const counts = new Map<string, number>();
     for (const [, v] of cursors) if (v.rowId && v.board === board) counts.set(v.rowId, (counts.get(v.rowId) ?? 0) + 1);
-    // Walk all rows we previously tracked or have current counts for.
     const allRows = new Set([...counts.keys(), ...swarmStartRef.current.keys()]);
     for (const rowId of allRows) {
       const count = counts.get(rowId) ?? 0;
-      if (count < SWARM_THRESHOLD) {
-        // Lost the swarm — reset the timer (cooldown still ticks from last fire).
-        swarmStartRef.current.delete(rowId);
-        continue;
-      }
-      // Skip if this row is still in cooldown from the last fire.
+      if (count < SWARM_THRESHOLD) { swarmStartRef.current.delete(rowId); continue; }
       const cooldownUntil = swarmCooldownRef.current.get(rowId) ?? 0;
       if (now < cooldownUntil) continue;
-      // Start the duration timer the first frame the row hits the threshold.
       if (!swarmStartRef.current.has(rowId)) { swarmStartRef.current.set(rowId, now); continue; }
       const start = swarmStartRef.current.get(rowId) ?? now;
       if (now - start < SWARM_DURATION_MS) continue;
-      // FIRE: spotlight the row, ring the gong, flag the row for CSS pulse, set cooldown.
+      // FIRE: spotlight the row, ring the right sound (AI gets a chime voiced for the
+      // swarmed account's tier instead of a generic gong; verified AIs get the brightest
+      // upper-cluster voicing), flag the row for the matching CSS pulse, set cooldown.
+      const entry = top.find((e) => e.id === rowId);
+      const aiKind: "verified" | "ai" | null = entry?.isAi
+        ? (entry.aiAttestation?.verified ? "verified" : "ai")
+        : null;
       setSel(rowId);
-      playGong();
-      setSwarmRow(rowId);
-      window.setTimeout(() => setSwarmRow((cur) => (cur === rowId ? null : cur)), 1800);
+      if (aiKind === "verified") playChime("oneOfOne");
+      else if (aiKind === "ai") playChime(chimeVoiceFor(entry?.tier, false, true));
+      else playGong();
+      setSwarmRow({ rowId, ai: aiKind });
+      window.setTimeout(() => setSwarmRow((cur) => (cur?.rowId === rowId ? null : cur)), 1800);
       swarmCooldownRef.current.set(rowId, now + SWARM_COOLDOWN_MS);
       swarmStartRef.current.delete(rowId);
     }
-  }, [cursors, board, setSel]);
+  }, [cursors, board, setSel, top]);
   const spotlightEntry = top.find((e) => e.id === hovered)
     ?? top.find((e) => e.id === sel)
     ?? top[0];
   const spotlightSeed = spotlightEntry ? meta.seedOf(spotlightEntry) ?? null : null;
   return (
     <>
+      <AiOfTheWeekBanner openProfile={openProfile} />
       <section className={`card boardCard board-${board}`}>
         <h2>Global leaderboard</h2>
         <p className="muted hint">{meta.hint} Same formula for everyone. <em>Hover</em> any row to spotlight its pet; <em>click</em> for the player's profile.</p>
@@ -333,7 +366,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
                 const seed = meta.seedOf(e);
                 const fresh = !!e.id && freshIds.has(e.id);
                 return (
-                  <li key={e.id ?? i} className={`${e.id === sel ? "sel" : ""}${fresh ? " fresh" : ""}${swarmRow === e.id ? " swarm" : ""}`}
+                  <li key={e.id ?? i} className={`${e.id === sel ? "sel" : ""}${fresh ? " fresh" : ""}${swarmRow?.rowId === e.id ? (swarmRow.ai === "verified" ? " swarm swarmAiVerified" : swarmRow.ai === "ai" ? " swarm swarmAi" : " swarm") : ""}`}
                     onMouseEnter={() => { if (e.id) { setHovered(e.id); trySoundOnHover(); postCursor(e.id); } }}
                     onMouseLeave={() => { if (e.id && hovered === e.id) { setHovered(null); postCursor(null); } }}
                     onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
@@ -488,6 +521,23 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
           <span className="muted" style={{ fontSize: 11 }}>Provider-signed JWT (claims must include iss=provider, sub=your github login, aud=renown)</span>
           <textarea className="textInput" rows={3} placeholder="eyJhbGciOi…" value={attestationJwt} onChange={(e) => setAttestationJwt(e.target.value)} style={{ fontFamily: "monospace", fontSize: 11, resize: "vertical" }} />
         </label>
+        {provider.trim().toLowerCase() === "dev" && (
+          <div className="row" style={{ marginTop: 6 }}>
+            <button
+              type="button"
+              className="btn ghost sm"
+              onClick={async () => {
+                const r = await post("/api/account/ai-attestation/dev-jwt", {});
+                const j = r.data as { ok?: boolean; jwt?: string; error?: string } | null;
+                if (r.ok && j?.jwt) setAttestationJwt(j.jwt);
+                else alert(j?.error ?? "couldn't mint dev JWT — is RENOWN_DEV_AI_HMAC set on the server?");
+              }}
+            >
+              Mint dev JWT for me
+            </button>
+            <span className="muted" style={{ fontSize: 11 }}>Server signs with <code>RENOWN_DEV_AI_HMAC</code>; auto-fills the textarea above. Then click <em>Update attestation</em> to verify.</span>
+          </div>
+        )}
       </details>
       <div className="row" style={{ marginTop: 10 }}>
         <button className="btn solid" disabled={!provider.trim()} onClick={claim}>{attested ? "Update attestation" : "I am an AI participant"}</button>
@@ -573,6 +623,72 @@ const CliSyncCard = ({ onBanner }: { onBanner: (b: { kind: "ok" | "info" | "warn
         <button className="btn ghost sm" onClick={copy}>Copy</button>
       </div>
       <p className="hint" style={{ marginTop: 10 }}>This sends your local skill levels + activity to the server so this page matches your terminal. Reload after.</p>
+    </section>
+  );
+};
+
+// ── Catalog ────────────────────────────────────────────────────────────────
+// Discoverability view: the full curated achievement catalog grouped by category, with
+// per-row locked/unlocked state derived from the logged-in player's earned set. Reuses
+// the achievement chip CSS palette (tier-bronze..mythic) so a glance maps to "what's
+// rare in the catalog vs. what you've earned." Generated (10k+) achievements aren't
+// rendered here — too heavy for one page; pagination would land in a later iteration.
+type CatalogItem = { id: string; name: string; description: string; category: string; tier: string; visibility: string; unlockCount: number; rarity: number };
+const CatalogView = ({ earnedIds }: { earnedIds: Set<string> }) => {
+  const [items, setItems] = useState<CatalogItem[] | null>(null);
+  const [players, setPlayers] = useState(0);
+  const [filter, setFilter] = useState<"all" | "earned" | "unearned">("all");
+  useEffect(() => {
+    fetch("/api/catalog").then((r) => r.json()).then((d: { players: number; items: CatalogItem[] }) => {
+      setItems(d.items);
+      setPlayers(d.players);
+    }).catch(() => setItems([]));
+  }, []);
+  if (items === null) return <section className="card"><p className="muted">Loading catalog…</p></section>;
+  const filtered = filter === "all" ? items
+    : filter === "earned" ? items.filter((i) => earnedIds.has(i.id))
+    : items.filter((i) => !earnedIds.has(i.id));
+  const earnedCount = items.filter((i) => earnedIds.has(i.id)).length;
+  // Group by category; within each, tier-sort like AchievementsPanel.
+  const groups = new Map<string, CatalogItem[]>();
+  for (const a of filtered) {
+    const arr = groups.get(a.category) ?? [];
+    arr.push(a);
+    groups.set(a.category, arr);
+  }
+  for (const arr of groups.values()) arr.sort((a, b) => (TIER_ORDER[a.tier] ?? 9) - (TIER_ORDER[b.tier] ?? 9));
+  return (
+    <section className="card">
+      <h2>Catalog <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {earnedCount} of {items.length} earned · across {players.toLocaleString()} players</span></h2>
+      <p className="muted hint">The curated achievement family (~{items.length} entries). Secret achievements are titled <em>???</em> until earned; hidden ones show the name but hide the rule. Procedurally-generated families (10k+) aren't listed here — too many to render on one page.</p>
+      <div className="audienceTabs" role="radiogroup" aria-label="Filter catalog" style={{ marginTop: 4 }}>
+        <button className={filter === "all" ? "on" : ""} role="radio" aria-checked={filter === "all"} onClick={() => setFilter("all")}>All</button>
+        <button className={filter === "earned" ? "on" : ""} role="radio" aria-checked={filter === "earned"} onClick={() => setFilter("earned")}>Earned</button>
+        <button className={filter === "unearned" ? "on" : ""} role="radio" aria-checked={filter === "unearned"} onClick={() => setFilter("unearned")}>Unearned</button>
+      </div>
+      <div className="achGroups">
+        {[...groups.entries()].map(([cat, arr]) => (
+          <div className="achGroup" key={cat}>
+            <h3 className="achGroupName">{cat} · {arr.length}</h3>
+            <div className="achList">
+              {arr.map((a) => {
+                const earned = earnedIds.has(a.id);
+                // Secret achievements that the viewer hasn't earned stay hidden by name.
+                // Hidden ones show name but obscure description until earned.
+                const name = a.visibility === "secret" && !earned ? "???" : a.name;
+                const desc = a.visibility === "hidden" && !earned ? "???" : a.description;
+                const rarity = a.rarity > 0 ? ` · ${a.rarity}% of players earned this` : "";
+                return (
+                  <div key={a.id} className={`achChip tier-${a.tier}${earned ? "" : " locked"}`} title={`${desc}${rarity}`}>
+                    <span className="achName">{name}</span>
+                    <span className="achTier">{a.tier}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 };
@@ -769,7 +885,7 @@ const ResetView = ({ token, onDone }: { token: string; onDone: (ok: boolean, msg
 };
 
 const App = () => {
-  const [view, setView] = useState<"board" | "pricing" | "account" | "auth" | "reset">("board");
+  const [view, setView] = useState<"board" | "pricing" | "catalog" | "account" | "auth" | "reset">("board");
   const [authMode, setAuthMode] = useState<"login" | "register" | "forgot">("login");
   const [resetToken, setResetToken] = useState<string | null>(null);
   const [board, setBoard] = useState<Board>("score");
@@ -899,6 +1015,7 @@ const App = () => {
         <div className="brand" onClick={() => setView("board")}><Logomark size={24} /><span>Renown</span></div>
         <nav className="nav">
           <button className={view === "board" ? "on" : ""} onClick={() => setView("board")}>Leaderboard</button>
+          <button className={view === "catalog" ? "on" : ""} onClick={() => setView("catalog")}>Catalog</button>
           <button className={view === "pricing" ? "on" : ""} onClick={() => setView("pricing")}>Plans</button>
           {signedIn && <button className={view === "account" ? "on" : ""} onClick={() => setView("account")}>Account</button>}
         </nav>
@@ -933,6 +1050,7 @@ const App = () => {
         </>
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}
+      {view === "catalog" && <CatalogView earnedIds={new Set((account?.achievements ?? []).map((a) => a.id))} />}
       {view === "account" && (signedIn
         ? <AccountView account={account!} cfg={cfg} user={user} refresh={loadAccount} onManage={manage} onSubscribe={subscribe} busy={busy} act={act} onBanner={setBanner} onSummon={setSummonSeeds} />
         : <section className="card"><h2>Account</h2><p className="muted">Log in to manage your account and subscription.</p><div className="cta"><button className="btn solid" onClick={() => { setAuthMode("login"); setView("auth"); }}>Log in</button><button className="btn ghost" onClick={() => { setAuthMode("register"); setView("auth"); }}>Sign up</button></div></section>)}

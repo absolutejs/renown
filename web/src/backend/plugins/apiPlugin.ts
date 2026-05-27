@@ -219,6 +219,28 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const rows = await gameDb.select().from(achievements).orderBy(desc(achievements.unlockCount)).limit(n);
       return { players: tp, achievements: rows.map((r) => ({ id: r.id, name: r.name, tier: r.tier, unlocks: r.unlockCount, rarity: tp ? +((r.unlockCount / tp) * 100).toFixed(1) : 0 })) };
     })
+    // Curated catalog for the Catalog view. Returns the ~290 curated rows (generated=false)
+    // joined with no per-player state — the client computes locked/unlocked against its own
+    // earned set from /api/account or /api/profile, so this endpoint stays cacheable across
+    // viewers. Generated achievements (10k+) intentionally skipped — render is too heavy
+    // for one page; a later iteration can paginate them.
+    .get("/catalog", async () => {
+      const tp = (await gameDb.select({ n: sql<number>`count(*)::int` }).from(players))[0]?.n ?? 0;
+      const rows = await gameDb.select().from(achievements).where(eq(achievements.generated, false)).orderBy(desc(achievements.unlockCount));
+      return {
+        players: tp,
+        items: rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          category: r.category,
+          tier: r.tier,
+          visibility: r.visibility,
+          unlockCount: r.unlockCount,
+          rarity: tp ? +((r.unlockCount / tp) * 100).toFixed(1) : 0,
+        })),
+      };
+    })
     .post("/submit", async ({ body, headers }) => {
       const e = body as PlayerSnapshot;
       if (!e?.id) return { error: "bad request" };

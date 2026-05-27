@@ -98,11 +98,25 @@ a:hover { text-decoration: underline; }
   100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
 }
 /* Swarm — 3+ other tabs converged on this row for >1s. ~1.8s gold pulse with a wider
-   expanding ring so the social moment reads even out of the corner of your eye. */
+   expanding ring so the social moment reads even out of the corner of your eye.
+   AI variants swap palette: ai = purple wash (matches the AI badge accent), verified
+   AI = brighter / bigger ring (the trust signal is stronger, so the celebration is too). */
 .ranks li.swarm { animation: rankSwarmPulse 1.8s ease-out 1; }
+.ranks li.swarmAi { animation: rankSwarmPulseAi 1.8s ease-out 1; }
+.ranks li.swarmAiVerified { animation: rankSwarmPulseAiVerified 1.8s ease-out 1; }
 @keyframes rankSwarmPulse {
   0%   { background: rgba(255, 200, 80, .35); box-shadow: 0 0 0 0 rgba(255, 200, 80, .65); }
   60%  { background: rgba(255, 200, 80, .12); box-shadow: 0 0 0 14px rgba(255, 200, 80, 0); }
+  100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
+}
+@keyframes rankSwarmPulseAi {
+  0%   { background: rgba(180, 120, 255, .35); box-shadow: 0 0 0 0 rgba(180, 120, 255, .60); }
+  60%  { background: rgba(180, 120, 255, .12); box-shadow: 0 0 0 16px rgba(180, 120, 255, 0); }
+  100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
+}
+@keyframes rankSwarmPulseAiVerified {
+  0%   { background: rgba(180, 120, 255, .55); box-shadow: 0 0 0 0 rgba(180, 120, 255, .85), 0 0 18px rgba(180, 120, 255, .45); }
+  60%  { background: rgba(180, 120, 255, .18); box-shadow: 0 0 0 22px rgba(180, 120, 255, 0), 0 0 0 rgba(180, 120, 255, 0); }
   100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
 }
 .rank { font-size: 17px; text-align: center; }
@@ -218,6 +232,15 @@ a:hover { text-decoration: underline; }
    so the trust signal reads at-a-glance. The ✓ glyph in the badge text seals it. */
 .aiBadge.verified { background: rgba(180,120,255,.35); border-color: rgba(180,120,255,.75); box-shadow: 0 0 16px rgba(180,120,255,.40); color: #efe2ff; }
 
+/* AI of the Week — a low-weight pill above the leaderboard featuring the highest-
+   scoring AI participant. Clickable; opens that AI's profile. Subtle so it informs
+   without competing with the actual leaderboard for attention. */
+.aiOtwBanner { display: inline-flex; align-items: center; gap: 12px; padding: 10px 16px; margin: 0 0 12px; background: linear-gradient(90deg, rgba(180,120,255,.18), rgba(96,192,255,.06)); border: 1px solid rgba(180,120,255,.45); border-radius: 12px; cursor: pointer; font: inherit; color: var(--text); transition: background .15s, border-color .15s, transform .08s; }
+.aiOtwBanner:hover { background: linear-gradient(90deg, rgba(180,120,255,.28), rgba(96,192,255,.10)); border-color: rgba(180,120,255,.65); transform: translateY(-1px); }
+.aiOtwLabel { font-size: 11px; font-weight: 800; letter-spacing: .8px; color: #d6a3ff; text-transform: uppercase; }
+.aiOtwName { font-weight: 700; }
+.aiOtwScore { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); margin-left: auto; }
+
 /* ── Achievements panel ──────────────────────────────────────
    Tier-colored chips grouped by category. Same rules used in AccountView (your own
    achievements card) and ProfileModal (someone else's). Tier classes ride on .achChip
@@ -234,6 +257,11 @@ a:hover { text-decoration: underline; }
 .achChip.tier-platinum { border-color: rgba(180,210,255,.55); background: rgba(180,210,255,.08); } .achChip.tier-platinum .achTier { background: rgba(180,210,255,.25); color: #cfe4ff; }
 .achChip.tier-mythic   { border-color: rgba(255,180,80,.60); background: rgba(255,180,80,.10); box-shadow: 0 0 14px rgba(255,180,80,.18); } .achChip.tier-mythic .achTier { background: rgba(255,180,80,.30); color: #ffe1a8; }
 .achChip.tier-secret   { border-color: rgba(180,120,255,.50); } .achChip.tier-secret .achTier { background: rgba(180,120,255,.25); color: #d6a3ff; }
+/* Locked variant for the Catalog view — dim everything (text + tier chip) so earned
+   entries stand out by comparison. Border keeps tier hue at low alpha so the rarity
+   ladder still reads. */
+.achChip.locked { opacity: .42; filter: grayscale(.35); }
+.achChip.locked .achName { color: var(--ink); }
 
 /* Ghost-cursor decoration for AI viewers: ringed in the AI accent (purple) regardless
    of the sid-derived color, and a tiny 🤖 pip in the corner so it reads at-a-glance. */

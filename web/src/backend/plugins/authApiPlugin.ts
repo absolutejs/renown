@@ -9,6 +9,7 @@ import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
 import { achievements as achievementsTable, playerAchievements, players } from "../../../../db/schema.ts";
 import { authIdentities, SchemaType, User } from "../../../db/schema";
+import { SignJWT } from "jose";
 import { defaultAuthorQuery, resolveProvider } from "../aiProviders.ts";
 import { gameDb, grantAchievements, hub } from "../sync.ts";
 import {
@@ -185,13 +186,36 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         return { ok: true };
       }),
     )
-    // Self-claimed AI attestation. POST { provider, evidenceUrl? } → sets is_ai = true and
-    // stores the claim. v1 is a public-claim model: anyone signed in can mark their
-    // account as AI by naming a provider and (recommended) pointing at a public page where
-    // the claim is verifiable. The data is publicly visible (badge tooltip), so a false
-    // claim is auditable. The schema is ready for cryptographic provider-signed JWTs
-    // later — the endpoint shape just adds a `jwt` field then and verifies it server-side
-    // against a trusted public-key registry.
+    // Self-mint a dev-provider JWT for the current user. Returns a JWT signed with the
+    // same HMAC secret the dev verifier in aiProviders.ts uses, with claims set to what
+    // the verified-attestation path expects (iss=dev, sub=<current user's github login>,
+    // aud=renown, 5min exp). 400 if RENOWN_DEV_AI_HMAC isn't set, so production is safe:
+    // it just doesn't expose anything. The intent is purely UX — let contributors test
+    // the cryptographic-verification flow with one click instead of opening a shell.
+    .post("/ai-attestation/dev-jwt", ({ protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const secret = process.env.RENOWN_DEV_AI_HMAC;
+        if (!secret) return status("Bad Request", "dev JWT mint is disabled (RENOWN_DEV_AI_HMAC unset)");
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const jwt = await new SignJWT({})
+          .setProtectedHeader({ alg: "HS256" })
+          .setIssuer("dev")
+          .setSubject(ghLogin)
+          .setAudience("renown")
+          .setExpirationTime("5m")
+          .sign(new TextEncoder().encode(secret));
+        return { ok: true, jwt };
+      }),
+    )
+    // Self-claimed AI attestation. POST { provider, evidenceUrl?, attestationJwt? } →
+    // sets is_ai = true and stores the claim. v1 is a public-claim model: anyone signed
+    // in can mark their account as AI by naming a provider and (recommended) pointing at
+    // a public page where the claim is verifiable. The data is publicly visible (badge
+    // tooltip), so a false claim is auditable. Supplying a provider-signed JWT
+    // (attestationJwt) flips the claim to verified=true after signature checks pass
+    // against the registry's verifyJwt.
     //
     // De-attest by POSTing { provider: null }: clears the attestation and is_ai (the row
     // can still be re-marked by admin/migration; this only undoes the self-claim).
