@@ -74,6 +74,9 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
       id: eventId(), playerId: player.id, kind: "cleared",
       provider: null, evidenceUrl: null, verified: false,
     });
+    // Live broadcast for the admin dashboard — every claim/verify/clear fires here.
+    // (Distinct from "verified-attestation" which is verified-only + site-wide UI.)
+    hub.publish("attestation-events", { login: githubLogin, kind: "cleared", provider: null, verified: false, at: new Date().toISOString() });
     return { ok: true, cleared: true };
   }
 
@@ -153,6 +156,12 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
       }
     } finally { s.end(); }
   });
+  // Live broadcast for the admin dashboard — claim row always, plus a verified row
+  // when the JWT checked out. Sibling to the "verified-attestation" hub topic which
+  // is verified-only + drives the site-wide user-facing toast; this topic is
+  // event-for-event, intended for ops consoles that want every state change.
+  hub.publish("attestation-events", { login: githubLogin, kind: "claimed", provider: providerId, verified: false, evidenceUrl: input.evidenceUrl ?? null, at: attestation.claimedAt });
+  if (verified) hub.publish("attestation-events", { login: githubLogin, kind: "verified", provider: providerId, verified: true, evidenceUrl: input.evidenceUrl ?? null, at: attestation.claimedAt });
 
   // Instant grant — ai-revealed always, ai-attested once we've stored one, ai-verified
   // only on a successful JWT verify. /api/verify also grants these on its next pass.

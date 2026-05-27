@@ -1,4 +1,5 @@
 import { Head } from "@absolutejs/absolute/react/components";
+import { createSyncSubscriber } from "@absolutejs/sync/client";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 type Tier = "free" | "supporter" | "pro";
@@ -136,6 +137,13 @@ const AttestationsPanel = () => {
     if (r.ok) setRows(await r.json());
   }, [providerFilter, kindFilter, verifiedFilter, loginFilter]);
   useEffect(() => { load(); }, [load]);
+  // Live subscribe — applyAttestation publishes to 'attestation-events' on every
+  // claim / verify / clear. Re-runs load() on each event so the table reflects the
+  // current filtered view without polling.
+  useEffect(() => {
+    const sub = createSyncSubscriber({ topics: ["attestation-events"], onEvent: load });
+    return () => sub.close();
+  }, [load]);
   return (
     <section className="card">
       <h2>Attestations <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {rows.length} events</span></h2>
@@ -147,7 +155,7 @@ const AttestationsPanel = () => {
         <div className="field"><input type="text" placeholder="login (e.g. claude)" value={loginFilter} onChange={(e) => setLoginFilter(e.target.value)} /></div>
       </div>
       <table className="atable" style={{ marginTop: 12 }}>
-        <thead><tr><th>When</th><th>Login</th><th>Kind</th><th>Provider</th><th>Verified</th><th>Evidence</th></tr></thead>
+        <thead><tr><th>When</th><th>Login</th><th>Kind</th><th>Provider</th><th>Verified</th><th>Evidence</th><th>Actions</th></tr></thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
@@ -157,9 +165,23 @@ const AttestationsPanel = () => {
               <td>{r.provider ?? <span className="muted">—</span>}</td>
               <td>{r.verified ? "✓" : <span className="muted">—</span>}</td>
               <td>{r.evidenceUrl ? <a href={r.evidenceUrl} target="_blank" rel="noreferrer">link ↗</a> : <span className="muted">—</span>}</td>
+              <td>
+                {r.login && r.kind !== "cleared" && (
+                  <button
+                    className="link"
+                    style={{ fontSize: 11, color: "#ffb478" }}
+                    onClick={async () => {
+                      if (!confirm(`Force-clear @${r.login}'s attestation? They lose is_ai + the attestation jsonb; attribution_query is reset to author:${r.login}. The action is logged.`)) return;
+                      const res = await fetch(`/api/admin/attestations/${encodeURIComponent(r.login!)}/clear`, { method: "POST" });
+                      if (res.ok) load();
+                      else alert("clear failed");
+                    }}
+                  >force-clear</button>
+                )}
+              </td>
             </tr>
           ))}
-          {rows.length === 0 && <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 20 }}>No events match these filters.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>No events match these filters.</td></tr>}
         </tbody>
       </table>
     </section>

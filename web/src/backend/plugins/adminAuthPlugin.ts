@@ -8,7 +8,7 @@ import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia, t } from "elysia";
 import { aiAttestationEvents, players, webhookDeliveries } from "../../../../db/schema.ts";
 import { schema, SchemaType } from "../../../db/schema";
-import { deliverWebhook } from "../attestation.ts";
+import { applyAttestation, deliverWebhook } from "../attestation.ts";
 import { gameDb } from "../sync.ts";
 import { adminCookieAttrs, adminCookieName, issueAdminToken, verifyAdminToken } from "../admin/adminCookie";
 import { isTier, normalizeTier, type Tier } from "../billing/tiers";
@@ -140,6 +140,20 @@ export const adminAuthPlugin = ({ db }: Deps) =>
         .orderBy(desc(aiAttestationEvents.at))
         .limit(limit);
       return rows;
+    })
+    // Admin force-clear of an attestation. Calls the shared applyAttestation with
+    // kind="clear", which strips is_ai + the attestation jsonb + restores the
+    // human-default attribution_query AND writes a "cleared" audit-log row. The admin
+    // intent is captured in the console.log; the actor isn't currently stamped into
+    // ai_attestation_events (could be a follow-up — add an actor column). Useful for
+    // moderating bad-faith claims or recovering an account whose key the user lost.
+    .post("/api/admin/attestations/:login/clear", async ({ params, request, set }) => {
+      const admin = await requireAdmin(db, request);
+      if (!admin) { set.status = 401; return { error: "not admin" }; }
+      const result = await applyAttestation(params.login, { kind: "clear" });
+      if (!result.ok) { set.status = 400; return { error: result.error }; }
+      console.log(`[renown:admin] ${admin.email} → force-cleared attestation for @${params.login}`);
+      return { ok: true };
     })
     .post("/api/admin/webhook-deliveries/:id/replay", async ({ params, request, set }) => {
       const admin = await requireAdmin(db, request);

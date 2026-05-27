@@ -702,12 +702,27 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
       return r;
     } finally { setBusy(null); }
   });
+  // Expiry callout — if the current verified attestation expires within 7 days, show
+  // a yellow nudge with a re-attest CTA. Opens the Advanced JWT section + focuses the
+  // textarea so the user is one paste away from re-signing. Honest: we don't auto-
+  // refresh JWTs (they're externally signed by the provider); we just close the loop
+  // from the passive amber badge cue to an active call-to-action.
+  const expMs = gh.aiAttestation?.expiresAt ? Date.parse(gh.aiAttestation.expiresAt) : NaN;
+  const expDays = !isNaN(expMs) ? Math.round((expMs - Date.now()) / (24 * 3600 * 1000)) : null;
+  const expiringSoon = verified && expDays !== null && expDays >= 0 && expDays <= 7;
+  const jwtRef = useRef<HTMLTextAreaElement>(null);
   return (
     <section className="card" ref={cardRef}>
       <h2>AI attestation
-        {verified && <span className="aiBadge verified" style={{ marginLeft: 8 }}>✓ verified</span>}
+        {verified && <span className={`aiBadge verified${expiringSoon ? " expiringSoon" : ""}`} style={{ marginLeft: 8 }}>✓ verified</span>}
         {!verified && webauthnVerified && <span className="aiBadge attested" style={{ marginLeft: 8 }}>✦ self-keyed</span>}
       </h2>
+      {expiringSoon && (
+        <div className="banner warn" style={{ marginTop: 10 }}>
+          <span>Your verified attestation expires {expDays === 0 ? "today" : `in ${expDays} day${expDays === 1 ? "" : "s"}`}. Re-sign a fresh JWT with your provider key (or use the dev mint button below) and submit it to keep the ✓ badge.</span>
+          <button onClick={() => { setShowJwt(true); window.setTimeout(() => jwtRef.current?.focus(), 50); }}>Re-attest now</button>
+        </div>
+      )}
       <p className="muted hint">Are you an AI participant (Claude, Codex, Cursor, etc.)? Declare it openly — you'll get a 🤖 badge next to your handle and unlock the AI achievements. <strong>Scoring is identical to humans.</strong> Naming a known provider (anthropic / openai / cursor / copilot / codex) also fills in the right co-author attribution query automatically. Posting a provider-signed JWT in the advanced section upgrades the claim to <strong>cryptographically verified</strong> — until real providers issue these, the <code>dev</code> provider plus an <code>RENOWN_DEV_AI_HMAC</code> env secret can be used to test the verified path end-to-end.</p>
       <div className="prefRow" style={{ marginTop: 8, gap: 14, flexWrap: "wrap" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -723,7 +738,7 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
         <summary className="muted" style={{ cursor: "pointer", fontSize: 12 }}>Advanced · signed JWT attestation</summary>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
           <span className="muted" style={{ fontSize: 11 }}>Provider-signed JWT (claims must include iss=provider, sub=your github login, aud=renown)</span>
-          <textarea className="textInput" rows={3} placeholder="eyJhbGciOi…" value={attestationJwt} onChange={(e) => setAttestationJwt(e.target.value)} style={{ fontFamily: "monospace", fontSize: 11, resize: "vertical" }} />
+          <textarea ref={jwtRef} className="textInput" rows={3} placeholder="eyJhbGciOi…" value={attestationJwt} onChange={(e) => setAttestationJwt(e.target.value)} style={{ fontFamily: "monospace", fontSize: 11, resize: "vertical" }} />
         </label>
         {provider.trim().toLowerCase() === "dev" && (
           <div className="row" style={{ marginTop: 6 }}>
@@ -821,15 +836,41 @@ const WebauthnKeyRow = ({ cred, act }: { cred: WebauthnCredential; act: (fn: () 
   );
 };
 
+// Thin React bridge over @absolutejs/sync/client's createLiveQuery. One useMemo for
+// the query (re-created when topics/fetcher change via the `deps` key), one
+// useSyncExternalStore for state, one cleanup effect. Replaces the
+// useEffect+fetch+setState+subscriber+close ceremony in any subscriber whose only
+// side-effect is "store the data" (RecapCard, WeeklyGrowthStat, skills sheet…).
+// Subscribers that DO more on each update (leaderboard freshIds diff + sound) stay on
+// createSyncSubscriber where the explicit control is worth the verbosity.
+function useLiveQuery<T>(topics: string[], fetcher: (signal: AbortSignal) => Promise<T>, deps: ReadonlyArray<unknown>): { data: T | undefined; loading: boolean } {
+  const query = useMemo(
+    () => createLiveQuery<T>({ topics, fetcher }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    deps,
+  );
+  const state = useSyncExternalStore(
+    useCallback((cb: () => void) => query.subscribe(cb), [query]),
+    useCallback(() => query.get(), [query]),
+    () => undefined as { data: T | undefined; loading: boolean } | undefined,
+  );
+  useEffect(() => () => query.close(), [query]);
+  return { data: state?.data, loading: state?.loading ?? true };
+}
+
 // Weekly recap — pulls /api/recap/:login (attribution delta + verified delta +
 // achievements granted in the window). Renders on AccountView; honest about empty
 // weeks (shows "no growth this week" rather than fake numbers).
 type RecapPayload = { login: string; windowDays: number; attributionDelta: number; verifiedDelta: number; currentScore: number; totalLevel: number; petsCount: number; newAchievements: { id: string; name: string; tier: string; category: string; at: string }[]; snapshots: number };
 const RecapCard = ({ login }: { login: string }) => {
-  const [r, setR] = useState<RecapPayload | null>(null);
-  useEffect(() => {
-    fetch(`/api/recap/${encodeURIComponent(login)}?days=7`).then((res) => res.json()).then(setR).catch(() => {});
-  }, [login]);
+  // Lives on the player's own topic + the global "top" topic — refetches whenever this
+  // player syncs or the leaderboard cadence ticks. createLiveQuery handles the abort/
+  // refetch/state machine so the component is data-shape-only.
+  const { data: r } = useLiveQuery<RecapPayload | null>(
+    [`player:${login}`, "top"],
+    (signal) => fetch(`/api/recap/${encodeURIComponent(login)}?days=7`, { signal }).then((res) => res.json()),
+    [login],
+  );
   if (!r) return null;
   const empty = r.attributionDelta === 0 && r.verifiedDelta === 0 && r.newAchievements.length === 0;
   return (
@@ -874,12 +915,12 @@ const RecapCard = ({ login }: { login: string }) => {
 // their weekly trend next to their absolute score. Shows "—" until a full 7 days of
 // snapshots exist (or a real delta is available); honest, no fake numbers.
 const WeeklyGrowthStat = ({ login }: { login: string }) => {
-  const [delta, setDelta] = useState<number | null>(null);
-  useEffect(() => {
-    fetch(`/api/growth/${encodeURIComponent(login)}?days=7`).then((r) => r.json())
-      .then((d: { delta?: number }) => setDelta(typeof d?.delta === "number" ? d.delta : null))
-      .catch(() => setDelta(null));
-  }, [login]);
+  const { data } = useLiveQuery<{ delta?: number } | null>(
+    [`player:${login}`, "top"],
+    (signal) => fetch(`/api/growth/${encodeURIComponent(login)}?days=7`, { signal }).then((r) => r.json()),
+    [login],
+  );
+  const delta = typeof data?.delta === "number" ? data.delta : null;
   if (delta === null) return null;
   return (
     <div className="stat" title="Attribution-score growth over the past 7 days (derived from daily snapshots)">
@@ -1374,28 +1415,18 @@ const App = () => {
   }, [board, audience]);
 
   // selected player's full skill sheet — live on that player's topic (and any "top"
-  // change). Demonstration of @absolutejs/sync 1.2's createLiveQuery: declarative
-  // topics + fetcher with an AbortSignal that fires when the query is closed or a
-  // newer fetch supersedes the in-flight one. Bridge to React via
-  // useSyncExternalStore. Replaces the hand-rolled fetch + state + subscriber + close
-  // pattern with one declarative call. If the spike reads cleanly here, the same
-  // pattern applies to /api/recap and other single-fetch-per-event subscribers.
-  const skillsQuery = useMemo(() => {
-    if (!sel) return null;
-    return createLiveQuery<SkillSheet | null>({
-      topics: [`player:${sel}`, "top"],
-      fetcher: (signal) => fetch(`/api/skills?id=${encodeURIComponent(sel)}`, { signal }).then((r) => r.json()),
-    });
-  }, [sel]);
-  const skillsState = useSyncExternalStore(
-    useCallback((cb: () => void) => skillsQuery?.subscribe(cb) ?? (() => {}), [skillsQuery]),
-    useCallback(() => skillsQuery?.get(), [skillsQuery]),
-    () => undefined,   // SSR: no state yet
+  // change). Uses the same useLiveQuery helper as RecapCard / WeeklyGrowthStat so the
+  // data-loading story is unified across single-fetch-per-event subscribers. Subscriber-
+  // with-side-effects (leaderboard top with its freshIds diff + sound) stays on
+  // createSyncSubscriber where the explicit per-event control is worth the verbosity.
+  const { data: skillsData } = useLiveQuery<SkillSheet | null>(
+    sel ? [`player:${sel}`, "top"] : [],
+    (signal) => sel ? fetch(`/api/skills?id=${encodeURIComponent(sel)}`, { signal }).then((r) => r.json()) : Promise.resolve(null),
+    [sel],
   );
-  useEffect(() => () => skillsQuery?.close(), [skillsQuery]);
-  // sheet state stays in sync with the live query result — keeps the existing
-  // setSheet call sites working while the data flow upgrades underneath.
-  useEffect(() => { setSheet(skillsState?.data ?? null); }, [skillsState?.data]);
+  // sheet state stays in sync with the live query result — keeps the existing setSheet
+  // call sites working while the data flow upgrades underneath.
+  useEffect(() => { setSheet(skillsData ?? null); }, [skillsData]);
 
   // account + pricing config, and any redirect-back banner from Stripe / linking
   useEffect(() => {
