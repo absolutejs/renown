@@ -18,11 +18,11 @@ const tracer = trace.getTracer("renown.attestation");
 
 export type AttestationInput =
   | { kind: "clear" }
-  | { kind: "claim"; provider: string; evidenceUrl?: string; attestationJwt?: string };
+  | { kind: "claim"; provider: string; evidenceUrl?: string; attestationJwt?: string; webauthnVerified?: boolean };
 
 export type AttestationResult =
   | { ok: true; cleared: true }
-  | { ok: true; cleared: false; provider: string; verified: boolean; resolvedKnownProvider: boolean }
+  | { ok: true; cleared: false; provider: string; verified: boolean; webauthnVerified: boolean; resolvedKnownProvider: boolean }
   | { ok: false; error: string };
 
 const eventId = () => `att_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -39,6 +39,7 @@ export const applyAttestation = async (githubLogin: string, input: AttestationIn
         span.setAttributes({
           "renown.attestation.provider": result.provider,
           "renown.attestation.verified": result.verified,
+          "renown.attestation.webauthn_verified": result.webauthnVerified,
           "renown.attestation.resolved_known": result.resolvedKnownProvider,
         });
       } else {
@@ -91,21 +92,20 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
       finally { s.end(); }
     });
   }
+  const webauthnVerified = !!input.webauthnVerified;
   // Impersonation guard: KNOWN providers (anything in PROVIDERS) require a verified
-  // JWT. Two distinct rejection cases:
-  //   1. Provider is known but their registry entry has no verifyJwt — we can't verify,
-  //      so we don't let the name be claimed. Once they publish JWKS, this unblocks.
-  //   2. Provider is known with a verifier, but no JWT given or it failed verification.
+  // JWT OR a verified WebAuthn assertion. Two distinct rejection cases when neither
+  // path checks out:
+  //   1. Provider is known but their registry entry has no verifyJwt — claimant can
+  //      still pass via WebAuthn (self-key), otherwise we can't accept the name.
+  //   2. Provider is known with a verifier, but no JWT given or it failed; and no
+  //      WebAuthn assertion either.
   // Unknown providers stay in the v1 public-claim model — there's no name to borrow.
-  // The `dev` provider's verifier returns false without RENOWN_DEV_AI_HMAC; a
-  // contributor without that env can't impersonate `dev` either, intentional.
-  if (resolved) {
+  if (resolved && !verified && !webauthnVerified) {
     if (!resolved.config.verifyJwt) {
-      return { ok: false, error: `provider "${resolved.id}" is a known provider but hasn't published verification keys yet — claims as this provider aren't accepted until they ship a JWKS. Pick an unknown provider name to make a public claim instead.` };
+      return { ok: false, error: `provider "${resolved.id}" is a known provider that hasn't published verification keys yet — claims as this provider need a self-key (WebAuthn) attestation, or pick an unknown provider name for a public claim.` };
     }
-    if (!verified) {
-      return { ok: false, error: `provider "${resolved.id}" requires a verified JWT (iss=${resolved.id}, sub=<your github login>, aud=renown, valid exp) signed by the provider's published key. Missing or failed verification.` };
-    }
+    return { ok: false, error: `provider "${resolved.id}" requires a verified JWT (iss=${resolved.id}, sub=<your github login>, aud=renown) OR a WebAuthn assertion from a registered hardware key. Neither was provided / valid.` };
   }
 
   const providerId = resolved?.id ?? providerRaw;
@@ -114,6 +114,7 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
     claimedAt: new Date().toISOString(),
     ...(input.evidenceUrl ? { evidenceUrl: input.evidenceUrl } : {}),
     ...(verified ? { verified: true } : {}),
+    ...(webauthnVerified ? { webauthnVerified: true } : {}),
   };
 
   const update: Partial<typeof players.$inferInsert> = { aiAttestation: attestation, isAi: true };
@@ -151,6 +152,7 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
         "ai-revealed",
         "ai-attested",
         ...(verified ? ["ai-verified"] : []),
+        ...(webauthnVerified ? ["ai-self-verified"] : []),
       ]);
       s.setAttribute("renown.attestation.newly_granted", granted.length);
     } finally { s.end(); }
@@ -182,7 +184,7 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
     // OS-level push to every subscribed browser — reaches CLOSED tabs (Service Worker
     // handles the push event even with no renown tab open). No-ops when VAPID env
     // isn't configured. Fire-and-forget.
-    void sendPushToAll({
+    void sendPushToAll("verified-attestation", {
       title: "🤖 Verified AI attestation",
       body: `@${githubLogin} attested as ${providerId} ✓`,
       url: `${process.env.RENOWN_PUBLIC_BASE ?? "https://renown.local"}/?profile=${encodeURIComponent(githubLogin)}`,
@@ -190,7 +192,7 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
     });
   }
 
-  return { ok: true, cleared: false, provider: providerId, verified, resolvedKnownProvider: !!resolved };
+  return { ok: true, cleared: false, provider: providerId, verified, webauthnVerified, resolvedKnownProvider: !!resolved };
 };
 
 // POST to RENOWN_ATTESTATION_WEBHOOK on verified attestations. Generic JSON payload so

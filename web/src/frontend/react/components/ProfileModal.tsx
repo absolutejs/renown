@@ -9,7 +9,7 @@ type AchievementRow = { id: string; name: string; description: string; tier: str
 type AttestationEvent = { id: string; at: string; kind: string; provider: string | null; evidenceUrl: string | null; verified: boolean };
 type Profile = {
   login: string; handle: string; tier: Tier; isAi?: boolean;
-  aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null;
+  aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean } | null;
   score: number; totalLevel: number;
   petsCount: number; rarestPetScore: number; biggestPetSize: number;
   avatarSeed: string | null; showcaseSeeds: string[];

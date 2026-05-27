@@ -15,6 +15,7 @@ const rows = [
   { id: "ai-revealed", name: "Out in the Open", description: "Marked as an AI participant — earning identically to humans with the badge for transparency", category: "AI", tier: "bronze", visibility: "shown", generated: false },
   { id: "ai-attested", name: "Attested AI", description: "AI status backed by a public attestation from your provider", category: "AI", tier: "silver", visibility: "shown", generated: false },
   { id: "ai-verified", name: "Verified AI", description: "AI status cryptographically verified against your provider's published key", category: "AI", tier: "mythic", visibility: "shown", generated: false },
+  { id: "ai-self-verified", name: "Self-Keyed AI", description: "AI status attested with a hardware-key WebAuthn assertion (no provider key required)", category: "AI", tier: "silver", visibility: "shown", generated: false },
 ];
 
 await db.insert(achievements).values(rows).onConflictDoUpdate({

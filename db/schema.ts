@@ -53,6 +53,11 @@ export const players = pgTable("players", {
   // Visible as a 🤖 badge wherever the handle is shown. Set by an admin/migration OR by
   // an aiAttestation (below) that the player posts.
   isAi: boolean("is_ai").notNull().default(false),
+  // Per-user push notification preferences. Defaults: everything on. UI flips fields
+  // off; server filters fan-outs accordingly. Adding new event kinds is just a new
+  // field here + a check at the relevant publish site — existing users default to
+  // opted-in for the new event (acceptable for a small notification surface).
+  pushPrefs: jsonb("push_prefs").$type<{ verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean }>().notNull().default({}),
   // Optional public attestation of AI status. POSTed via /api/account/ai-attestation by
   // the player; setting it flips is_ai true and stores { provider, claimedAt, evidenceUrl? }.
   // Provider is a free-text identifier ("anthropic", "openai", ...). evidenceUrl points at
@@ -143,6 +148,24 @@ export const webhookDeliveries = pgTable("webhook_deliveries", {
   statusCode: integer("status_code"),                              // HTTP code on success/4xx/5xx; null on network error
   attemptedAt: timestamp("attempted_at").notNull().defaultNow(),
   lastError: text("last_error"),                                   // brief message on failure; null on success
+});
+
+// WebAuthn credentials per player. Each row is one registered hardware key / passkey /
+// platform authenticator. credential_id is the public credential identifier the browser
+// hands back; public_key is the COSE-encoded public key bytes (base64url so the column
+// stays text). counter is the signature-counter from WebAuthn assertion (server checks
+// monotonic increase to detect cloned authenticators). Used as the "self-key" path for
+// AI attestation: attest with a WebAuthn assertion signed by your registered key,
+// renown stamps attestation.webauthnVerified=true.
+export const webauthnCredentials = pgTable("webauthn_credentials", {
+  id: text("id").primaryKey(),
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  credentialId: text("credential_id").notNull().unique(),
+  publicKey: text("public_key").notNull(),                // base64url-encoded COSE bytes
+  counter: integer("counter").notNull().default(0),
+  transports: jsonb("transports").$type<string[]>().notNull().default([]),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
 });
 
 // Audit log of every ai_attestation state change. One row per claim / verification /

@@ -6,16 +6,17 @@ import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } fro
 import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
-type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string } | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null };
+type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null };
 type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet";
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
-type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean };
+type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean };
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
-type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null };
+type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievements?: AchievementRow[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
@@ -83,18 +84,26 @@ const AchievementsPanel = ({ items, title = "Achievements" }: { items: Achieveme
   );
 };
 
-const AiBadge = ({ isAi, attestation, compact, style }: { isAi?: boolean; attestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null; compact?: boolean; style?: React.CSSProperties }) => {
+const AiBadge = ({ isAi, attestation, compact, style }: { isAi?: boolean; attestation?: AiAttestation | null; compact?: boolean; style?: React.CSSProperties }) => {
   if (!isAi) return null;
-  // Tooltip composition: base note + attestation provider + verified flag + evidence URL
-  // (text-only; the visible <a> for the URL lives in the profile modal where there's
-  // room for it). "verified" means the provider's JWT signature checked out against the
-  // registry entry's key — much stronger trust signal than the public-claim baseline.
+  // Tooltip composition: base note + attestation provider + verification source +
+  // evidence URL. Three trust tiers, visually distinct:
+  //   ✓ verified       — provider-signed JWT against the registry's JWKS
+  //   ✦ self-keyed     — WebAuthn assertion from a registered hardware key
+  //   (nothing)        — public claim, anyone could post it
   const verified = !!attestation?.verified;
+  const webauthnVerified = !!attestation?.webauthnVerified;
+  const trustNote = verified
+    ? " · cryptographically verified by provider"
+    : webauthnVerified
+      ? " · self-keyed (WebAuthn hardware key)"
+      : " (public claim)";
   const title = attestation
-    ? `AI participant · attested as ${attestation.provider}${verified ? " · cryptographically verified" : " (public claim)"}${attestation.evidenceUrl ? ` · evidence: ${attestation.evidenceUrl}` : ""}`
+    ? `AI participant · attested as ${attestation.provider}${trustNote}${attestation.evidenceUrl ? ` · evidence: ${attestation.evidenceUrl}` : ""}`
     : "AI participant — earns score and pets the same way humans do, with the badge for transparency";
-  const label = compact ? "🤖" : attestation ? `🤖 ${attestation.provider}${verified ? " ✓" : ""}` : "🤖 AI";
-  return <span className={`aiBadge${compact ? " compact" : ""}${attestation ? " attested" : ""}${verified ? " verified" : ""}`} style={style} title={title}>{label}</span>;
+  const mark = verified ? " ✓" : webauthnVerified ? " ✦" : "";
+  const label = compact ? "🤖" : attestation ? `🤖 ${attestation.provider}${mark}` : "🤖 AI";
+  return <span className={`aiBadge${compact ? " compact" : ""}${attestation ? " attested" : ""}${verified ? " verified" : ""}${webauthnVerified && !verified ? " selfKeyed" : ""}`} style={style} title={title}>{label}</span>;
 };
 
 // AbsoluteJS logomark — embedded inline so it follows currentColor.
@@ -621,8 +630,10 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
   const [evidenceUrl, setEvidenceUrl] = useState(gh.aiAttestation?.evidenceUrl ?? "");
   const [attestationJwt, setAttestationJwt] = useState("");
   const [showJwt, setShowJwt] = useState(false);
+  const [busy, setBusy] = useState<null | "register" | "attest">(null);
   const attested = !!gh.aiAttestation;
   const verified = !!gh.aiAttestation?.verified;
+  const webauthnVerified = !!(gh.aiAttestation as { webauthnVerified?: boolean } | null)?.webauthnVerified;
   const claim = () => act(async () => {
     const r = await post("/api/account/ai-attestation", {
       provider: provider.trim(),
@@ -637,9 +648,45 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
     if (r.ok) { setProvider(""); setEvidenceUrl(""); setAttestationJwt(""); }
     return r;
   });
+  // Hardware-key registration ceremony: lazy-imports @simplewebauthn/browser so the
+  // ~30KB lib only loads when the user actually clicks. Server hands back the options,
+  // browser does the dance, server verifies + stores the credential.
+  const registerKey = async () => {
+    setBusy("register");
+    try {
+      const { startRegistration } = await import("@simplewebauthn/browser");
+      const optionsRes = await post("/api/account/webauthn/register-begin", {});
+      if (!optionsRes.ok) { alert("couldn't start registration"); return; }
+      const response = await startRegistration({ optionsJSON: optionsRes.data as Parameters<typeof startRegistration>[0]["optionsJSON"] });
+      const finishRes = await post("/api/account/webauthn/register-finish", { response });
+      if (!finishRes.ok) alert("registration failed — see console");
+      else alert("✓ Hardware key registered. You can now attest as any provider using your key (no provider JWT needed).");
+    } catch (e) { alert(`registration error: ${e instanceof Error ? e.message : String(e)}`); }
+    finally { setBusy(null); }
+  };
+  // Self-key attestation: assertion ceremony → server verifies → applyAttestation with
+  // webauthnVerified=true (alternative to provider-signed JWT).
+  const attestWithKey = () => act(async () => {
+    setBusy("attest");
+    try {
+      const { startAuthentication } = await import("@simplewebauthn/browser");
+      const optionsRes = await post("/api/account/webauthn/attest-begin", {});
+      if (!optionsRes.ok) return optionsRes;
+      const response = await startAuthentication({ optionsJSON: optionsRes.data as Parameters<typeof startAuthentication>[0]["optionsJSON"] });
+      const r = await post("/api/account/webauthn/attest-finish", {
+        response,
+        provider: provider.trim(),
+        evidenceUrl: evidenceUrl.trim() || undefined,
+      });
+      return r;
+    } finally { setBusy(null); }
+  });
   return (
     <section className="card">
-      <h2>AI attestation {verified && <span className="aiBadge attested" style={{ marginLeft: 8 }}>✓ verified</span>}</h2>
+      <h2>AI attestation
+        {verified && <span className="aiBadge verified" style={{ marginLeft: 8 }}>✓ verified</span>}
+        {!verified && webauthnVerified && <span className="aiBadge attested" style={{ marginLeft: 8 }}>✦ self-keyed</span>}
+      </h2>
       <p className="muted hint">Are you an AI participant (Claude, Codex, Cursor, etc.)? Declare it openly — you'll get a 🤖 badge next to your handle and unlock the AI achievements. <strong>Scoring is identical to humans.</strong> Naming a known provider (anthropic / openai / cursor / copilot / codex) also fills in the right co-author attribution query automatically. Posting a provider-signed JWT in the advanced section upgrades the claim to <strong>cryptographically verified</strong> — until real providers issue these, the <code>dev</code> provider plus an <code>RENOWN_DEV_AI_HMAC</code> env secret can be used to test the verified path end-to-end.</p>
       <div className="prefRow" style={{ marginTop: 8, gap: 14, flexWrap: "wrap" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -682,11 +729,24 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
           <p className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
             Attested as <strong>{gh.aiAttestation.provider}</strong>
             {verified && <> · <span style={{ color: "#d6a3ff", fontWeight: 700 }}>cryptographically verified ✓</span></>}
+            {!verified && webauthnVerified && <> · <span style={{ color: "#86efac", fontWeight: 700 }}>self-keyed ✦</span></>}
             {gh.aiAttestation.evidenceUrl && <> · <a href={gh.aiAttestation.evidenceUrl} target="_blank" rel="noreferrer">evidence ↗</a></>}
             {" "}· {when(gh.aiAttestation.claimedAt)}
           </p>
         )}
       </div>
+      {/* Self-key alternative — register a hardware key once, then attest with it
+          instead of a provider-signed JWT. Useful when you want to claim a known
+          provider (which require some proof) but the provider hasn't published JWKS,
+          or when you just want a personal cryptographic anchor on the claim. */}
+      <details className="advancedAttest" style={{ marginTop: 12 }}>
+        <summary className="muted" style={{ cursor: "pointer", fontSize: 12 }}>Advanced · self-key (WebAuthn) attestation</summary>
+        <p className="muted hint" style={{ marginTop: 8 }}>Hardware-key alternative to a provider-signed JWT. Register a key once on this account, then attest by signing an assertion with it — your claim gets the <strong>✦ self-keyed</strong> marker. Different trust source than provider-verified (✓ above): it proves <em>you</em> are the same entity across sessions, not that your provider backs you.</p>
+        <div className="row" style={{ marginTop: 8 }}>
+          <button type="button" className="btn ghost sm" disabled={busy === "register"} onClick={registerKey}>{busy === "register" ? "Waiting for key…" : "Register a hardware key"}</button>
+          <button type="button" className="btn solid sm" disabled={!provider.trim() || busy === "attest"} onClick={attestWithKey}>{busy === "attest" ? "Waiting for key…" : "Attest with my key"}</button>
+        </div>
+      </details>
     </section>
   );
 };
@@ -756,6 +816,38 @@ const WeeklyGrowthStat = ({ login }: { login: string }) => {
       <span className="num" style={{ color: delta > 0 ? "#86efac" : undefined }}>{delta > 0 ? "+" : ""}{delta.toLocaleString()}</span>
       <span className="lbl">this week</span>
     </div>
+  );
+};
+
+// Per-user push preferences. Stored on players.push_prefs server-side, posted via
+// /api/account/push-prefs. Defaults are "everything on" (absent field reads as true),
+// so flipping these is opting OUT of specific event kinds — most users won't touch it.
+type PushPrefRow = { key: keyof PushPrefs; label: string; desc: string };
+const PUSH_PREF_ROWS: PushPrefRow[] = [
+  { key: "verifiedAttestation", label: "Verified AI attestation", desc: "Push when any account on renown becomes cryptographically-verified AI." },
+  { key: "newcomerToBoard", label: "New leaderboard entry", desc: "Push when a fresh login lands in the top 10 (future event)." },
+  { key: "mention", label: "Profile mention", desc: "Push when someone interacts with your profile (future event)." },
+];
+const PushPrefsCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {
+  const prefs = gh.pushPrefs ?? {};
+  const isOn = (k: keyof PushPrefs) => prefs[k] !== false;   // undefined = opted in
+  const toggle = (k: keyof PushPrefs) => act(async () => post("/api/account/push-prefs", { [k]: !isOn(k) }));
+  return (
+    <section className="card">
+      <h2>Push notifications</h2>
+      <p className="muted hint">When you enabled sound, your browser asked to send notifications. These choose <em>which</em> events trigger one. All default on; flip an event off to silence it across all your subscribed browsers. Requires the operator to have configured VAPID keys — without them, the rest of the system uses in-page banners only.</p>
+      <div className="prefList">
+        {PUSH_PREF_ROWS.map((row) => (
+          <label key={row.key} className="prefRow" style={{ alignItems: "flex-start", flexDirection: "column", gap: 4, marginTop: 10 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input type="checkbox" checked={isOn(row.key)} onChange={() => toggle(row.key)} />
+              <strong>{row.label}</strong>
+            </span>
+            <span className="muted" style={{ fontSize: 12, paddingLeft: 26 }}>{row.desc}</span>
+          </label>
+        ))}
+      </div>
+    </section>
   );
 };
 
@@ -1064,6 +1156,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
         <CursorLabelToggle />
         <p className="muted hint" style={{ marginTop: 8 }}>Off by default. Tabs that hover the same leaderboard rows you do are shown as anonymous colored dots either way; enabling this just adds your name and avatar pet next to your dot.</p>
       </section>
+      {account.github && <PushPrefsCard gh={account.github} act={act} />}
       <button className="link signout" onClick={() => act(async () => { const r = await api("/oauth2/signout", { method: "DELETE" }); refresh(); return r; })}>Sign out</button>
     </>
   );

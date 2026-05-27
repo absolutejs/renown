@@ -8,10 +8,20 @@
 // delete the row, so the table self-prunes; transient errors leave the row alone for
 // the next event to retry.
 
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import webpush from "web-push";
-import { pushSubscriptions } from "../../../db/schema.ts";
+import { players, pushSubscriptions } from "../../../db/schema.ts";
 import { gameDb } from "./sync.ts";
+
+// Push event kinds → matching field on players.push_prefs. Absence in prefs reads as
+// opted-in (default-true semantic). Adding a new event kind = add a tuple here + the
+// matching field in the schema's push_prefs type.
+export type PushEventKind = "verified-attestation" | "newcomer-to-board" | "mention";
+const PREF_FIELD: Record<PushEventKind, string> = {
+  "verified-attestation": "verifiedAttestation",
+  "newcomer-to-board": "newcomerToBoard",
+  "mention": "mention",
+};
 
 let configured = false;
 const ensureConfigured = (): boolean => {
@@ -39,12 +49,16 @@ export type PushPayload = {
   tag?: string;             // dedupe key — bursts collapse to one notification per tag
 };
 
-// Send a payload to every active subscription. Used for site-wide events like
-// verified-attestation. For per-player notifications, filter the table on player_id
-// before calling.
-export const sendPushToAll = async (payload: PushPayload): Promise<{ sent: number; pruned: number }> => {
+// Send a payload to every active subscription whose player has opted in to this event
+// kind. Used for site-wide events like verified-attestation. The pref join is a single
+// SQL filter — push_prefs.<field> NOT FALSE means "true or unset" (default opted-in).
+export const sendPushToAll = async (event: PushEventKind, payload: PushPayload): Promise<{ sent: number; pruned: number }> => {
   if (!ensureConfigured()) return { sent: 0, pruned: 0 };
-  const subs = await gameDb.select().from(pushSubscriptions);
+  const field = PREF_FIELD[event];
+  const subs = await gameDb.select({ id: pushSubscriptions.id, endpoint: pushSubscriptions.endpoint, p256dh: pushSubscriptions.p256dh, auth: pushSubscriptions.auth })
+    .from(pushSubscriptions)
+    .innerJoin(players, eq(players.id, pushSubscriptions.playerId))
+    .where(sql`coalesce((${players.pushPrefs} ->> ${field})::boolean, true)`);
   return sendPushToSubscriptions(subs, payload);
 };
 

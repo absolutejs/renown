@@ -7,11 +7,12 @@ import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
 import { and, desc, eq } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
-import { achievements as achievementsTable, playerAchievements, players, pushSubscriptions } from "../../../../db/schema.ts";
+import { achievements as achievementsTable, playerAchievements, players, pushSubscriptions, webauthnCredentials } from "../../../../db/schema.ts";
 import { authIdentities, SchemaType, User } from "../../../db/schema";
 import { SignJWT } from "jose";
 import { applyAttestation } from "../attestation.ts";
 import { gameDb, hub } from "../sync.ts";
+import { buildAuthenticationOptions, buildRegistrationOptions, verifyAuthentication, verifyRegistration } from "../webauthn.ts";
 import {
   deleteDBAuthIdentityMergeRequest,
   getDBUser,
@@ -90,6 +91,7 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       // rarely enough that the 30s cursor cache freshness is fine.
       isAi: !!player?.isAi,
       aiAttestation: (player as { aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null } | undefined)?.aiAttestation ?? null,
+      pushPrefs: (player as { pushPrefs?: { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean } } | undefined)?.pushPrefs ?? {},
       // Earned achievements — same join shape as /api/profile/:login so the panel
       // component can render from either endpoint with no client-side massaging.
       achievements: player
@@ -216,6 +218,24 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         return { ok: true };
       }),
     )
+    // Per-user push preferences. Each event kind is a boolean; absence reads as
+    // opted-in (the publish-time filter treats undefined as true), so a fresh user with
+    // no explicit prefs still gets the canonical events without an extra round-trip.
+    .post("/push-prefs", ({ body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const b = (body ?? {}) as { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean };
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        // Merge, don't replace — lets the UI send only the field that changed without
+        // wiping the others.
+        const cur = (await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin)))[0];
+        if (!cur) return status("Not Found", "player not found");
+        const next = { ...(cur.pushPrefs ?? {}), ...b };
+        await gameDb.update(players).set({ pushPrefs: next }).where(eq(players.id, cur.id));
+        return { ok: true, pushPrefs: next };
+      }),
+    )
     .post("/push-unsubscribe", ({ body, protectRoute, status }) =>
       protectRoute(async (user) => {
         const b = (body ?? {}) as { endpoint?: string };
@@ -246,6 +266,104 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
           .setExpirationTime("5m")
           .sign(new TextEncoder().encode(secret));
         return { ok: true, jwt };
+      }),
+    )
+    // ── WebAuthn registration + assertion for the self-key attestation path ──────
+    // Two-step ceremony for each side. /register-* lets a player add a credential
+    // (hardware key / passkey / platform authenticator) bound to their account.
+    // /attest-* runs an authentication ceremony whose successful verification feeds
+    // into applyAttestation with webauthnVerified=true — the "attested via my own
+    // hardware key" trust path that doesn't require their provider to publish JWKS.
+    .post("/webauthn/register-begin", ({ protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const player = playerRows[0];
+        if (!player) return status("Not Found", "player not found");
+        const existing = await gameDb.select({ credentialId: webauthnCredentials.credentialId }).from(webauthnCredentials).where(eq(webauthnCredentials.playerId, player.id));
+        const options = await buildRegistrationOptions(player.id, ghLogin, existing.map((e) => e.credentialId));
+        return options;
+      }),
+    )
+    .post("/webauthn/register-finish", ({ body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const b = body as { response?: Parameters<typeof verifyRegistration>[1] };
+        if (!b?.response) return status("Bad Request", "response required");
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const player = playerRows[0];
+        if (!player) return status("Not Found", "player not found");
+        const v = await verifyRegistration(player.id, b.response);
+        if (!v.ok) return status("Bad Request", v.error);
+        await gameDb.insert(webauthnCredentials).values({
+          id: `wac_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          playerId: player.id,
+          credentialId: v.credentialId,
+          publicKey: v.publicKey,
+          counter: v.counter,
+          transports: v.transports,
+        });
+        return { ok: true, credentialId: v.credentialId };
+      }),
+    )
+    .post("/webauthn/attest-begin", ({ protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const player = playerRows[0];
+        if (!player) return status("Not Found", "player not found");
+        const creds = await gameDb.select({ credentialId: webauthnCredentials.credentialId }).from(webauthnCredentials).where(eq(webauthnCredentials.playerId, player.id));
+        if (creds.length === 0) return status("Bad Request", "no registered hardware keys — register one first");
+        const options = await buildAuthenticationOptions(player.id, creds.map((c) => c.credentialId));
+        return options;
+      }),
+    )
+    .post("/webauthn/attest-finish", ({ body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const b = (body ?? {}) as { response?: Parameters<typeof verifyAuthentication>[1]; provider?: string; evidenceUrl?: string };
+        if (!b.response) return status("Bad Request", "response required");
+        if (!b.provider) return status("Bad Request", "provider required (the AI provider you're attesting as)");
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const player = playerRows[0];
+        if (!player) return status("Not Found", "player not found");
+        // Look up the credential by id from the response. SimpleWebAuthn's
+        // AuthenticationResponseJSON has `id` (the credential id, base64url).
+        const credentialId = (b.response as { id?: string }).id;
+        if (!credentialId) return status("Bad Request", "response missing credential id");
+        const credRows = await gameDb.select().from(webauthnCredentials).where(eq(webauthnCredentials.credentialId, credentialId));
+        const cred = credRows[0];
+        if (!cred || cred.playerId !== player.id) return status("Bad Request", "credential not registered to this player");
+        const v = await verifyAuthentication(player.id, b.response, {
+          credentialId: cred.credentialId,
+          publicKey: cred.publicKey,
+          counter: cred.counter,
+          transports: cred.transports,
+        });
+        if (!v.ok) return status("Bad Request", v.error);
+        // Update counter + last_used_at so a cloned-authenticator replay would be
+        // caught by the next assertion's monotonic-counter check.
+        await gameDb.update(webauthnCredentials).set({ counter: v.newCounter, lastUsedAt: new Date() }).where(eq(webauthnCredentials.id, cred.id));
+        // Apply the attestation with webauthnVerified=true. Bypasses the JWT
+        // verification path entirely; the impersonation guard accepts this as
+        // a sufficient proof of self-identity for the claimed provider name.
+        const result = await applyAttestation(ghLogin, {
+          kind: "claim",
+          provider: b.provider,
+          evidenceUrl: typeof b.evidenceUrl === "string" ? b.evidenceUrl : undefined,
+          webauthnVerified: true,
+        });
+        if (!result.ok) return status("Bad Request", result.error);
+        playerInfoCache.delete(ghLogin);
+        return { ok: true, ...(await accountPayload(db, user.sub)) };
       }),
     )
     // Self-claimed AI attestation. POST { provider, evidenceUrl?, attestationJwt? } →

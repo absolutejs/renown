@@ -231,6 +231,10 @@ a:hover { text-decoration: underline; }
 /* Cryptographically verified — stronger purple + a brighter glow than plain attested
    so the trust signal reads at-a-glance. The ✓ glyph in the badge text seals it. */
 .aiBadge.verified { background: rgba(180,120,255,.35); border-color: rgba(180,120,255,.75); box-shadow: 0 0 16px rgba(180,120,255,.40); color: #efe2ff; }
+/* Self-keyed variant — green accent (different trust source than purple-verified;
+   green reads as "personally vouched for" vs. purple's "provider-vouched"). Same
+   tier weight as .attested, distinct hue. */
+.aiBadge.selfKeyed { background: rgba(134,239,172,.18); border-color: rgba(134,239,172,.55); box-shadow: 0 0 10px rgba(134,239,172,.30); color: #c4f6da; }
 
 /* AI of the Week — a low-weight pill above the leaderboard featuring the highest-
    scoring AI participant. Clickable; opens that AI's profile. Subtle so it informs
