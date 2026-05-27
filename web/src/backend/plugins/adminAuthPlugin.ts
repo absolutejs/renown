@@ -6,8 +6,9 @@
 import { and, desc, eq, ilike, ne, or } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia, t } from "elysia";
-import { players } from "../../../../db/schema.ts";
+import { players, webhookDeliveries } from "../../../../db/schema.ts";
 import { schema, SchemaType } from "../../../db/schema";
+import { deliverWebhook } from "../attestation.ts";
 import { gameDb } from "../sync.ts";
 import { adminCookieAttrs, adminCookieName, issueAdminToken, verifyAdminToken } from "../admin/adminCookie";
 import { isTier, normalizeTier, type Tier } from "../billing/tiers";
@@ -99,7 +100,24 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       if (login) await gameDb.update(players).set({ tier }).where(eq(players.githubLogin, login));
       console.log(`[renown:admin] ${admin.email} → set tier=${tier} for user ${target.email ?? target.sub}`);
       return { ok: true, sub: target.sub, tier };
-    }, { body: t.Object({ tier: t.String() }) });
+    }, { body: t.Object({ tier: t.String() }) })
+    // Replay a failed webhook delivery. Reads the original event_kind + payload from
+    // the row and re-runs the retry-and-log pipeline against the current configured
+    // webhook URL (RENOWN_ATTESTATION_WEBHOOK) — i.e. respects any URL change the
+    // operator made since the original failed attempt. Adds new rows to the delivery
+    // log so the trail of replay attempts is itself auditable.
+    .post("/api/admin/webhook-deliveries/:id/replay", async ({ params, request, set }) => {
+      const admin = await requireAdmin(db, request);
+      if (!admin) { set.status = 401; return { error: "not admin" }; }
+      const url = process.env.RENOWN_ATTESTATION_WEBHOOK;
+      if (!url) { set.status = 400; return { error: "RENOWN_ATTESTATION_WEBHOOK not configured" }; }
+      const row = (await gameDb.select().from(webhookDeliveries).where(eq(webhookDeliveries.id, params.id)))[0];
+      if (!row) { set.status = 404; return { error: "delivery not found" }; }
+      // Detach — replay can take ~20s of backoff; return immediately, log results.
+      void deliverWebhook(url, row.eventKind, row.payload as Record<string, unknown>);
+      console.log(`[renown:admin] ${admin.email} → replay delivery ${row.id} (${row.eventKind})`);
+      return { ok: true, replaying: row.id, eventKind: row.eventKind };
+    });
 
 export { requireAdmin };
 // Silence unused-import warnings for the helpers consumers can reach for.

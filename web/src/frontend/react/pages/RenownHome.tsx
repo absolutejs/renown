@@ -198,6 +198,50 @@ const CursorLabelToggle = () => {
 // Tiny header toggle for the synth voices in audio.ts. The toggle click itself is the
 // user-gesture that authorizes the AudioContext to start, so enabling sound here is what
 // unlocks playback for the rest of the session — no separate "unmute" prompts elsewhere.
+// urlBase64ToUint8Array — VAPID public key arrives as URL-safe base64; PushManager
+// wants a Uint8Array of the raw bytes. Standard helper used by every web-push tutorial.
+const urlBase64ToUint8Array = (b64: string) => {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const norm = (b64 + pad).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(norm);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+};
+
+// Best-effort Web Push registration. Runs once when sound is enabled (gesture-bound
+// moment), after the Notification permission is granted. If VAPID isn't configured on
+// the server (RENOWN_VAPID_* env unset), the /api/push-config call returns
+// configured=false and this no-ops. Failures swallow silently — the in-page banner +
+// the (foreground-only) Notifications API path still cover the same event for current
+// tabs; push is the upgrade that reaches closed tabs.
+const registerWebPush = async () => {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator) || typeof PushManager === "undefined") return;
+  try {
+    const cfg = await fetch("/api/push-config").then((r) => r.json()) as { configured: boolean; publicKey: string | null };
+    if (!cfg.configured || !cfg.publicKey) return;
+    const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(cfg.publicKey),
+      });
+    }
+    // POST to the server. toJSON gives { endpoint, keys: { p256dh, auth } } — exactly
+    // the shape /api/account/push-subscribe wants.
+    const json = sub.toJSON();
+    await fetch("/api/account/push-subscribe", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(json),
+    });
+  } catch (e) {
+    console.warn("web push registration failed", e);
+  }
+};
+
 const SoundToggle = () => {
   const [on, setOn] = useState(false);
   useEffect(() => setOn(isSoundOn()), []);
@@ -205,25 +249,26 @@ const SoundToggle = () => {
   // the menagerie is in view doesn't auto-restart it (the view effect below will catch
   // the next re-entry). This keeps the pad lifecycle owned by the view, not by global state.
   //
-  // Enabling sound is also the gesture-bound moment to ask for OS notifications — the
-  // browser only allows the prompt from a user gesture, and people who opted into sound
-  // are the right cohort to also opt into background notifications (both are "make this
-  // page notice me even when I'm not looking"). Requested at most once per session.
+  // Enabling sound is also the gesture-bound moment to ask for OS notifications + Web
+  // Push registration — the browser only allows the prompts from a user gesture, and
+  // people who opted into sound are the right cohort to also opt into background
+  // notifications (both are "make this page notice me even when I'm not looking").
   return (
     <button
       className="soundToggle"
-      onClick={() => {
+      onClick={async () => {
         const next = !on;
         setSoundOn(next);
         setOn(next);
-        if (!next) stopAmbientPad();
-        else if (typeof Notification !== "undefined" && Notification.permission === "default") {
-          // Fire-and-forget; the user will see (and act on) the browser's permission
-          // chrome themselves. We don't need to wait for the result here.
-          void Notification.requestPermission();
+        if (!next) { stopAmbientPad(); return; }
+        if (typeof Notification !== "undefined" && Notification.permission === "default") {
+          const perm = await Notification.requestPermission();
+          if (perm === "granted") void registerWebPush();
+        } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          void registerWebPush();   // permission already granted from a previous session
         }
       }}
-      title={on ? "Sound on — click to mute" : "Sound off — click to enable"}
+      title={on ? "Sound on — click to mute" : "Sound off — click to enable (also asks for notifications)"}
       aria-label={on ? "Mute sound" : "Enable sound"}
     >
       {on ? "🔊" : "🔇"}

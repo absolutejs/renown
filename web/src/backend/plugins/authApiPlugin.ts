@@ -4,10 +4,10 @@
 // belonged to another account). Linking a NEW login happens via the OAuth flow itself
 // (visit /oauth2/<provider>/authorization while signed in -> resolveAuthIntent links it).
 import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
-import { achievements as achievementsTable, playerAchievements, players } from "../../../../db/schema.ts";
+import { achievements as achievementsTable, playerAchievements, players, pushSubscriptions } from "../../../../db/schema.ts";
 import { authIdentities, SchemaType, User } from "../../../db/schema";
 import { SignJWT } from "jose";
 import { applyAttestation } from "../attestation.ts";
@@ -192,6 +192,45 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     // aud=renown, 5min exp). 400 if RENOWN_DEV_AI_HMAC isn't set, so production is safe:
     // it just doesn't expose anything. The intent is purely UX — let contributors test
     // the cryptographic-verification flow with one click instead of opening a shell.
+    // Web Push subscription — POST to register, DELETE to remove. Browser produces the
+    // (endpoint, p256dh, auth) tuple via PushManager.subscribe; we just persist it. The
+    // upsert is by (player_id, endpoint) so re-registering an existing browser doesn't
+    // grow the table. Cross-tab/closed-tab notifications use these.
+    .post("/push-subscribe", ({ body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const b = (body ?? {}) as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
+        const endpoint = String(b.endpoint ?? "");
+        const p256dh = String(b.keys?.p256dh ?? "");
+        const auth = String(b.keys?.auth ?? "");
+        if (!endpoint || !p256dh || !auth) return status("Bad Request", "endpoint + keys required");
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const pRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const player = pRows[0];
+        if (!player) return status("Not Found", "player not found");
+        await gameDb.insert(pushSubscriptions).values({
+          id: `psub_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          playerId: player.id, endpoint, p256dh, auth,
+        }).onConflictDoNothing();   // unique (player_id, endpoint) — re-subscribe is a no-op
+        return { ok: true };
+      }),
+    )
+    .post("/push-unsubscribe", ({ body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const b = (body ?? {}) as { endpoint?: string };
+        const endpoint = String(b.endpoint ?? "");
+        if (!endpoint) return status("Bad Request", "endpoint required");
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const pRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const player = pRows[0];
+        if (!player) return { ok: true };
+        await gameDb.delete(pushSubscriptions).where(and(eq(pushSubscriptions.playerId, player.id), eq(pushSubscriptions.endpoint, endpoint)));
+        return { ok: true };
+      }),
+    )
     .post("/ai-attestation/dev-jwt", ({ protectRoute, status }) =>
       protectRoute(async (user) => {
         const secret = process.env.RENOWN_DEV_AI_HMAC;

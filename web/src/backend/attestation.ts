@@ -4,10 +4,17 @@
 // the exact same achievement grants, and the exact same audit-log writes; no drift, no
 // "the CLI doesn't grant ai-verified" edge cases.
 
+import { trace, SpanStatusCode } from "@opentelemetry/api";
 import { eq } from "drizzle-orm";
 import { aiAttestationEvents, players, webhookDeliveries } from "../../../db/schema.ts";
 import { defaultAuthorQuery, resolveProvider } from "./aiProviders.ts";
+import { sendPushToAll } from "./push.ts";
 import { gameDb, grantAchievements, hub } from "./sync.ts";
+
+// Tracer — no-op when no SDK is registered, so this file is safe to import in
+// environments that haven't wired @opentelemetry/sdk-node. Operators who want traces
+// register their SDK + exporter in server.ts entrypoint and spans flow automatically.
+const tracer = trace.getTracer("renown.attestation");
 
 export type AttestationInput =
   | { kind: "clear" }
@@ -22,8 +29,36 @@ const eventId = () => `att_${Date.now().toString(36)}_${Math.random().toString(3
 
 // Apply an attestation transition for the player identified by their GitHub login. Caller
 // is responsible for authenticating that the requesting session/token owns that login.
-export const applyAttestation = async (githubLogin: string, input: AttestationInput): Promise<AttestationResult> => {
-  const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, githubLogin));
+export const applyAttestation = async (githubLogin: string, input: AttestationInput): Promise<AttestationResult> =>
+  tracer.startActiveSpan("attestation.apply", { attributes: { "renown.login": githubLogin, "renown.attestation.kind": input.kind } }, async (span) => {
+    try {
+      const result = await applyAttestationInner(githubLogin, input);
+      if (!result.ok) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: result.error });
+      } else if (!result.cleared) {
+        span.setAttributes({
+          "renown.attestation.provider": result.provider,
+          "renown.attestation.verified": result.verified,
+          "renown.attestation.resolved_known": result.resolvedKnownProvider,
+        });
+      } else {
+        span.setAttributes({ "renown.attestation.cleared": true });
+      }
+      return result;
+    } catch (e) {
+      span.recordException(e instanceof Error ? e : new Error(String(e)));
+      span.setStatus({ code: SpanStatusCode.ERROR, message: e instanceof Error ? e.message : String(e) });
+      throw e;
+    } finally {
+      span.end();
+    }
+  });
+
+const applyAttestationInner = async (githubLogin: string, input: AttestationInput): Promise<AttestationResult> => {
+  const playerRows = await tracer.startActiveSpan("attestation.player_lookup", async (s) => {
+    try { return await gameDb.select().from(players).where(eq(players.githubLogin, githubLogin)); }
+    finally { s.end(); }
+  });
   const player = playerRows[0];
   if (!player) return { ok: false, error: "player not found" };
 
@@ -50,8 +85,27 @@ export const applyAttestation = async (githubLogin: string, input: AttestationIn
 
   let verified = false;
   if (input.attestationJwt && resolved?.config.verifyJwt) {
-    try { verified = await resolved.config.verifyJwt(input.attestationJwt, githubLogin); }
-    catch { verified = false; }
+    verified = await tracer.startActiveSpan("attestation.jwt_verify", { attributes: { "renown.attestation.provider": resolved.id } }, async (s) => {
+      try { const ok = await resolved.config.verifyJwt!(input.attestationJwt!, githubLogin); s.setAttribute("renown.attestation.verified", ok); return ok; }
+      catch { return false; }
+      finally { s.end(); }
+    });
+  }
+  // Impersonation guard: KNOWN providers (anything in PROVIDERS) require a verified
+  // JWT. Two distinct rejection cases:
+  //   1. Provider is known but their registry entry has no verifyJwt — we can't verify,
+  //      so we don't let the name be claimed. Once they publish JWKS, this unblocks.
+  //   2. Provider is known with a verifier, but no JWT given or it failed verification.
+  // Unknown providers stay in the v1 public-claim model — there's no name to borrow.
+  // The `dev` provider's verifier returns false without RENOWN_DEV_AI_HMAC; a
+  // contributor without that env can't impersonate `dev` either, intentional.
+  if (resolved) {
+    if (!resolved.config.verifyJwt) {
+      return { ok: false, error: `provider "${resolved.id}" is a known provider but hasn't published verification keys yet — claims as this provider aren't accepted until they ship a JWKS. Pick an unknown provider name to make a public claim instead.` };
+    }
+    if (!verified) {
+      return { ok: false, error: `provider "${resolved.id}" requires a verified JWT (iss=${resolved.id}, sub=<your github login>, aud=renown, valid exp) signed by the provider's published key. Missing or failed verification.` };
+    }
   }
 
   const providerId = resolved?.id ?? providerRaw;
@@ -67,28 +121,40 @@ export const applyAttestation = async (githubLogin: string, input: AttestationIn
     update.attributionQuery = resolved.config.coauthorQuery;
     update.lastAttributionSyncAt = null;
   }
-  await gameDb.update(players).set(update).where(eq(players.id, player.id));
+  await tracer.startActiveSpan("attestation.player_update", async (s) => {
+    try { await gameDb.update(players).set(update).where(eq(players.id, player.id)); }
+    finally { s.end(); }
+  });
 
   // Two events when a JWT verifies: the "claimed" event for the storage, plus a
   // "verified" event so the timeline shows the trust-elevation as a distinct moment.
-  await gameDb.insert(aiAttestationEvents).values({
-    id: eventId(), playerId: player.id, kind: "claimed",
-    provider: providerId, evidenceUrl: input.evidenceUrl ?? null, verified: false,
+  await tracer.startActiveSpan("attestation.audit_insert", { attributes: { "renown.attestation.events": verified ? 2 : 1 } }, async (s) => {
+    try {
+      await gameDb.insert(aiAttestationEvents).values({
+        id: eventId(), playerId: player.id, kind: "claimed",
+        provider: providerId, evidenceUrl: input.evidenceUrl ?? null, verified: false,
+      });
+      if (verified) {
+        await gameDb.insert(aiAttestationEvents).values({
+          id: eventId(), playerId: player.id, kind: "verified",
+          provider: providerId, evidenceUrl: input.evidenceUrl ?? null, verified: true,
+        });
+      }
+    } finally { s.end(); }
   });
-  if (verified) {
-    await gameDb.insert(aiAttestationEvents).values({
-      id: eventId(), playerId: player.id, kind: "verified",
-      provider: providerId, evidenceUrl: input.evidenceUrl ?? null, verified: true,
-    });
-  }
 
   // Instant grant — ai-revealed always, ai-attested once we've stored one, ai-verified
   // only on a successful JWT verify. /api/verify also grants these on its next pass.
-  await grantAchievements(player.id, [
-    "ai-revealed",
-    "ai-attested",
-    ...(verified ? ["ai-verified"] : []),
-  ]);
+  await tracer.startActiveSpan("attestation.grant_achievements", async (s) => {
+    try {
+      const granted = await grantAchievements(player.id, [
+        "ai-revealed",
+        "ai-attested",
+        ...(verified ? ["ai-verified"] : []),
+      ]);
+      s.setAttribute("renown.attestation.newly_granted", granted.length);
+    } finally { s.end(); }
+  });
 
   // Outbound webhook on verified attestation only — public-claim attestations stay quiet
   // (anyone can post one; not worth notifying about) but a cryptographically-verified
@@ -112,6 +178,15 @@ export const applyAttestation = async (githubLogin: string, input: AttestationIn
       login: githubLogin,
       provider: providerId,
       claimedAt: attestation.claimedAt,
+    });
+    // OS-level push to every subscribed browser — reaches CLOSED tabs (Service Worker
+    // handles the push event even with no renown tab open). No-ops when VAPID env
+    // isn't configured. Fire-and-forget.
+    void sendPushToAll({
+      title: "🤖 Verified AI attestation",
+      body: `@${githubLogin} attested as ${providerId} ✓`,
+      url: `${process.env.RENOWN_PUBLIC_BASE ?? "https://renown.local"}/?profile=${encodeURIComponent(githubLogin)}`,
+      tag: `attestation:${githubLogin}:${attestation.claimedAt}`,
     });
   }
 
@@ -143,15 +218,17 @@ type WebhookPayload = {
   profileUrl: string;
   verified: boolean;
 };
-// 1s → 4s → 16s exponential backoff (counted from the first attempt). Three attempts
-// total before we give up and leave the deliveries log as the dead-letter store. The
-// loop runs detached from the caller; the attestation endpoint never waits for it.
-const RETRY_DELAYS_MS = [0, 4000, 16000];   // attempt 1 immediate, then +4s, then +16s
+// 0s → 4s → 16s exponential backoff. Three attempts before we give up and leave the
+// deliveries log as the dead-letter store. The loop runs detached from the caller; the
+// attestation endpoint never waits for it.
+const RETRY_DELAYS_MS = [0, 4000, 16000];
 const deliveryId = () => `whd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
-const postAttestationWebhook = async (payload: WebhookPayload): Promise<void> => {
-  const url = process.env.RENOWN_ATTESTATION_WEBHOOK;
-  if (!url) return;
+// Generic deliver-with-retry-and-log helper. Used by both the live attestation path
+// (postAttestationWebhook below) and the admin replay endpoint. Takes the url + event
+// kind + arbitrary jsonable payload; signs the body with RENOWN_ATTESTATION_WEBHOOK_SECRET
+// when set; logs every attempt to webhook_deliveries.
+export const deliverWebhook = async (url: string, eventKind: string, payload: Record<string, unknown>): Promise<void> => {
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -174,13 +251,12 @@ const postAttestationWebhook = async (payload: WebhookPayload): Promise<void> =>
     } catch (e) {
       lastError = e instanceof Error ? e.message : String(e);
     }
-    // Log every attempt — successes AND failures — so ops have full delivery receipts.
     try {
       await gameDb.insert(webhookDeliveries).values({
         id: deliveryId(),
-        eventKind: payload.event,
+        eventKind,
         url,
-        payload: payload as unknown as Record<string, unknown>,
+        payload,
         attempt,
         statusCode,
         lastError,
@@ -188,9 +264,15 @@ const postAttestationWebhook = async (payload: WebhookPayload): Promise<void> =>
     } catch (e) {
       console.error("webhook_deliveries insert failed", e);
     }
-    if (statusCode !== null && statusCode >= 200 && statusCode < 300) return;   // success → done
+    if (statusCode !== null && statusCode >= 200 && statusCode < 300) return;
     if (attempt === RETRY_DELAYS_MS.length) {
-      console.error(`attestation webhook ${url} gave up after ${attempt} attempts; last error: ${lastError}`);
+      console.error(`webhook ${url} (${eventKind}) gave up after ${attempt} attempts; last error: ${lastError}`);
     }
   }
+};
+
+const postAttestationWebhook = async (payload: WebhookPayload): Promise<void> => {
+  const url = process.env.RENOWN_ATTESTATION_WEBHOOK;
+  if (!url) return;
+  await deliverWebhook(url, payload.event, payload as unknown as Record<string, unknown>);
 };

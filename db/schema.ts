@@ -115,6 +115,20 @@ export const playerAttributionSnapshots = pgTable("player_attribution_snapshots"
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.snapshotDate] }) }));
 
+// Web Push subscriptions — per (player, endpoint). One player can have many endpoints
+// (laptop browser + phone browser + work browser). On verified attestation we fan out
+// to every active subscription. unsubscribe = delete by id; expired endpoints (410
+// Gone from the push service) also get deleted automatically by the sender.
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: text("id").primaryKey(),
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull(),                   // push service URL, unique per browser install
+  p256dh: text("p256dh").notNull(),                       // ECDH public key from the subscription
+  auth: text("auth").notNull(),                           // auth secret from the subscription
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastNotifiedAt: timestamp("last_notified_at"),
+});
+
 // Outbound webhook delivery log — one row per ATTEMPT (not per event), so a payload
 // retried 3 times leaves 3 rows. Lets admins inspect what failed and why; doubles as
 // the dead-letter store for ones that never succeeded (admin can query "where

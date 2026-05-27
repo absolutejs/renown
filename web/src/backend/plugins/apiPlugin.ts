@@ -9,6 +9,7 @@ import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/
 import { achievements, aiAttestationEvents, playerAchievements, playerAttributionSnapshots, playerProjects, players } from "../../../../db/schema.ts";
 import { applyAttestation } from "../attestation.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
+import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
 import { gameDb, grantAchievements, hub, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";
@@ -328,6 +329,13 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         attestation: p.aiAttestation,   // { provider, claimedAt, evidenceUrl?, verified? }
       }));
     })
+    // Push config — client reads this on mount to know whether push is available + to
+    // get the VAPID public key for PushManager.subscribe. Public (no auth) because the
+    // public key is meant to be shared; without it, the client just doesn't offer push.
+    .get("/push-config", () => ({
+      configured: isPushConfigured(),
+      publicKey: getPushPublicKey(),
+    }))
     // Aggregate counts per attestation provider. Lets the UI show "anthropic: 3 verified
     // / 5 claimed" without each viewer doing the grouping themselves. Tiny query (one
     // group-by on the players table); fine to call on every page render.
