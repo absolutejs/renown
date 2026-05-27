@@ -68,13 +68,20 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     // SSE plugin's natural backpressure + the client's own 200ms POST throttle to keep this
     // cheap. Payload is intentionally small (sid/rowId/board) so the SSE frames stay tight.
     .post("/cursor", ({ body }) => {
-      const b = (body ?? {}) as { sid?: string; rowId?: string | null; board?: string };
+      const b = (body ?? {}) as { sid?: string; rowId?: string | null; board?: string; label?: string; avatarSeed?: string };
       const sid = String(b.sid ?? "").slice(0, 40);
       if (!sid) return { ok: false };
+      // label + avatarSeed are opt-in (the client toggles "show my handle to other
+      // viewers" in account; toggle controls whether the POST includes them). Server
+      // doesn't authenticate the label — spoofing it would mislabel a ghost dot for
+      // ephemeral seconds, which isn't security-relevant. Trim both to keep the SSE
+      // frame size bounded.
       hub.publish("cursors", {
         sid,
         rowId: typeof b.rowId === "string" ? b.rowId.slice(0, 60) : null,
         board: typeof b.board === "string" ? b.board.slice(0, 20) : null,
+        label: typeof b.label === "string" ? b.label.slice(0, 40) : null,
+        avatarSeed: typeof b.avatarSeed === "string" ? b.avatarSeed.slice(0, 80) : null,
         at: Date.now(),
       });
       return { ok: true };

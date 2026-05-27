@@ -97,6 +97,14 @@ a:hover { text-decoration: underline; }
   60%  { background: rgba(96, 192, 255, .08); box-shadow: 0 0 0 1px rgba(96, 192, 255, .15); }
   100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
 }
+/* Swarm — 3+ other tabs converged on this row for >1s. ~1.8s gold pulse with a wider
+   expanding ring so the social moment reads even out of the corner of your eye. */
+.ranks li.swarm { animation: rankSwarmPulse 1.8s ease-out 1; }
+@keyframes rankSwarmPulse {
+  0%   { background: rgba(255, 200, 80, .35); box-shadow: 0 0 0 0 rgba(255, 200, 80, .65); }
+  60%  { background: rgba(255, 200, 80, .12); box-shadow: 0 0 0 14px rgba(255, 200, 80, 0); }
+  100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
+}
 .rank { font-size: 17px; text-align: center; }
 /* Mini-pet next to each leaderboard row. Sized once here so the shared MenagerieCanvas
    has a stable rect to scissor into per row. Empty placeholder keeps grid alignment when
@@ -116,6 +124,16 @@ a:hover { text-decoration: underline; }
   0%, 100% { transform: scale(.85); opacity: .85; }
   50%      { transform: scale(1.05); opacity: 1; }
 }
+/* Labeled ghost — a live mini-pet (GhostAvatar component) instead of a dot. Same row
+   strip, slightly larger, ringed with the sid color so the identity affordance still
+   reads at-a-glance the way the anonymous dot does. */
+.ghostAvatarWrap { display: inline-flex; width: 24px; height: 24px; border-radius: 50%; padding: 1px; background: rgba(255,255,255,.05); }
+.ghostAvatar { width: 22px; height: 22px; border-radius: 50%; overflow: hidden; background: linear-gradient(180deg, #0e1218, #060608); aspect-ratio: auto; }
+
+/* Privacy section — checkbox + label row for cursor-label opt-in (and any future
+   per-user opt-ins that live here). */
+.prefRow { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.prefRow input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 
 /* Hover spotlight: ranks on the left, a sticky big preview on the right. The drei View
    inside SpotlightView renders its own DOM element (.rankSpotlight) which we size here

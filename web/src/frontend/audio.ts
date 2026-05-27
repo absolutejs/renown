@@ -181,6 +181,36 @@ export const startAmbientPad = () => {
   ambientNodes = { osc1, osc2, lfo, lfoGain, filter, gain };
 };
 
+/** Add a transient voice to the ambient pad — a single sine that fades in then out over
+ *  ~60s, routed through the pad's own filter so it sits in the same acoustic space. Each
+ *  caller picks from a small consonant chord against the base C-G drone so additions can
+ *  pile up without dissonance. Used to make the pad acoustically reflect activity (each
+ *  leaderboard update = one more voice for a minute, then it decays back). No-ops when
+ *  the pad isn't running. */
+const padChord = [196.00, 246.94, 293.66, 392.00, 493.88, 587.33]; // G3 B3 D4 G4 B4 D5
+export const addPadVoice = () => {
+  if (!ambientNodes || !ctx || !masterGain) return;
+  const c = ctx;
+  const { filter } = ambientNodes;
+  const t0 = c.currentTime;
+  const freq = padChord[Math.floor(Math.random() * padChord.length)] ?? padChord[0]!;
+  const osc = c.createOscillator();
+  osc.type = "sine";
+  osc.frequency.value = freq;
+  osc.detune.value = (Math.random() - 0.5) * 18;     // small detune so stacked voices beat slightly
+  const g = c.createGain();
+  // Envelope: 4s in → hold ~50s → 6s out. Peak gain stays modest so a long burst of
+  // activity doesn't clobber the pad's headroom.
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.020, t0 + 4);
+  g.gain.setValueAtTime(0.020, t0 + 54);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 60);
+  osc.connect(g).connect(filter);   // share the pad's lowpass + LFO sweep
+  osc.start(t0);
+  osc.stop(t0 + 60.2);
+  osc.onended = () => { try { osc.disconnect(); g.disconnect(); } catch { /* already torn down */ } };
+};
+
 export const stopAmbientPad = () => {
   if (!ambientNodes || !ctx) return;
   const t0 = ctx.currentTime;

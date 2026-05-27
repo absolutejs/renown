@@ -1,8 +1,8 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { isSoundOn, playBell, playGong, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
+import { addPadVoice, isSoundOn, playBell, playGong, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
-import { PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
+import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
@@ -49,8 +49,10 @@ const Logomark = ({ size = 22 }: { size?: number }) => (
 
 // Per-tab anonymous session id for the ghost-cursor feature. Stored in sessionStorage so
 // each tab stays consistent for its lifetime but no cross-tab linking happens. Server
-// only sees the sid + the rowId you're hovering — no login attached.
+// only sees the sid + the rowId you're hovering — no login attached unless you opt in
+// via the cursorLabel toggle (which adds your login + avatarSeed to the broadcast).
 const sidKey = "renown:sid";
+const cursorLabelKey = "renown:cursorLabel";
 const getSid = () => {
   if (typeof window === "undefined") return "ssr";
   let s = window.sessionStorage.getItem(sidKey);
@@ -60,11 +62,27 @@ const getSid = () => {
   }
   return s;
 };
+const isCursorLabelOn = () => typeof window !== "undefined" && window.localStorage?.getItem(cursorLabelKey) === "on";
+const setCursorLabelOn = (on: boolean) => { if (typeof window !== "undefined") window.localStorage.setItem(cursorLabelKey, on ? "on" : "off"); };
 // Cheap hue from sid — deterministic so the same other-user always reads as the same color.
 const colorForSid = (sid: string) => {
   let h = 0;
   for (let i = 0; i < sid.length; i++) h = (h * 31 + sid.charCodeAt(i)) | 0;
   return `hsl(${Math.abs(h) % 360} 80% 65%)`;
+};
+
+// Toggle that lives in the Account view (Privacy section). Flipping it on means future
+// cursor POSTs include your login + avatarSeed so other viewers see your handle/avatar
+// instead of an anonymous dot when you hover a leaderboard row.
+const CursorLabelToggle = () => {
+  const [on, setOn] = useState(false);
+  useEffect(() => setOn(isCursorLabelOn()), []);
+  return (
+    <label className="prefRow">
+      <input type="checkbox" checked={on} onChange={(e) => { setOn(e.target.checked); setCursorLabelOn(e.target.checked); }} />
+      <span>Show my handle and avatar to other viewers when I hover the leaderboard</span>
+    </label>
+  );
 };
 
 // Tiny header toggle for the synth voices in audio.ts. The toggle click itself is the
@@ -105,8 +123,8 @@ const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => st
   { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
 ];
 
-const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds }:
-  { top: Entry[]; board: Board; setBoard: (b: Board) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string> }) => {
+const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds, myLogin, myAvatarSeed }:
+  { top: Entry[]; board: Board; setBoard: (b: Board) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string>; myLogin: string | null; myAvatarSeed: string | null }) => {
   const skills = (sheet?.skills ?? []).slice().sort((a, b) => b.level - a.level || b.xp - a.xp);
   const meta = BOARDS.find((b) => b.id === board) ?? BOARDS[0];
   // Spotlight target: whichever row the cursor is over, falling back to the selected row,
@@ -129,7 +147,7 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
   // small colored dots next to each row that another tab is currently hovering. Anonymous
   // and ephemeral — entries auto-expire 2.5s after the last update from that sid.
   const mySid = getSid();
-  const [cursors, setCursors] = useState<Map<string, { rowId: string | null; board: string | null; at: number }>>(() => new Map());
+  const [cursors, setCursors] = useState<Map<string, { rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; at: number }>>(() => new Map());
   const lastCursorPostRef = useRef({ at: 0, rowId: null as string | null });
   const postCursor = useCallback((rowId: string | null) => {
     const now = performance.now();
@@ -137,19 +155,28 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
     if (rowId === lastCursorPostRef.current.rowId && now - lastCursorPostRef.current.at < 800) return;
     if (now - lastCursorPostRef.current.at < 150) return;
     lastCursorPostRef.current = { at: now, rowId };
-    void fetch("/api/cursor", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sid: mySid, rowId, board }) }).catch(() => {});
-  }, [mySid, board]);
+    // Label-share is opt-in (localStorage 'renown:cursorLabel'). When on, include the
+    // viewer's handle + avatar seed so receivers can render a mini-avatar; when off,
+    // only sid + rowId are sent (anonymous dot path).
+    const labelOn = isCursorLabelOn() && !!myLogin;
+    const payload: Record<string, unknown> = { sid: mySid, rowId, board };
+    if (labelOn) {
+      payload.label = myLogin;
+      if (myAvatarSeed) payload.avatarSeed = myAvatarSeed;
+    }
+    void fetch("/api/cursor", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
+  }, [mySid, board, myLogin, myAvatarSeed]);
   // SSE: subscribe once; update the cursor map per incoming event. Cleanup interval
   // discards entries older than the fade window so the overlay self-empties.
   useEffect(() => {
     const es = new EventSource("/sync?topics=cursors");
     es.onmessage = (e) => {
       try {
-        const evt = JSON.parse(e.data) as { topic: string; payload?: { sid: string; rowId: string | null; board: string | null; at: number } };
+        const evt = JSON.parse(e.data) as { topic: string; payload?: { sid: string; rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; at: number } };
         if (evt.topic !== "cursors" || !evt.payload) return;
-        const { sid, rowId, board: b, at } = evt.payload;
+        const { sid, rowId, board: b, label, avatarSeed, at } = evt.payload;
         if (sid === mySid) return;     // never render our own ghost
-        setCursors((m) => { const n = new Map(m); n.set(sid, { rowId, board: b, at }); return n; });
+        setCursors((m) => { const n = new Map(m); n.set(sid, { rowId, board: b, label: label ?? null, avatarSeed: avatarSeed ?? null, at }); return n; });
       } catch { /* ignore malformed frames */ }
     };
     const sweep = window.setInterval(() => {
@@ -163,13 +190,58 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
     }, 600);
     return () => { es.close(); window.clearInterval(sweep); };
   }, [mySid]);
-  // For each row, list of ghost colors currently hovering it (other tabs only, same board).
-  const ghostsFor = (rowId: string | undefined) => {
-    if (!rowId) return [] as string[];
-    const out: string[] = [];
-    for (const [sid, v] of cursors) if (v.rowId === rowId && v.board === board) out.push(colorForSid(sid));
+  // For each row, structured ghost entries currently hovering it (other tabs only, same
+  // board). Returns the raw cursor info per sid so the renderer can choose between
+  // anonymous dot and labeled mini-avatar per ghost.
+  const ghostsFor = (rowId: string | undefined): { sid: string; color: string; label: string | null; avatarSeed: string | null }[] => {
+    if (!rowId) return [];
+    const out: { sid: string; color: string; label: string | null; avatarSeed: string | null }[] = [];
+    for (const [sid, v] of cursors) if (v.rowId === rowId && v.board === board) out.push({ sid, color: colorForSid(sid), label: v.label, avatarSeed: v.avatarSeed });
     return out;
   };
+
+  // ── Swarm cinematic ─────────────────────────────────────────────────────
+  // When 3+ distinct other-tab cursors converge on a single row for ≥1s, take it as a
+  // social signal and spotlight that row: setSel (which the spotlight already follows
+  // when nothing is hovered), apply a CSS .swarm pulse to the row, and ring a gong.
+  // Per-row cooldown so the cinematic doesn't refire until ghosts disperse and a new
+  // 3+ swarm forms.
+  const SWARM_THRESHOLD = 3;
+  const SWARM_DURATION_MS = 1000;
+  const SWARM_COOLDOWN_MS = 8000;
+  const swarmStartRef = useRef<Map<string, number>>(new Map());
+  const swarmCooldownRef = useRef<Map<string, number>>(new Map());
+  const [swarmRow, setSwarmRow] = useState<string | null>(null);
+  useEffect(() => {
+    const now = Date.now();
+    // Count ghosts per row in the current board's cursor map.
+    const counts = new Map<string, number>();
+    for (const [, v] of cursors) if (v.rowId && v.board === board) counts.set(v.rowId, (counts.get(v.rowId) ?? 0) + 1);
+    // Walk all rows we previously tracked or have current counts for.
+    const allRows = new Set([...counts.keys(), ...swarmStartRef.current.keys()]);
+    for (const rowId of allRows) {
+      const count = counts.get(rowId) ?? 0;
+      if (count < SWARM_THRESHOLD) {
+        // Lost the swarm — reset the timer (cooldown still ticks from last fire).
+        swarmStartRef.current.delete(rowId);
+        continue;
+      }
+      // Skip if this row is still in cooldown from the last fire.
+      const cooldownUntil = swarmCooldownRef.current.get(rowId) ?? 0;
+      if (now < cooldownUntil) continue;
+      // Start the duration timer the first frame the row hits the threshold.
+      if (!swarmStartRef.current.has(rowId)) { swarmStartRef.current.set(rowId, now); continue; }
+      const start = swarmStartRef.current.get(rowId) ?? now;
+      if (now - start < SWARM_DURATION_MS) continue;
+      // FIRE: spotlight the row, ring the gong, flag the row for CSS pulse, set cooldown.
+      setSel(rowId);
+      playGong();
+      setSwarmRow(rowId);
+      window.setTimeout(() => setSwarmRow((cur) => (cur === rowId ? null : cur)), 1800);
+      swarmCooldownRef.current.set(rowId, now + SWARM_COOLDOWN_MS);
+      swarmStartRef.current.delete(rowId);
+    }
+  }, [cursors, board, setSel]);
   const spotlightEntry = top.find((e) => e.id === hovered)
     ?? top.find((e) => e.id === sel)
     ?? top[0];
@@ -193,7 +265,7 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
                 const seed = meta.seedOf(e);
                 const fresh = !!e.id && freshIds.has(e.id);
                 return (
-                  <li key={e.id ?? i} className={`${e.id === sel ? "sel" : ""}${fresh ? " fresh" : ""}`}
+                  <li key={e.id ?? i} className={`${e.id === sel ? "sel" : ""}${fresh ? " fresh" : ""}${swarmRow === e.id ? " swarm" : ""}`}
                     onMouseEnter={() => { if (e.id) { setHovered(e.id); trySoundOnHover(); postCursor(e.id); } }}
                     onMouseLeave={() => { if (e.id && hovered === e.id) { setHovered(null); postCursor(null); } }}
                     onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
@@ -205,13 +277,19 @@ const Board = ({ top, board, setBoard, sel, setSel, sheet, openProfile, freshIds
                     {(() => {
                       const ghosts = ghostsFor(e.id);
                       if (ghosts.length === 0) return null;
-                      // Cap visible dots at 4 so a swarm doesn't overflow the row; show
-                      // "+N" if there are more eyes on this entry than will fit.
+                      // Cap visible at 4 so a swarm doesn't overflow the row; show "+N"
+                      // suffix if there are more eyes on this entry than will fit. Labeled
+                      // ghosts with an avatarSeed render as a tiny live pet via GhostAvatar
+                      // (own View into MenagerieCanvas); anonymous ghosts stay as a colored
+                      // dot. Hover any ghost to see the handle (when shared).
                       const shown = ghosts.slice(0, 4);
                       const extra = ghosts.length - shown.length;
                       return (
                         <span className="rankGhosts" aria-label={`${ghosts.length} other viewer${ghosts.length === 1 ? "" : "s"}`}>
-                          {shown.map((color, gi) => <span key={gi} className="ghostDot" style={{ background: color, boxShadow: `0 0 8px ${color}` }} />)}
+                          {shown.map((g) => g.avatarSeed
+                            ? <span key={g.sid} className="ghostAvatarWrap" title={g.label ?? "viewer"} style={{ boxShadow: `0 0 6px ${g.color}` }}><GhostAvatar seed={g.avatarSeed} /></span>
+                            : <span key={g.sid} className="ghostDot" title={g.label ?? "anonymous viewer"} style={{ background: g.color, boxShadow: `0 0 8px ${g.color}` }} />
+                          )}
                           {extra > 0 && <span className="ghostMore">+{extra}</span>}
                         </span>
                       );
@@ -471,6 +549,14 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
           </ul>
         </section>
       )}
+      {/* Privacy — opt-ins for the ambient social layer (ghost cursors). Stored client-
+          side only (localStorage). Default off so nothing about you leaks until you ask
+          for it to. */}
+      <section className="card">
+        <h2>Privacy</h2>
+        <CursorLabelToggle />
+        <p className="muted hint" style={{ marginTop: 8 }}>Off by default. Tabs that hover the same leaderboard rows you do are shown as anonymous colored dots either way; enabling this just adds your name and avatar pet next to your dot.</p>
+      </section>
       <button className="link signout" onClick={() => act(async () => { const r = await api("/oauth2/signout", { method: "DELETE" }); refresh(); return r; })}>Sign out</button>
     </>
   );
@@ -591,6 +677,10 @@ const App = () => {
           setFreshIds(fresh);
           window.setTimeout(() => setFreshIds(new Set()), 2500);
           playBell();   // no-op when sound is off
+          // One pad voice per newcomer — adds a single consonant sine to the ambient bed
+          // that hangs around for ~60s. Many newcomers in a short span = thicker bed
+          // (acoustic activity-density indicator), settling back over the next minute.
+          for (let i = 0; i < fresh.size; i++) addPadVoice();
         }
       }
       prevTopIdsRef.current = ids;
@@ -699,7 +789,7 @@ const App = () => {
               </div>
             </section>
           )}
-          <Board top={top} board={board} setBoard={setBoard} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} />
+          <Board top={top} board={board} setBoard={setBoard} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} myLogin={account?.github?.login ?? null} myAvatarSeed={account?.github?.avatarSeed ?? null} />
         </>
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}

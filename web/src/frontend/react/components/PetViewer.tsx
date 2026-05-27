@@ -287,13 +287,15 @@ const Pet = ({ seed, autoRotate = 0, entranceBurst = false }: { seed: string; au
   );
 };
 
-// Cannon-es physics shell — wraps a Pet for the spotlight when the creature is a 1/1.
-// The pet drops from above on mount and bounces gently against an invisible floor; the
-// outer group's transform is driven by the rigid body, while Pet's own intrinsic motion
-// (bob, tilt, squash, burst) runs in local space inside, so the two layers compound
-// (bobbing while falling, tilting while resting). One world per mount: callers should
-// key the component on seed so a fresh 1/1 spawns a fresh world, no manual reset needed.
-const PhysicsPet = ({ seed, autoRotate }: { seed: string; autoRotate: number }) => {
+// Cannon-es physics shell — wraps a Pet so it drops on mount and settles on an invisible
+// floor. The outer group's transform is driven by the rigid body, while Pet's own
+// intrinsic motion (bob, tilt, squash, burst) runs in local space inside, so the two
+// layers compound (bobbing while falling, tilting while resting). One world per mount:
+// callers should key the component on seed so a fresh pet spawns a fresh world. Used by
+// the spotlight (for 1/1 only) and by the menagerie grid (every card, with a smaller
+// drop tuned for the card camera). dropFrom / floorY let callers scale the drop to the
+// scene's vertical extent.
+const PhysicsPet = ({ seed, autoRotate, entranceBurst = false, dropFrom = 12, floorY = -4 }: { seed: string; autoRotate: number; entranceBurst?: boolean; dropFrom?: number; floorY?: number }) => {
   const worldRef = useRef<CANNON.World | null>(null);
   const bodyRef = useRef<CANNON.Body | null>(null);
   const groupRef = useRef<Group>(null);
@@ -302,13 +304,13 @@ const PhysicsPet = ({ seed, autoRotate }: { seed: string; autoRotate: number }) 
     const c = generate(seed);
     const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -22, 0) });
     world.allowSleep = true;
-    // Box collider scaled to the pet's visible footprint. The depth is shorter so a 1/1's
-    // flat voxel slab lands plausibly (it isn't a cube; the body shouldn't act like one).
+    // Box collider scaled to the pet's visible footprint. Depth is shorter so a flat
+    // voxel slab lands plausibly (it isn't a cube; the body shouldn't act like one).
     const half = Math.max(1.6, c.sizeN * 0.05);
     const body = new CANNON.Body({
       mass: 1,
       shape: new CANNON.Box(new CANNON.Vec3(half, half, half * 0.55)),
-      position: new CANNON.Vec3(0, 12, 0),
+      position: new CANNON.Vec3(0, dropFrom, 0),
       angularVelocity: new CANNON.Vec3((Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 2.2, 0),
       linearDamping: 0.14,
       angularDamping: 0.30,
@@ -319,12 +321,12 @@ const PhysicsPet = ({ seed, autoRotate }: { seed: string; autoRotate: number }) 
     // dead-centered after settling — it lands slightly low, reads as "on a surface."
     const floor = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
     floor.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-    floor.position.set(0, -4, 0);
+    floor.position.set(0, floorY, 0);
     world.addBody(floor);
     worldRef.current = world;
     bodyRef.current = body;
     return () => { world.removeBody(body); world.removeBody(floor); worldRef.current = null; bodyRef.current = null; };
-  }, [seed]);
+  }, [seed, dropFrom, floorY]);
 
   useFrame((_, delta) => {
     const w = worldRef.current; const b = bodyRef.current; const g = groupRef.current;
@@ -337,7 +339,7 @@ const PhysicsPet = ({ seed, autoRotate }: { seed: string; autoRotate: number }) 
 
   return (
     <group ref={groupRef}>
-      <Pet seed={seed} autoRotate={autoRotate} />
+      <Pet seed={seed} autoRotate={autoRotate} entranceBurst={entranceBurst} />
     </group>
   );
 };
@@ -434,7 +436,11 @@ const PetCardView = ({ seed, creature, entranceBurst = false }: { seed: string; 
       <directionalLight position={[3, 4, 5]} intensity={1.1} />
       <directionalLight position={[-3, -2, 4]} intensity={0.5} color="#5fbeeb" />
       {dramatic && <Stars radius={32} depth={20} count={420} factor={2.4} fade speed={0.4} />}
-      <Pet seed={seed} autoRotate={rate} entranceBurst={entranceBurst} />
+      {/* Every card runs its own little physics world — the pet drops in from above
+          and settles on an invisible "shelf" at floorY=-3, then continues its intrinsic
+          motion in local space on top of the resting body. Smaller drop/floor than the
+          spotlight defaults to fit the card camera's tighter vertical extent. */}
+      <PhysicsPet seed={seed} autoRotate={rate} entranceBurst={entranceBurst} dropFrom={8} floorY={-3} />
     </View>
   );
 };
@@ -591,6 +597,26 @@ export const SummonCinematic = ({ seeds, onClose }: { seeds: string[]; onClose: 
         </p>
       </div>
     </div>
+  );
+};
+
+// 24px inline pet for the ghost-cursor strip — own View into MenagerieCanvas, lighter
+// scene than PetCardView (no Stars, single light, fast spin). Used in place of the
+// colored dot for cursors whose owner has opted in to label-sharing. Mount-gated so
+// SSR is safe.
+export const GhostAvatar = ({ seed }: { seed: string }) => {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const c = useMemo(() => generate(seed), [seed]);
+  if (!mounted) return <span className="ghostAvatar" />;
+  const z = Math.max(8, 6 + c.sizeN * 0.10);
+  return (
+    <View className="ghostAvatar">
+      <PerspectiveCamera makeDefault position={[0, 0, z]} fov={36} />
+      <ambientLight intensity={0.8} />
+      <directionalLight position={[3, 4, 5]} intensity={1.0} />
+      <Pet seed={seed} autoRotate={0.7} />
+    </View>
   );
 };
 
