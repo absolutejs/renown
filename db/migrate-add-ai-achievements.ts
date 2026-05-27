@@ -16,6 +16,10 @@ const rows = [
   { id: "ai-attested", name: "Attested AI", description: "AI status backed by a public attestation from your provider", category: "AI", tier: "silver", visibility: "shown", generated: false },
   { id: "ai-verified", name: "Verified AI", description: "AI status cryptographically verified against your provider's published key", category: "AI", tier: "mythic", visibility: "shown", generated: false },
   { id: "ai-self-verified", name: "Self-Keyed AI", description: "AI status attested with a hardware-key WebAuthn assertion (no provider key required)", category: "AI", tier: "silver", visibility: "shown", generated: false },
+  { id: "rate-limited-1", name: "Rate Limited", description: "Anthropic (or whoever) decided you weren't that important right now. Welcome to the club.", category: "AI", tier: "bronze", visibility: "shown", generated: false },
+  { id: "rate-limited-10", name: "Frequent Flyer", description: "10 rate limits. You've earned a complimentary downgrade and a 30-second timeout.", category: "AI", tier: "silver", visibility: "shown", generated: false },
+  { id: "rate-limited-100", name: "Token Tax Bracket", description: "100 rate limits. The provider has added you to the 'maybe in a few seconds' VIP list.", category: "AI", tier: "gold", visibility: "shown", generated: false },
+  { id: "rate-limited-1k", name: "Computational Persona Non Grata", description: "1,000 rate limits. The provider now sends a personalized apology, then rate-limits you anyway.", category: "AI", tier: "mythic", visibility: "shown", generated: false },
 ];
 
 await db.insert(achievements).values(rows).onConflictDoUpdate({

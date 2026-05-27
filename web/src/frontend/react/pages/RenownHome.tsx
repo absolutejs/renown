@@ -129,10 +129,14 @@ const Logomark = ({ size = 22 }: { size?: number }) => (
 // moment. Honest scope — this is the foreground Notifications API path; full cross-tab
 // Push API (service worker + VAPID + web-push) is a future upgrade and not done here.
 type Announcement = { id: number; login: string; provider: string; claimedAt: string };
-const VerifiedAttestationAnnouncer = ({ openProfile }: { openProfile: (login: string) => void }) => {
+const VerifiedAttestationAnnouncer = ({ openProfile, enabled }: { openProfile: (login: string) => void; enabled: boolean }) => {
   const [queue, setQueue] = useState<Announcement[]>([]);
   const nextIdRef = useRef(1);
   useEffect(() => {
+    // pushPrefs.verifiedAttestation === false silences BOTH the in-page toast AND
+    // the OS notification — opting out is consistent across surfaces. Anonymous /
+    // logged-out viewers default to opted-in (enabled=true at the call site).
+    if (!enabled) return;
     const sub = createSyncSubscriber({
       topics: ["verified-attestation"],
       onEvent: (evt) => {
@@ -154,7 +158,7 @@ const VerifiedAttestationAnnouncer = ({ openProfile }: { openProfile: (login: st
       },
     });
     return () => sub.close();
-  }, [openProfile]);
+  }, [openProfile, enabled]);
   if (queue.length === 0) return null;
   return (
     <div className="announceStack" role="status" aria-live="polite">
@@ -1507,7 +1511,7 @@ const App = () => {
   const signedIn = !!account;
   return (
     <main className="wrap">
-      <VerifiedAttestationAnnouncer openProfile={(login) => setProfileLogin(login)} />
+      <VerifiedAttestationAnnouncer openProfile={(login) => setProfileLogin(login)} enabled={account?.github?.pushPrefs?.verifiedAttestation !== false} />
       <header className="topbar">
         <div className="brand" onClick={() => setView("board")}><Logomark size={24} /><span>Renown</span></div>
         <nav className="nav">

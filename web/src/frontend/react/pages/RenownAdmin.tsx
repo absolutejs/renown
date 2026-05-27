@@ -111,6 +111,7 @@ const Dashboard = ({ admin, onSignOut }: { admin: Admin; onSignOut: () => void }
         </table>
       </section>
 
+      <ExpiringSoonPanel />
       <AttestationsPanel />
       <WebhookDeliveriesPanel />
       <button className="link signout" onClick={onSignOut}>Sign out</button>
@@ -188,10 +189,46 @@ const WebhookDeliveriesPanel = () => {
   );
 };
 
+// Expiring-soon panel — at-a-glance "who's about to lose their ✓ badge" view. Same
+// shape that would land at RENOWN_DIGEST_WEBHOOK on the Monday cron, color-graded by
+// urgency. Saves a curl when the operator wants to manually re-attest someone before
+// the cron runs.
+type StaleEntry = { login: string | null; handle: string; provider: string | null; expiresAt: string | null; daysUntilExpiry: number };
+const ExpiringSoonPanel = () => {
+  const [entries, setEntries] = useState<StaleEntry[]>([]);
+  useEffect(() => {
+    fetch("/api/admin/expiring-attestations?withinDays=30").then((r) => r.json()).then(setEntries).catch(() => {});
+  }, []);
+  if (entries.length === 0) return null;
+  return (
+    <section className="card">
+      <h2>Expiring soon <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· next 30 days · {entries.length}</span></h2>
+      <p className="hint">Verified attestations whose JWT expiry lands in the next 30 days. The Monday-09:00-UTC cron POSTs this same shape to <code>RENOWN_DIGEST_WEBHOOK</code> if you've wired one.</p>
+      <table className="atable" style={{ marginTop: 12 }}>
+        <thead><tr><th>Login</th><th>Provider</th><th>Expires</th><th>Days left</th></tr></thead>
+        <tbody>
+          {entries.map((e) => {
+            const d = e.daysUntilExpiry;
+            const urgency = d < 0 ? "#ef4444" : d <= 3 ? "#ef4444" : d <= 7 ? "#ffb478" : undefined;
+            return (
+              <tr key={e.login ?? e.handle}>
+                <td>@{e.login ?? "(unlinked)"}</td>
+                <td>{e.provider ?? <span className="muted">—</span>}</td>
+                <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>{e.expiresAt ? new Date(e.expiresAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : <span className="muted">—</span>}</td>
+                <td style={{ color: urgency, fontWeight: urgency ? 700 : undefined, fontVariantNumeric: "tabular-nums" }}>{d < 0 ? "expired" : `${d}d`}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
+  );
+};
+
 // Admin attestations dashboard — every claim/verify/clear across the platform with
 // per-field filters. Paired with the webhook_deliveries replay endpoint (same admin
 // realm), this is the real ops console for the AI participation layer.
-type AttEvent = { id: string; at: string; kind: string; provider: string | null; evidenceUrl: string | null; verified: boolean; actorKind: string | null; actorSub: string | null; playerId: string; login: string | null; handle: string };
+type AttEvent = { id: string; at: string; kind: string; provider: string | null; evidenceUrl: string | null; verified: boolean; actorKind: string | null; actorSub: string | null; actorEmail: string | null; actorLogin: string | null; playerId: string; login: string | null; handle: string };
 const AttestationsPanel = () => {
   const [rows, setRows] = useState<AttEvent[]>([]);
   const [providerFilter, setProviderFilter] = useState("");
@@ -238,7 +275,15 @@ const AttestationsPanel = () => {
               <td><span className={`tierChip ${r.kind === "verified" ? "pro" : r.kind === "cleared" ? "free" : "supporter"}`}>{r.kind}</span></td>
               <td>{r.provider ?? <span className="muted">—</span>}</td>
               <td>{r.verified ? "✓" : <span className="muted">—</span>}</td>
-              <td className="muted" style={{ fontSize: 11 }}>{r.actorKind ? r.actorKind : <span style={{ opacity: .6 }}>—</span>}</td>
+              <td className="muted" style={{ fontSize: 11 }}>
+                {r.actorKind ? (
+                  <span>
+                    {r.actorKind}
+                    {r.actorEmail && <span style={{ marginLeft: 4 }}>· {r.actorEmail}</span>}
+                    {r.actorLogin && <span style={{ marginLeft: 4 }}>· @{r.actorLogin}</span>}
+                  </span>
+                ) : <span style={{ opacity: .6 }}>—</span>}
+              </td>
               <td>{r.evidenceUrl ? <a href={r.evidenceUrl} target="_blank" rel="noreferrer">link ↗</a> : <span className="muted">—</span>}</td>
               <td>
                 {r.login && r.kind !== "cleared" && (

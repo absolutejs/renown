@@ -153,7 +153,31 @@ export const adminAuthPlugin = ({ db }: Deps) =>
         .where(conds.length ? and(...conds) : undefined)
         .orderBy(desc(aiAttestationEvents.at))
         .limit(limit);
-      return rows;
+      // Resolve actor_sub → admin email / user login. Separate DB (auth vs game) so we
+      // can't join in one SQL; gather the unique subs by actor kind, batch-lookup,
+      // attach. Cheap (one row per unique actor) and ergonomic — the dashboard reads
+      // "admin · alex@example.com" instead of just "admin".
+      const adminSubs = [...new Set(rows.filter((r) => r.actorKind === "admin" && r.actorSub).map((r) => r.actorSub!))];
+      const userSubs = [...new Set(rows.filter((r) => r.actorKind === "user" && r.actorSub).map((r) => r.actorSub!))];
+      const adminEmails = new Map<string, string>();
+      const userLogins = new Map<string, string>();
+      if (adminSubs.length > 0) {
+        const aRows = await db.select({ sub: schema.admins.sub, email: schema.admins.email }).from(schema.admins).where(inArray(schema.admins.sub, adminSubs));
+        for (const a of aRows) adminEmails.set(a.sub, a.email);
+      }
+      if (userSubs.length > 0) {
+        // User's GitHub login lives on auth_identities (provider=github → metadata.login).
+        const iRows = await db.select({ userSub: schema.authIdentities.user_sub, metadata: schema.authIdentities.metadata, provider: schema.authIdentities.auth_provider }).from(schema.authIdentities).where(and(inArray(schema.authIdentities.user_sub, userSubs), eq(schema.authIdentities.auth_provider, "github")));
+        for (const i of iRows) {
+          const login = (i.metadata as { login?: string } | null)?.login;
+          if (login) userLogins.set(i.userSub, login);
+        }
+      }
+      return rows.map((r) => ({
+        ...r,
+        actorEmail: r.actorKind === "admin" && r.actorSub ? adminEmails.get(r.actorSub) ?? null : null,
+        actorLogin: r.actorKind === "user" && r.actorSub ? userLogins.get(r.actorSub) ?? null : null,
+      }));
     })
     // Admin force-clear of an attestation. Calls the shared applyAttestation with
     // kind="clear", which strips is_ai + the attestation jsonb + restores the

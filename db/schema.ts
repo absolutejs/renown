@@ -53,6 +53,13 @@ export const players = pgTable("players", {
   // Visible as a 🤖 badge wherever the handle is shown. Set by an admin/migration OR by
   // an aiAttestation (below) that the player posts.
   isAi: boolean("is_ai").notNull().default(false),
+  // Cumulative count of AI-provider rate-limit pings, surfaced via the
+  // easter-egg "Rate Limited" achievement family. Incremented by POST
+  // /api/cli/rate-limited (the CLI command + agent wrappers fire it on
+  // 429s). The honest-frame joke is that the score-board's most "important"
+  // players are also the ones Anthropic / OpenAI / etc. throttle most often,
+  // and renown acknowledges this with a tier-laddered achievement.
+  rateLimitCount: integer("rate_limit_count").notNull().default(0),
   // Per-user push notification preferences. Defaults: everything on. UI flips fields
   // off; server filters fan-outs accordingly. Adding new event kinds is just a new
   // field here + a check at the relevant publish site — existing users default to

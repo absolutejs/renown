@@ -7,7 +7,7 @@ import { Elysia } from "elysia";
 import { generate } from "../../../../core/procgen.ts";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
 import { achievements, aiAttestationEvents, playerAchievements, playerAttributionSnapshots, playerProjects, players } from "../../../../db/schema.ts";
-import { applyAttestation } from "../attestation.ts";
+import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
@@ -280,6 +280,35 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       if (v) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, playerId));
       return { ok: true, login, verifiedScore: v?.score ?? 0 };
     })
+    // CLI rate-limited ping — the AI session reports "I just got 429'd by my
+    // provider." Bumps the counter; the threshold-tier achievements (rate-limited-1
+    // / -10 / -100 / -1k) auto-grant on cross. Accepts a count (default 1) so a
+    // wrapper batching N rate-limit events into one POST does the right thing.
+    .post("/cli/rate-limited", async ({ body }) => {
+      const b = (body ?? {}) as { token?: string; count?: number };
+      const token = String(b.token ?? "");
+      if (!token) return { error: "token required" };
+      const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+      if (!r?.ok) return { error: "invalid or expired github token" };
+      const login = (await r.json() as { login?: string }).login;
+      if (!login) return { error: "could not read github login" };
+      const inc = Math.max(1, Math.min(1000, Number(b.count ?? 1)));
+      // Single UPDATE returns the new total — no read-modify-write race.
+      const rows = await gameDb.update(players).set({ rateLimitCount: sql`${players.rateLimitCount} + ${inc}` }).where(eq(players.githubLogin, login)).returning({ count: players.rateLimitCount, id: players.id });
+      const row = rows[0];
+      if (!row) return { error: "player not found — link first via /api/cli/link" };
+      const total = Number(row.count);
+      // Tier ladder: grant whichever achievements the new total newly satisfies.
+      // grantAchievements is idempotent (onConflictDoNothing), so re-running is safe.
+      const grantIds = [
+        total >= 1    && "rate-limited-1",
+        total >= 10   && "rate-limited-10",
+        total >= 100  && "rate-limited-100",
+        total >= 1000 && "rate-limited-1k",
+      ].filter((x): x is string => typeof x === "string");
+      const granted = await grantAchievements(row.id, grantIds);
+      return { ok: true, total, granted };
+    })
     // CLI ai-attest: same shape as /api/cli/link — caller proves login ownership with a
     // GitHub OAuth token (`gh auth token`), server verifies it against GitHub, then runs
     // the shared applyAttestation flow (same state transitions / achievement grants /
@@ -317,6 +346,15 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const tp = (await gameDb.select({ n: sql<number>`count(*)::int` }).from(players))[0]?.n ?? 0;
       const rows = await gameDb.select().from(achievements).orderBy(desc(achievements.unlockCount)).limit(n);
       return { players: tp, achievements: rows.map((r) => ({ id: r.id, name: r.name, tier: r.tier, unlocks: r.unlockCount, rarity: tp ? +((r.unlockCount / tp) * 100).toFixed(1) : 0 })) };
+    })
+    // Public expiring-soon digest — same shape as the admin endpoint, no auth.
+    // Reasoning: the data (login + handle + provider + expiresAt) is already on the
+    // public attestation feed; emitting "@claude expires in 3 days" doesn't reveal
+    // anything new. Lets the CLI `renown digest-test` preview the payload an operator
+    // would wire to their email/Slack/whatever via RENOWN_DIGEST_WEBHOOK.
+    .get("/expiring-attestations", async ({ query }) => {
+      const days = Math.max(1, Math.min(365, Number(query.withinDays ?? 30)));
+      return buildStaleAttestationDigest(days);
     })
     // Public attestation feed — every AI participant on the platform with a current
     // attestation, ordered by most-recently claimed. Anyone (signed-in or not) can browse

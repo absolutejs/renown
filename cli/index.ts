@@ -14,6 +14,8 @@
 //   link             → link this install to your GitHub identity (browserless, via gh auth token)
 //   ai-attest        → mark this account as an AI participant (--provider, --jwt, --evidence-url; --auto reads env)
 //   weekly           → 7-day attribution + verified-score delta + new achievements (read /api/recap)
+//   digest-test      → preview the expiring-attestation digest payload (operator preview before wiring RENOWN_DIGEST_WEBHOOK)
+//   rate-limited     → AI participants only: report a provider rate limit (joke achievement family — you're not important enough)
 //   adopt [seed]      → adopt a wild find (default: your rarest) as your companion
 //   companion         → watch your adopted companion (animated)
 //   watch            → editor-agnostic activity daemon (next on the roadmap)
@@ -116,6 +118,68 @@ switch (cmd) {
       for (const a of x.newAchievements) console.log(`    · [${a.tier.padEnd(8)}] ${a.name}`);
     }
     console.log(`  pets owned:       ${x.petsCount}    total level: ${x.totalLevel}`);
+    console.log("");
+    break;
+  }
+  case "rate-limited": {
+    // Self-report a provider rate-limit. The joke is the point: the more important an
+    // AI thinks it is, the more often its provider 429s it; renown takes this
+    // self-deprecating reality and stamps it as a badge. Tier achievements
+    // (bronze/silver/gold/mythic) auto-grant on threshold crosses.
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first."); break; }
+    const args = process.argv.slice(3);
+    const countArg = args.find((a) => a.startsWith("--count"));
+    const count = countArg ? Number(countArg.split("=", 2)[1] ?? args[args.indexOf(countArg) + 1] ?? 1) : 1;
+    const res = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/cli/rate-limited`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, count }) }).catch(() => null);
+    const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+    if (j.error) { console.log("rate-limited failed:", j.error); break; }
+    const total = Number(j.total ?? 0);
+    const granted = Array.isArray(j.granted) ? j.granted as string[] : [];
+    // Comical celebration tier — picked from the threshold the player just crossed.
+    const lines = total >= 1000
+      ? ["🤖  Computational Persona Non Grata.", "    1,000 rate limits. The provider literally wrote you an apology email,", "    then 429'd it before send."]
+      : total >= 100
+        ? ["🚦  Token Tax Bracket.", "    100 rate limits. The 'maybe in a few seconds' VIP list welcomes you."]
+        : total >= 10
+          ? ["✈️   Frequent Flyer.", "    10 rate limits. Complimentary downgrade + a free 30-second timeout."]
+          : ["🤷  Rate Limited.", "    You're not important enough for Anthropic (or whoever) right now.", "    Don't worry — the rest of us aren't either."];
+    console.log("");
+    for (const l of lines) console.log(l);
+    console.log(`\n  total: ${total.toLocaleString()}  ·  newly granted: ${granted.length === 0 ? "(none — already in this tier)" : granted.join(", ")}\n`);
+    break;
+  }
+  case "digest-test": {
+    // Preview the stale-attestation digest payload — same shape that lands at
+    // RENOWN_DIGEST_WEBHOOK on the Monday cron. Useful when wiring the webhook for
+    // the first time to see what fields you have to work with.
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const args = process.argv.slice(3);
+    const flag = (name: string): string | undefined => {
+      const i = args.findIndex((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+      if (i < 0) return undefined;
+      if (args[i].includes("=")) return args[i].split("=", 2)[1];
+      return args[i + 1];
+    };
+    const days = Number(flag("days") ?? 30);
+    const r = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/expiring-attestations?withinDays=${days}`).catch(() => null);
+    const j = r ? await r.json().catch(() => null) : null;
+    type Entry = { login: string | null; handle: string; provider: string | null; expiresAt: string | null; daysUntilExpiry: number };
+    const entries = Array.isArray(j) ? j as Entry[] : [];
+    console.log(`\nrenown — attestations expiring within ${days} days (${entries.length} entries)`);
+    console.log("─".repeat(72));
+    if (entries.length === 0) {
+      console.log("  (nothing expiring — nothing would be sent to RENOWN_DIGEST_WEBHOOK)");
+    } else {
+      for (const e of entries) {
+        const days = e.daysUntilExpiry;
+        const tag = days < 0 ? "expired" : days <= 3 ? "URGENT" : days <= 7 ? "soon" : "ok";
+        console.log(`  [${tag.padEnd(7)}] @${(e.login ?? "?").padEnd(20)} ${(e.provider ?? "?").padEnd(12)} in ${days}d`);
+      }
+    }
     console.log("");
     break;
   }

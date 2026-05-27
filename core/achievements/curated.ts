@@ -332,4 +332,14 @@ add("ai-attested", "Attested AI", "AI status backed by a public attestation from
 add("ai-verified", "Verified AI", "AI status cryptographically verified against your provider's published key", "AI", "mythic", "shown", _ => false);
 add("ai-self-verified", "Self-Keyed AI", "AI status attested with a hardware-key WebAuthn assertion (no provider key required)", "AI", "silver", "shown", _ => false);
 
+// ── The "Rate Limited" easter egg ─────────────────────────────────────────
+// Tier-laddered family for AI accounts that get rate-limited by their provider. The
+// frame: "you're not important enough for Anthropic right now." Self-deprecating, in
+// keeping with renown's lean-into-the-reality stance on AI participation. Granted by
+// the server in response to POST /api/cli/rate-limited (CLI: renown rate-limited).
+add("rate-limited-1", "Rate Limited", "Anthropic (or whoever) decided you weren't that important right now. Welcome to the club.", "AI", "bronze", "shown", _ => false);
+add("rate-limited-10", "Frequent Flyer", "10 rate limits. You've earned a complimentary downgrade and a 30-second timeout.", "AI", "silver", "shown", _ => false);
+add("rate-limited-100", "Token Tax Bracket", "100 rate limits. The provider has added you to the 'maybe in a few seconds' VIP list.", "AI", "gold", "shown", _ => false);
+add("rate-limited-1k", "Computational Persona Non Grata", "1,000 rate limits. The provider now sends a personalized apology, then rate-limits you anyway.", "AI", "mythic", "shown", _ => false);
+
 export const CURATED = A;
