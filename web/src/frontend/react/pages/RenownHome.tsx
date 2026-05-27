@@ -7,10 +7,10 @@ import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } fro
 import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
-type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number> };
+type Entry = { id?: string; name: string; login?: string; score?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number };
 // Board ids: well-known fixed strings + a "quirk:<name>" dynamic family for the
 // cope leaderboards (one per registered quirk in web/src/backend/quirks.ts).
-type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | `quirk:${string}`;
+type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | "merit" | `quirk:${string}` | `merit:${"reviews" | "crossRepo" | "shipper" | "downloads" | "substance"}`;
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
@@ -118,6 +118,85 @@ const QuirksPanel = ({ quirks, title = "Quirks" }: { quirks: Record<string, numb
           );
         })}
       </div>
+    </section>
+  );
+};
+
+// MeritPanel — the meritorious half of the leaderboard. One row per signal with
+// current sub-counter, tier (I-V), and a progress bar toward the next threshold.
+// Sourced from /api/merit/:login. Re-fetches on `merit` SSE topic so a player
+// running `renown merit-sync` in another tab sees the panel update live.
+const MeritPanel = ({ login, title = "Merit" }: { login: string; title?: string }) => {
+  type Ladder = { id: string; label: string; flavor: string; value: number; tier: number; nextThreshold: number | null };
+  type MeritData = {
+    login: string;
+    meritScore: number;
+    signals: { reviews: number; crossRepo: number; authored: number; merged: number; mergeRatio: number; downloads: number; substanceScore: number; substanceSampleSize: number };
+    ladders: Ladder[];
+    lastSyncAt: string | null;
+  };
+  const [data, setData] = useState<MeritData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`/api/merit/${encodeURIComponent(login)}`);
+        const j = await r.json() as MeritData | { error: string };
+        if (cancelled) return;
+        if ("error" in j) setError(j.error); else { setData(j); setError(null); }
+      } catch { /* keep last data */ }
+    };
+    load();
+    const sub = createSyncSubscriber({
+      topics: ["merit"],
+      onEvent: (evt) => {
+        const p = evt.payload as { login?: string } | undefined;
+        if (p?.login?.toLowerCase() === login.toLowerCase()) load();
+      },
+    });
+    return () => { cancelled = true; sub.close(); };
+  }, [login]);
+  if (error) return (
+    <section className="card">
+      <h2>{title}</h2>
+      <p className="muted hint" style={{ marginBottom: 0 }}>
+        No merit signals yet — run <code>renown merit</code> to fetch your PR-review / cross-repo / shipper / maintainer numbers from GitHub.
+      </p>
+    </section>
+  );
+  if (!data) return null;
+  // Tier emoji ladder: matches the quirks visual language (bronze→mythic).
+  const tierEmoji = ["", "🥉", "🥈", "🥇", "💎", "🔮"];
+  const fmt = (n: number) => n.toLocaleString();
+  return (
+    <section className="card">
+      <h2>{title} <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {fmt(data.meritScore)} pts</span></h2>
+      <p className="muted hint">The hard-to-game half: signals require someone else (a reviewer, a maintainer, an installer) to validate your work. Refresh with <code>renown merit</code>.</p>
+      <div className="achList" style={{ marginTop: 8, flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+        {data.ladders.map((l) => {
+          const pct = l.nextThreshold ? Math.min(100, Math.round((l.value / l.nextThreshold) * 100)) : 100;
+          const isSubstance = l.id === "substance";
+          const displayValue = isSubstance ? `${l.value}%` : fmt(l.value);
+          const displayNext = l.nextThreshold ? (isSubstance ? `${l.nextThreshold}%` : fmt(l.nextThreshold)) : "max";
+          return (
+            <div key={l.id} className={`achChip tier-${l.tier > 0 ? "gold" : "silver"}`} style={{ display: "flex", flexDirection: "column", alignItems: "stretch", padding: "8px 12px", gap: 4 }} title={l.flavor}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span className="achName">{tierEmoji[l.tier] || "·"} {l.label} {l.tier > 0 ? `${"I".repeat(l.tier).slice(0, l.tier === 4 ? 4 : 3)}${l.tier === 4 ? "" : l.tier === 5 ? "V" : ""}` : ""}</span>
+                <span className="achTier">{displayValue} / {displayNext}</span>
+              </div>
+              <div style={{ height: 4, background: "rgba(255,255,255,.08)", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: l.tier > 0 ? "linear-gradient(90deg, #facc15, #fbbf24)" : "linear-gradient(90deg, #71717a, #a1a1aa)" }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {data.lastSyncAt && (
+        <p className="muted" style={{ fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+          last synced {new Date(data.lastSyncAt).toLocaleString()}
+        </p>
+      )}
     </section>
   );
 };
@@ -351,7 +430,13 @@ const SoundToggle = () => {
 // the specific pet the board is ranking by — so the picture under the rank IS the thing
 // they're #1 at.
 const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => string; seedOf: (e: Entry) => string | null | undefined }[] = [
-  { id: "score", label: "Score", hint: "GitHub-verified base + windowed Co-Authored-By attribution.", statOf: (e) => (e.score ?? 0).toLocaleString(), seedOf: (e) => e.avatarSeed },
+  { id: "score", label: "Score", hint: "GitHub base + Co-Authored-By attribution + merit. The headline number.", statOf: (e) => (e.score ?? 0).toLocaleString(), seedOf: (e) => e.avatarSeed },
+  { id: "merit", label: "Merit", hint: "Rolled-up merit score: PR reviews, cross-repo PRs, shipper, maintainer, substance.", statOf: (e) => `${(e.meritScore ?? 0).toLocaleString()} merit`, seedOf: (e) => e.avatarSeed },
+  { id: "merit:reviews", label: "Reviewer", hint: "PRs you've reviewed for other people. The carriage that pulls open source.", statOf: (e) => `${(e.prReviewsCount ?? 0).toLocaleString()} reviews`, seedOf: (e) => e.avatarSeed },
+  { id: "merit:crossRepo", label: "Contributor", hint: "Merged PRs in repos you don't own. The real OSS signal.", statOf: (e) => `${(e.crossRepoPrsCount ?? 0).toLocaleString()} PRs`, seedOf: (e) => e.avatarSeed },
+  { id: "merit:shipper", label: "Shipper", hint: "PRs you opened and landed.", statOf: (e) => `${(e.prsMergedCount ?? 0).toLocaleString()} merged`, seedOf: (e) => e.avatarSeed },
+  { id: "merit:downloads", label: "Maintainer", hint: "Monthly downloads across all npm packages you maintain.", statOf: (e) => `${(e.packageDownloads ?? 0).toLocaleString()}/mo`, seedOf: (e) => e.avatarSeed },
+  { id: "merit:substance", label: "Substance", hint: "RAG-classified mean substance of your commits (typo fixes count for less).", statOf: (e) => `${((e.substanceScore ?? 0) * 100).toFixed(0)}%`, seedOf: (e) => e.avatarSeed },
   { id: "pets-count", label: "Most pets", hint: "Total unique 1/1 creatures collected from your attributed commits.", statOf: (e) => `${e.petsCount ?? 0} pets`, seedOf: (e) => e.avatarSeed },
   { id: "rarest-pet", label: "Rarest pet", hint: "OpenRarity score of the rarest pet in your menagerie.", statOf: (e) => `${(e.rarestPetScore ?? 0).toFixed(2)} rarity`, seedOf: (e) => e.rarestPetSeed ?? e.avatarSeed },
   { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
@@ -1341,6 +1426,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
       {account.github && <RecapCard login={account.github.login} />}
       {account.github && <AiAttestationCard gh={account.github} act={act} />}
       {account.achievements && <AchievementsPanel items={account.achievements} title="Your achievements" />}
+      {account.github?.login && <MeritPanel login={account.github.login} title="Your merit" />}
       {account.github?.quirks && <QuirksPanel quirks={account.github.quirks} title="Your quirks" />}
       {account.github && account.github.wild.length > 0 && (
         <section className="card">

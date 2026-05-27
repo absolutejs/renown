@@ -9,8 +9,10 @@ import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/
 import { achievements, aiAttestationEvents, playerAchievements, playerAttributionSnapshots, playerProjects, players } from "../../../../db/schema.ts";
 import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
+import { computeMeritScore, fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { QUIRKS } from "../quirks.ts";
+import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
 
 // Deterministic ISO-week index → quirk id rotation so the "quirk of the week" is the
 // same for every viewer in the same week, and cycles through the whole registry over
@@ -89,12 +91,29 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const quirkOrder = quirkName && QUIRKS[quirkName]
         ? sql<number>`coalesce((${players.quirks} ->> ${quirkName})::int, 0)`
         : null;
-      const orderCol = quirkOrder ?? (
+      // Merit boards — per-dimension sort. board=merit shows the rolled-up merit_score
+      // alone; board=merit:<dim> shows a per-signal board (reviewers, contributors, …).
+      // Default "score" board (below) sorts by verified_score + merit_score so the
+      // headline leaderboard reflects merit, not just base + attribution.
+      const meritPrefix = "merit:";
+      const meritDim = board === "merit" ? "merit" : board.startsWith(meritPrefix) ? board.slice(meritPrefix.length) : null;
+      // Columns are heterogeneous (bigint / integer / real / etc.) so widen via
+      // a plain object indexed by string. Drizzle's desc() accepts any column.
+      const meritColMap: Record<string, typeof players.verifiedScore> = {
+        merit: players.meritScore as unknown as typeof players.verifiedScore,
+        reviews: players.prReviewsCount as unknown as typeof players.verifiedScore,
+        crossRepo: players.crossRepoPrsCount as unknown as typeof players.verifiedScore,
+        shipper: players.prsMergedCount as unknown as typeof players.verifiedScore,
+        downloads: players.packageDownloads as unknown as typeof players.verifiedScore,
+        substance: players.substanceScore as unknown as typeof players.verifiedScore,
+      };
+      const meritOrder = meritDim ? meritColMap[meritDim] : null;
+      const orderCol = quirkOrder ?? meritOrder ?? (
         board === "pets-count" ? players.petsCount
         : board === "rarest-pet" ? players.rarestPetScore
         : board === "biggest-pet" ? players.biggestPetSize
         : board === "rate-limited" ? players.rateLimitCount
-        : players.verifiedScore
+        : sql<number>`${players.verifiedScore} + ${players.meritScore}`   // default "score" board: base + attribution + merit
       );
       // Audience filter — server-side WHERE so the top-N count stays stable per audience.
       // Default "all" merges humans + AI on one board (no filter); "humans" hides AI
@@ -118,10 +137,10 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         // Drizzle SQL builder keeps this typed; the inner select is parameterized.
         const weeklyOrder = sql<number>`(${players.attributionScore} - coalesce((select ${playerAttributionSnapshots.attributionScore} from ${playerAttributionSnapshots} where ${playerAttributionSnapshots.playerId} = ${players.id} and ${playerAttributionSnapshots.snapshotDate} >= ${cutoff} order by ${playerAttributionSnapshots.snapshotDate} asc limit 1), ${players.attributionScore}))`;
         const rows = await gameDb.select().from(players).where(where).orderBy(desc(weeklyOrder)).limit(n);
-        return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks }));
+        return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore }));
       }
       const rows = await gameDb.select().from(players).where(where).orderBy(desc(orderCol)).limit(n);
-      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks }));
+      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore }));
     })
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.
@@ -371,6 +390,174 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // (when sound is on + we're feeling generous) prints a little toast.
       hub.publish("rate-limited", { login, total, granted });
       return { ok: true, total, granted };
+    })
+    // CLI merit-sync — refreshes all 4 GitHub-native merit signals for the calling
+    // login in one shot (PR reviews, cross-repo merged PRs, authored+merged for
+    // ratio, npm downloads), recomputes the rolled-up merit_score, grants any
+    // newly-crossed tier achievements, hub-publishes for live UI updates. Safe to
+    // re-run; signals overwrite (not increment). Costs ≤ 5 HTTP calls upstream.
+    .post("/cli/merit-sync", async ({ body }) => {
+      const b = (body ?? {}) as { token?: string };
+      const token = String(b.token ?? "");
+      if (!token) return { error: "token required" };
+      const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+      if (!r?.ok) return { error: "invalid or expired github token" };
+      const login = (await r.json() as { login?: string }).login;
+      if (!login) return { error: "could not read github login" };
+      // Fetch all signals in parallel — they hit separate hosts so no rate-limit
+      // collision. Failure of any single signal returns 0 from its fetcher
+      // (error-safe), so a partial outage just temporarily zeroes one component.
+      const [reviews, crossRepo, prCounts, downloads] = await Promise.all([
+        fetchPrReviewsCount(login, token),
+        fetchCrossRepoPrsCount(login, token),
+        fetchPrCounts(login, token),
+        fetchPackageDownloads(login),
+      ]);
+      // Read current substance_score before recomputing so we don't zero it out
+      // on every merit refresh (substance is owned by a separate, slower path —
+      // the commit ingestion cron).
+      const before = await gameDb.select({
+        id: players.id, substanceScore: players.substanceScore, substanceSampleSize: players.substanceSampleSize,
+      }).from(players).where(eq(players.githubLogin, login)).limit(1);
+      const cur = before[0];
+      if (!cur) return { error: "player not found — link first via /api/cli/link" };
+      const meritScore = computeMeritScore({
+        prReviewsCount: reviews, crossRepoPrsCount: crossRepo,
+        prsAuthoredCount: prCounts.authored, prsMergedCount: prCounts.merged,
+        packageDownloads: downloads,
+        substanceScore: cur.substanceScore, substanceSampleSize: cur.substanceSampleSize,
+      });
+      await gameDb.update(players).set({
+        prReviewsCount: reviews,
+        crossRepoPrsCount: crossRepo,
+        prsAuthoredCount: prCounts.authored,
+        prsMergedCount: prCounts.merged,
+        packageDownloads: downloads,
+        meritScore,
+        lastMeritSyncAt: new Date(),
+      }).where(eq(players.id, cur.id));
+      const grantIds = meritAchievementsToGrant({
+        prReviewsCount: reviews, crossRepoPrsCount: crossRepo, prsMergedCount: prCounts.merged,
+        packageDownloads: downloads, substanceScore: cur.substanceScore, substanceSampleSize: cur.substanceSampleSize,
+      });
+      const granted = await grantAchievements(cur.id, grantIds);
+      const payload = { login, meritScore, reviews, crossRepo, authored: prCounts.authored, merged: prCounts.merged, downloads, granted };
+      hub.publish("merit", payload);
+      return { ok: true, ...payload };
+    })
+    // CLI substance-sync — classifies the player's last N attributed commits by
+    // semantic substance (typo vs feature vs refactor vs breaking change), writes
+    // the mean to substance_score + sample size to substance_sample_size, then
+    // recomputes merit_score so the new substance contribution propagates. Uses
+    // the heuristic classifier by default; if RENOWN_EMBEDDING_PROVIDER is set,
+    // RAG-based classification via @absolutejs/rag.
+    .post("/cli/substance-sync", async ({ body }) => {
+      const b = (body ?? {}) as { token?: string; limit?: number };
+      const token = String(b.token ?? "");
+      if (!token) return { error: "token required" };
+      const limit = Math.max(5, Math.min(50, Number(b.limit ?? 30)));
+      const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+      if (!r?.ok) return { error: "invalid or expired github token" };
+      const login = (await r.json() as { login?: string }).login;
+      if (!login) return { error: "could not read github login" };
+      const cur = await gameDb.select().from(players).where(eq(players.githubLogin, login)).limit(1);
+      const row = cur[0];
+      if (!row) return { error: "player not found — link first via /api/cli/link" };
+      if (!row.attributionQuery) return { error: "no attribution query set — run /api/cli/link first, or set one explicitly" };
+      const commits = await fetchRecentCommits(row.attributionQuery, limit, token);
+      if (commits.length === 0) return { ok: true, login, substanceScore: row.substanceScore, sampleSize: row.substanceSampleSize, note: "no attributed commits found in the window" };
+      const { mean, sampleSize, detail } = await aggregateSubstance(commits);
+      // Recompute merit_score with the new substance values so the change
+      // propagates immediately into the leaderboard sort.
+      const meritScore = computeMeritScore({
+        prReviewsCount: row.prReviewsCount, crossRepoPrsCount: row.crossRepoPrsCount,
+        prsAuthoredCount: row.prsAuthoredCount, prsMergedCount: row.prsMergedCount,
+        packageDownloads: Number(row.packageDownloads),
+        substanceScore: mean, substanceSampleSize: sampleSize,
+      });
+      await gameDb.update(players).set({
+        substanceScore: mean,
+        substanceSampleSize: sampleSize,
+        meritScore,
+      }).where(eq(players.id, row.id));
+      const grantIds = meritAchievementsToGrant({
+        prReviewsCount: row.prReviewsCount, crossRepoPrsCount: row.crossRepoPrsCount,
+        prsMergedCount: row.prsMergedCount, packageDownloads: Number(row.packageDownloads),
+        substanceScore: mean, substanceSampleSize: sampleSize,
+      });
+      const granted = await grantAchievements(row.id, grantIds);
+      // Build a small breakdown the CLI/page can show — top reasons + counts
+      // so the player can sanity-check what was classified as what.
+      const reasons = detail.reduce((m, d) => { m[d.reason] = (m[d.reason] ?? 0) + 1; return m; }, {} as Record<string, number>);
+      hub.publish("substance", { login, mean, sampleSize, meritScore, granted });
+      return { ok: true, login, substanceScore: mean, sampleSize, meritScore, granted, reasons };
+    })
+    // Public merit row for a login. Drives the Merit panel on the profile/home
+    // page — shows each signal, current sub-counter, next tier threshold, and a
+    // hand-curated flavor line from MERIT. Cheap (one select), no auth required.
+    .get("/merit/:login", async ({ params }) => {
+      const login = String(params.login ?? "").toLowerCase();
+      if (!login) return { error: "login required" };
+      const rows = await gameDb.select({
+        meritScore: players.meritScore,
+        prReviewsCount: players.prReviewsCount,
+        crossRepoPrsCount: players.crossRepoPrsCount,
+        prsAuthoredCount: players.prsAuthoredCount,
+        prsMergedCount: players.prsMergedCount,
+        packageDownloads: players.packageDownloads,
+        substanceScore: players.substanceScore,
+        substanceSampleSize: players.substanceSampleSize,
+        lastMeritSyncAt: players.lastMeritSyncAt,
+      }).from(players).where(eq(players.githubLogin, login)).limit(1);
+      const row = rows[0];
+      if (!row) return { error: "no merit row yet — run `renown merit-sync` once" };
+      // Project each MERIT ladder onto the current value so the UI can render
+      // "current / next-threshold / tier" without re-importing the registry.
+      const ladders = Object.values(MERIT).map((def) => {
+        const sources: Record<typeof def.source, number> = {
+          prReviewsCount: row.prReviewsCount, crossRepoPrsCount: row.crossRepoPrsCount,
+          prsMergedCount: row.prsMergedCount, packageDownloads: Number(row.packageDownloads),
+          substanceScore: row.substanceSampleSize >= 10 ? Math.floor(row.substanceScore * 100) : 0,
+        };
+        const value = sources[def.source];
+        // Tier = highest index whose threshold ≤ value, plus 1 (so 0 if none crossed).
+        let tier = 0;
+        for (let i = 4; i >= 0; i--) { if (value >= def.thresholds[i]!) { tier = i + 1; break; } }
+        const nextThreshold = tier < 5 ? def.thresholds[tier] : null;
+        return { id: def.id, label: def.label, flavor: def.flavor, value, tier, nextThreshold };
+      });
+      const mergeRatio = row.prsAuthoredCount > 0 ? row.prsMergedCount / row.prsAuthoredCount : 0;
+      return {
+        login,
+        meritScore: Number(row.meritScore),
+        signals: { reviews: row.prReviewsCount, crossRepo: row.crossRepoPrsCount,
+          authored: row.prsAuthoredCount, merged: row.prsMergedCount, mergeRatio,
+          downloads: Number(row.packageDownloads),
+          substanceScore: row.substanceScore, substanceSampleSize: row.substanceSampleSize },
+        ladders,
+        lastSyncAt: row.lastMeritSyncAt,
+      };
+    })
+    // Top-N by a specific merit dimension. Powers the per-dimension cope-style
+    // leaderboards on the home page ("Top reviewers", "Top maintainers", …).
+    .get("/merit/top/:dim", async ({ params, query }) => {
+      const dim = String(params.dim ?? "");
+      const limit = Math.min(Number(query.limit ?? 25), TOP_MAX);
+      const colMap: Record<string, typeof players.verifiedScore> = {
+        merit: players.meritScore as unknown as typeof players.verifiedScore,
+        reviews: players.prReviewsCount as unknown as typeof players.verifiedScore,
+        crossRepo: players.crossRepoPrsCount as unknown as typeof players.verifiedScore,
+        shipper: players.prsMergedCount as unknown as typeof players.verifiedScore,
+        downloads: players.packageDownloads as unknown as typeof players.verifiedScore,
+        substance: players.substanceScore as unknown as typeof players.verifiedScore,
+      };
+      const col = colMap[dim];
+      if (!col) return { error: `unknown dim. try one of: ${Object.keys(colMap).join(", ")}` };
+      const rows = await gameDb.select({
+        login: players.githubLogin, handle: players.handle, isAi: players.isAi, tier: players.tier,
+        value: col,
+      }).from(players).where(sql`${col} > 0`).orderBy(desc(col)).limit(limit);
+      return { dim, rows: rows.map((r) => ({ ...r, value: Number(r.value) })) };
     })
     // CLI ai-attest: same shape as /api/cli/link — caller proves login ownership with a
     // GitHub OAuth token (`gh auth token`), server verifies it against GitHub, then runs

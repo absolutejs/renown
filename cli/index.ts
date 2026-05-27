@@ -621,6 +621,79 @@ switch (cmd) {
     console.log("");
     break;
   }
+  case "substance":
+  case "substance-sync": {
+    // Classify the player's recent attributed commits by semantic substance —
+    // typo fix counts for less than a feature add. Updates substance_score on
+    // the player row and feeds the merit ladder + leaderboard.
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const token = ghToken();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first."); break; }
+    const sbArgs = process.argv.slice(3);
+    const limitArg = sbArgs.find((a) => a.startsWith("--limit="));
+    const limit = limitArg ? Number(limitArg.split("=", 2)[1]) : 30;
+    const base = cfg.leaderboardEndpoint.replace(/\/$/, "");
+    const r = await fetch(`${base}/cli/substance-sync`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, limit }),
+    }).catch(() => null);
+    if (!r?.ok) { console.log(`Substance sync failed (HTTP ${r?.status ?? "?"}).`); break; }
+    type S = { ok: boolean; error?: string; login?: string; substanceScore?: number; sampleSize?: number; meritScore?: number; granted?: string[]; reasons?: Record<string, number>; note?: string };
+    const j = (await r.json()) as S;
+    if (j.error) { console.log(`Substance error: ${j.error}`); break; }
+    if (j.note) { console.log(`(${j.note})`); break; }
+    const pct = ((j.substanceScore ?? 0) * 100).toFixed(0);
+    console.log(`\n  renown substance — @${j.login}`);
+    console.log("  " + "─".repeat(56));
+    console.log(`  substance:         ${pct}%   (over ${j.sampleSize ?? 0} recent commits)`);
+    console.log(`  merit score:       ${(j.meritScore ?? 0).toLocaleString()}   ← updated`);
+    if (j.reasons) {
+      const total = Object.values(j.reasons).reduce((s, n) => s + n, 0);
+      console.log(`\n  classified as:`);
+      for (const [reason, count] of Object.entries(j.reasons).sort(([, a], [, b]) => (b as number) - (a as number))) {
+        const bar = "█".repeat(Math.round((count as number) / total * 30));
+        console.log(`    ${reason.padEnd(22)} ${String(count).padStart(3)}  ${bar}`);
+      }
+    }
+    if (j.granted && j.granted.length > 0) {
+      console.log(`\n  🏅 unlocked: ${j.granted.join(", ")}`);
+    }
+    console.log("");
+    break;
+  }
+  case "merit":
+  case "merit-sync": {
+    // The merit refresh — re-fetches the 4 GitHub-native signals (PR reviews,
+    // cross-repo PRs, authored/merged for ratio, npm downloads), rolls up into
+    // merit_score, grants tier achievements, and prints a pretty card. Hits
+    // ≤ 5 upstream APIs in parallel; safe to run on a cron yourself.
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const token = ghToken();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first."); break; }
+    const base = cfg.leaderboardEndpoint.replace(/\/$/, "");
+    const r = await fetch(`${base}/cli/merit-sync`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }),
+    }).catch(() => null);
+    if (!r?.ok) { console.log(`Merit sync failed (HTTP ${r?.status ?? "?"}).`); break; }
+    type M = { ok: boolean; error?: string; login?: string; meritScore?: number; reviews?: number; crossRepo?: number; authored?: number; merged?: number; downloads?: number; granted?: string[] };
+    const j = (await r.json()) as M;
+    if (j.error) { console.log(`Merit sync error: ${j.error}`); break; }
+    const ratio = (j.authored ?? 0) > 0 ? ((j.merged ?? 0) / (j.authored ?? 1)) : 0;
+    const fmt = (n: number) => n.toLocaleString();
+    console.log(`\n  renown merit — @${j.login}`);
+    console.log("  " + "─".repeat(56));
+    console.log(`  merit score:       ${fmt(j.meritScore ?? 0)}   ← rolled-up, feeds leaderboard`);
+    console.log(`  PR reviews given:  ${fmt(j.reviews ?? 0)}        Reviewer`);
+    console.log(`  cross-repo PRs:    ${fmt(j.crossRepo ?? 0)}        Contributor (the real signal)`);
+    console.log(`  PRs merged:        ${fmt(j.merged ?? 0)} / ${fmt(j.authored ?? 0)} (${(ratio * 100).toFixed(0)}%)   Shipper`);
+    console.log(`  npm downloads/mo:  ${fmt(j.downloads ?? 0)}        Maintainer`);
+    if (j.granted && j.granted.length > 0) {
+      console.log(`\n  🏅 unlocked: ${j.granted.join(", ")}`);
+    }
+    console.log("");
+    break;
+  }
   case "digest-test": {
     // Preview the stale-attestation digest payload — same shape that lands at
     // RENOWN_DIGEST_WEBHOOK on the Monday cron. Useful when wiring the webhook for

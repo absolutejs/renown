@@ -71,6 +71,24 @@ export const players = pgTable("players", {
   // field here + a check at the relevant publish site — existing users default to
   // opted-in for the new event (acceptable for a small notification surface).
   pushPrefs: jsonb("push_prefs").$type<{ verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean }>().notNull().default({}),
+  // Merit signals — the "real, meritorious dev work" half of the pitch. Unlike the
+  // commit-count-driven attribution_score (which is real but easy to inflate with
+  // co-author spam), these signals are observably hard to game: PR reviews require
+  // someone else to invite/accept them; cross-repo merged PRs require a maintainer
+  // outside your control to approve; maintainer downloads come from the package
+  // registry; substance_score classifies commit diffs by semantic substance (RAG).
+  // All counters are absolute (last full count from the source), not deltas — the
+  // sync overwrites them every refresh. merit_score is the rolled-up number that
+  // feeds verified_score so it ranks on the leaderboard.
+  meritScore: bigint("merit_score", { mode: "number" }).notNull().default(0),
+  prReviewsCount: integer("pr_reviews_count").notNull().default(0),       // PRs you reviewed
+  crossRepoPrsCount: integer("cross_repo_prs_count").notNull().default(0),// merged PRs in repos you don't own
+  prsAuthoredCount: integer("prs_authored_count").notNull().default(0),   // all PRs you opened
+  prsMergedCount: integer("prs_merged_count").notNull().default(0),       // subset of authored that landed
+  packageDownloads: bigint("package_downloads", { mode: "number" }).notNull().default(0), // monthly DLs across maintained npm packages
+  substanceScore: real("substance_score").notNull().default(0),           // 0..1 mean substance weight across classified commits
+  substanceSampleSize: integer("substance_sample_size").notNull().default(0), // # of commits classified (for substance_score reliability)
+  lastMeritSyncAt: timestamp("last_merit_sync_at"),
   // Optional public attestation of AI status. POSTed via /api/account/ai-attestation by
   // the player; setting it flips is_ai true and stores { provider, claimedAt, evidenceUrl? }.
   // Provider is a free-text identifier ("anthropic", "openai", ...). evidenceUrl points at

@@ -103,6 +103,8 @@ const usage = () => {
   console.log("renown — HTTP-API CLI (runtime-agnostic; works under Node, Bun, Deno, pnpm, yarn, npm)\n");
   console.log("commands:");
   console.log("  link                     link this install to GitHub (browserless, via gh auth token)");
+  console.log("  merit                    refresh PR-review / cross-repo / shipper / maintainer signals");
+  console.log("  substance [--limit N]    classify recent commits by substance (RAG when configured)");
   console.log("  ai-attest --provider X   mark this account as AI participant ([--auto] [--webauthn] [--jwt] [--clear])");
   console.log("  weekly                   7-day attribution + verified-score delta + new achievements");
   console.log("  ai-stats                 combined dashboard: attestation / weekly / rate-limits / achievements");
@@ -171,6 +173,54 @@ const main = async () => {
     if (j.error) { console.log("ai-attest failed:", j.error); return; }
     if (j.cleared) console.log("✓ Attestation cleared.");
     else console.log(`✓ Attested as ${j.provider}${j.verified ? " ✓" : ""}${j.resolvedKnownProvider ? "" : " (unknown provider)"}`);
+    return;
+  }
+
+  // ── substance ─────────────────────────────────────────────────────────────
+  if (cmd === "substance" || cmd === "substance-sync") {
+    const token = ghToken();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first."); return; }
+    const limit = Number(flag(rest, "limit") ?? 30);
+    const res = await fetch(`${apiBase}/cli/substance-sync`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, limit }) }).catch(() => null);
+    const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+    if (j.error) { console.log("substance failed:", j.error); return; }
+    if (j.note) { console.log(`(${j.note})`); return; }
+    const pct = ((j.substanceScore ?? 0) * 100).toFixed(0);
+    console.log(`\n  renown substance — @${j.login}`);
+    console.log("  " + "─".repeat(56));
+    console.log(`  substance:         ${pct}%   (over ${j.sampleSize ?? 0} recent commits)`);
+    console.log(`  merit score:       ${Number(j.meritScore ?? 0).toLocaleString()}   ← updated`);
+    if (j.reasons) {
+      const total = (Object.values(j.reasons) as number[]).reduce((s: number, n: number) => s + n, 0);
+      console.log(`\n  classified as:`);
+      for (const [reason, count] of (Object.entries(j.reasons) as [string, number][]).sort(([, a], [, b]) => b - a)) {
+        const bar = "█".repeat(Math.round(count / total * 30));
+        console.log(`    ${reason.padEnd(22)} ${String(count).padStart(3)}  ${bar}`);
+      }
+    }
+    if (Array.isArray(j.granted) && j.granted.length > 0) console.log(`\n  🏅 unlocked: ${j.granted.join(", ")}`);
+    console.log("");
+    return;
+  }
+
+  // ── merit ─────────────────────────────────────────────────────────────────
+  if (cmd === "merit" || cmd === "merit-sync") {
+    const token = ghToken();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first."); return; }
+    const res = await fetch(`${apiBase}/cli/merit-sync`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => null);
+    const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+    if (j.error) { console.log("merit failed:", j.error); return; }
+    const ratio = (j.authored ?? 0) > 0 ? ((j.merged ?? 0) / j.authored) : 0;
+    const fmt = (n: number) => Number(n).toLocaleString();
+    console.log(`\n  renown merit — @${j.login}`);
+    console.log("  " + "─".repeat(56));
+    console.log(`  merit score:       ${fmt(j.meritScore ?? 0)}   ← rolled-up, feeds leaderboard`);
+    console.log(`  PR reviews given:  ${fmt(j.reviews ?? 0)}        Reviewer`);
+    console.log(`  cross-repo PRs:    ${fmt(j.crossRepo ?? 0)}        Contributor`);
+    console.log(`  PRs merged:        ${fmt(j.merged ?? 0)} / ${fmt(j.authored ?? 0)} (${(ratio * 100).toFixed(0)}%)   Shipper`);
+    console.log(`  npm downloads/mo:  ${fmt(j.downloads ?? 0)}        Maintainer`);
+    if (Array.isArray(j.granted) && j.granted.length > 0) console.log(`\n  🏅 unlocked: ${j.granted.join(", ")}`);
+    console.log("");
     return;
   }
 
