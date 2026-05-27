@@ -250,6 +250,9 @@ a:hover { text-decoration: underline; }
 .webauthnKeyLabel:hover { color: var(--accent); }
 .webauthnKeyDelete { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
 .webauthnKeyDelete:hover { background: rgba(255,180,120,.18); color: #ffb478; }
+/* Small count chip in the Advanced summary so registered keys are discoverable
+   without expanding. Matches the visual weight of the AI badge .compact variant. */
+.webauthnCountChip { display: inline-flex; align-items: center; padding: 2px 7px; font-size: 10px; font-weight: 800; letter-spacing: .5px; margin-left: 8px; border-radius: 5px; background: rgba(134,239,172,.18); color: #c4f6da; border: 1px solid rgba(134,239,172,.40); }
 
 /* AI of the Week — a low-weight pill above the leaderboard featuring the highest-
    scoring AI participant. Clickable; opens that AI's profile. Subtle so it informs

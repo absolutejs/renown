@@ -3,10 +3,10 @@
 //
 // Hard-separated from the user realm: a regular user session DOES NOT grant admin authority,
 // and an admin session DOES NOT grant user authority. Admin endpoints check `requireAdmin`.
-import { and, desc, eq, ilike, ne, or } from "drizzle-orm";
+import { and, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia, t } from "elysia";
-import { players, webhookDeliveries } from "../../../../db/schema.ts";
+import { aiAttestationEvents, players, webhookDeliveries } from "../../../../db/schema.ts";
 import { schema, SchemaType } from "../../../db/schema";
 import { deliverWebhook } from "../attestation.ts";
 import { gameDb } from "../sync.ts";
@@ -106,6 +106,41 @@ export const adminAuthPlugin = ({ db }: Deps) =>
     // webhook URL (RENOWN_ATTESTATION_WEBHOOK) — i.e. respects any URL change the
     // operator made since the original failed attempt. Adds new rows to the delivery
     // log so the trail of replay attempts is itself auditable.
+    // Admin attestations dashboard — paginated read of ai_attestation_events across
+    // all players. Filters: ?provider= / ?kind= (claimed|verified|cleared) /
+    // ?verified=true|false / ?login= / ?after=<iso> / ?before=<iso>. Joins to players
+    // for the login so the UI doesn't have to do a second round-trip. Page size
+    // capped at 200; default 50.
+    .get("/api/admin/attestations", async ({ query, request, set }) => {
+      const admin = await requireAdmin(db, request);
+      if (!admin) { set.status = 401; return { error: "not admin" }; }
+      const limit = Math.min(200, Math.max(1, Number(query.n ?? 50)));
+      const conds = [];
+      if (typeof query.provider === "string" && query.provider) conds.push(eq(aiAttestationEvents.provider, query.provider));
+      if (typeof query.kind === "string" && query.kind) conds.push(eq(aiAttestationEvents.kind, query.kind));
+      if (query.verified === "true") conds.push(eq(aiAttestationEvents.verified, true));
+      if (query.verified === "false") conds.push(eq(aiAttestationEvents.verified, false));
+      if (typeof query.after === "string" && query.after) conds.push(sql`${aiAttestationEvents.at} >= ${query.after}`);
+      if (typeof query.before === "string" && query.before) conds.push(sql`${aiAttestationEvents.at} <= ${query.before}`);
+      if (typeof query.login === "string" && query.login) conds.push(eq(players.githubLogin, query.login));
+      const rows = await gameDb.select({
+        id: aiAttestationEvents.id,
+        at: aiAttestationEvents.at,
+        kind: aiAttestationEvents.kind,
+        provider: aiAttestationEvents.provider,
+        evidenceUrl: aiAttestationEvents.evidenceUrl,
+        verified: aiAttestationEvents.verified,
+        playerId: aiAttestationEvents.playerId,
+        login: players.githubLogin,
+        handle: players.handle,
+      })
+        .from(aiAttestationEvents)
+        .innerJoin(players, eq(players.id, aiAttestationEvents.playerId))
+        .where(conds.length ? and(...conds) : undefined)
+        .orderBy(desc(aiAttestationEvents.at))
+        .limit(limit);
+      return rows;
+    })
     .post("/api/admin/webhook-deliveries/:id/replay", async ({ params, request, set }) => {
       const admin = await requireAdmin(db, request);
       if (!admin) { set.status = 401; return { error: "not admin" }; }

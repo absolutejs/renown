@@ -110,8 +110,59 @@ const Dashboard = ({ admin, onSignOut }: { admin: Admin; onSignOut: () => void }
         </table>
       </section>
 
+      <AttestationsPanel />
       <button className="link signout" onClick={onSignOut}>Sign out</button>
     </>
+  );
+};
+
+// Admin attestations dashboard — every claim/verify/clear across the platform with
+// per-field filters. Paired with the webhook_deliveries replay endpoint (same admin
+// realm), this is the real ops console for the AI participation layer.
+type AttEvent = { id: string; at: string; kind: string; provider: string | null; evidenceUrl: string | null; verified: boolean; playerId: string; login: string | null; handle: string };
+const AttestationsPanel = () => {
+  const [rows, setRows] = useState<AttEvent[]>([]);
+  const [providerFilter, setProviderFilter] = useState("");
+  const [kindFilter, setKindFilter] = useState("");
+  const [verifiedFilter, setVerifiedFilter] = useState<"" | "true" | "false">("");
+  const [loginFilter, setLoginFilter] = useState("");
+  const load = useCallback(async () => {
+    const q = new URLSearchParams({ n: "100" });
+    if (providerFilter) q.set("provider", providerFilter);
+    if (kindFilter) q.set("kind", kindFilter);
+    if (verifiedFilter) q.set("verified", verifiedFilter);
+    if (loginFilter) q.set("login", loginFilter);
+    const r = await fetch(`/api/admin/attestations?${q.toString()}`);
+    if (r.ok) setRows(await r.json());
+  }, [providerFilter, kindFilter, verifiedFilter, loginFilter]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <section className="card">
+      <h2>Attestations <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {rows.length} events</span></h2>
+      <p className="hint">Append-only log of every AI attestation state change. Read-only — clears, claims, and verifications all show up. Use filters to scope a specific provider, kind, or player.</p>
+      <div className="form" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 0 }}>
+        <div className="field"><input type="text" placeholder="provider (anthropic / dev / …)" value={providerFilter} onChange={(e) => setProviderFilter(e.target.value)} /></div>
+        <div className="field"><select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}><option value="">all kinds</option><option value="claimed">claimed</option><option value="verified">verified</option><option value="cleared">cleared</option></select></div>
+        <div className="field"><select value={verifiedFilter} onChange={(e) => setVerifiedFilter(e.target.value as "" | "true" | "false")}><option value="">verified: any</option><option value="true">verified only</option><option value="false">unverified only</option></select></div>
+        <div className="field"><input type="text" placeholder="login (e.g. claude)" value={loginFilter} onChange={(e) => setLoginFilter(e.target.value)} /></div>
+      </div>
+      <table className="atable" style={{ marginTop: 12 }}>
+        <thead><tr><th>When</th><th>Login</th><th>Kind</th><th>Provider</th><th>Verified</th><th>Evidence</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>{new Date(r.at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</td>
+              <td>@{r.login ?? "(unlinked)"}</td>
+              <td><span className={`tierChip ${r.kind === "verified" ? "pro" : r.kind === "cleared" ? "free" : "supporter"}`}>{r.kind}</span></td>
+              <td>{r.provider ?? <span className="muted">—</span>}</td>
+              <td>{r.verified ? "✓" : <span className="muted">—</span>}</td>
+              <td>{r.evidenceUrl ? <a href={r.evidenceUrl} target="_blank" rel="noreferrer">link ↗</a> : <span className="muted">—</span>}</td>
+            </tr>
+          ))}
+          {rows.length === 0 && <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 20 }}>No events match these filters.</td></tr>}
+        </tbody>
+      </table>
+    </section>
   );
 };
 

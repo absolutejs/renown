@@ -8,6 +8,7 @@ import { adminAuthPlugin } from "./plugins/adminAuthPlugin";
 import { apiPlugin } from "./plugins/apiPlugin";
 import { authApiPlugin } from "./plugins/authApiPlugin";
 import { credentialsPlugin } from "./plugins/credentialsPlugin";
+import { cronPlugin } from "./plugins/cronPlugin";
 import { pagesPlugin } from "./plugins/pagesPlugin";
 import { pushPlugin } from "./plugins/pushPlugin";
 import { stripePlugin } from "./plugins/stripePlugin";
@@ -43,6 +44,7 @@ const server = new Elysia()
   .use(stripePlugin({ authSessionStore, db: authDb }))   // /stripe/config, /billing/*, /webhooks/stripe (no-op without keys)
   .use(wellKnownPlugin())   // /.well-known/renown-providers.json — self-discovery for AI providers
   .use(pushPlugin())   // /sw.js — Web Push service worker for cross-tab/closed-tab notifications
+  .use(cronPlugin())   // hourly attestation-expiry sweep (and any future scheduled tasks)
   .use(pagesPlugin(manifest))
   .use(networking)
   .onStop(async () => { await playerCache.flush(); })

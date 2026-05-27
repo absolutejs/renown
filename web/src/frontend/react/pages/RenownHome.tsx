@@ -1,6 +1,6 @@
 import { Head } from "@absolutejs/absolute/react/components";
-import { createSyncSubscriber } from "@absolutejs/sync/client";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { createLiveQuery, createSyncSubscriber } from "@absolutejs/sync/client";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
@@ -761,7 +761,12 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
           provider (which require some proof) but the provider hasn't published JWKS,
           or when you just want a personal cryptographic anchor on the claim. */}
       <details className="advancedAttest" style={{ marginTop: 12 }}>
-        <summary className="muted" style={{ cursor: "pointer", fontSize: 12 }}>Advanced · self-key (WebAuthn) attestation</summary>
+        <summary className="muted" style={{ cursor: "pointer", fontSize: 12 }}>
+          Advanced · self-key (WebAuthn) attestation
+          {gh.webauthnCredentials && gh.webauthnCredentials.length > 0 && (
+            <span className="webauthnCountChip">{gh.webauthnCredentials.length} key{gh.webauthnCredentials.length === 1 ? "" : "s"}</span>
+          )}
+        </summary>
         <p className="muted hint" style={{ marginTop: 8 }}>Hardware-key alternative to a provider-signed JWT. Register a key once on this account, then attest by signing an assertion with it — your claim gets the <strong>✦ self-keyed</strong> marker. Different trust source than provider-verified (✓ above): it proves <em>you</em> are the same entity across sessions, not that your provider backs you.</p>
         <div className="row" style={{ marginTop: 8 }}>
           <button type="button" className="btn ghost sm" disabled={busy === "register"} onClick={registerKey}>{busy === "register" ? "Waiting for key…" : "Register a hardware key"}</button>
@@ -1368,14 +1373,29 @@ const App = () => {
     return () => sub.close();
   }, [board, audience]);
 
-  // selected player's full skill sheet — live on that player's topic (and any "top" change)
-  useEffect(() => {
-    if (!sel) return undefined;
-    const load = () => fetch(`/api/skills?id=${encodeURIComponent(sel)}`).then((r) => r.json()).then(setSheet).catch(() => {});
-    load();
-    const sub = createSyncSubscriber({ topics: [`player:${sel}`, "top"], onEvent: load });
-    return () => sub.close();
+  // selected player's full skill sheet — live on that player's topic (and any "top"
+  // change). Demonstration of @absolutejs/sync 1.2's createLiveQuery: declarative
+  // topics + fetcher with an AbortSignal that fires when the query is closed or a
+  // newer fetch supersedes the in-flight one. Bridge to React via
+  // useSyncExternalStore. Replaces the hand-rolled fetch + state + subscriber + close
+  // pattern with one declarative call. If the spike reads cleanly here, the same
+  // pattern applies to /api/recap and other single-fetch-per-event subscribers.
+  const skillsQuery = useMemo(() => {
+    if (!sel) return null;
+    return createLiveQuery<SkillSheet | null>({
+      topics: [`player:${sel}`, "top"],
+      fetcher: (signal) => fetch(`/api/skills?id=${encodeURIComponent(sel)}`, { signal }).then((r) => r.json()),
+    });
   }, [sel]);
+  const skillsState = useSyncExternalStore(
+    useCallback((cb: () => void) => skillsQuery?.subscribe(cb) ?? (() => {}), [skillsQuery]),
+    useCallback(() => skillsQuery?.get(), [skillsQuery]),
+    () => undefined,   // SSR: no state yet
+  );
+  useEffect(() => () => skillsQuery?.close(), [skillsQuery]);
+  // sheet state stays in sync with the live query result — keeps the existing
+  // setSheet call sites working while the data flow upgrades underneath.
+  useEffect(() => { setSheet(skillsState?.data ?? null); }, [skillsState?.data]);
 
   // account + pricing config, and any redirect-back banner from Stripe / linking
   useEffect(() => {
