@@ -85,12 +85,17 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
   if (input.evidenceUrl && !/^https:\/\//.test(input.evidenceUrl)) return { ok: false, error: "evidenceUrl must be https://" };
 
   let verified = false;
+  let verifiedExpiresAt: string | undefined;
   if (input.attestationJwt && resolved?.config.verifyJwt) {
-    verified = await tracer.startActiveSpan("attestation.jwt_verify", { attributes: { "renown.attestation.provider": resolved.id } }, async (s) => {
-      try { const ok = await resolved.config.verifyJwt!(input.attestationJwt!, githubLogin); s.setAttribute("renown.attestation.verified", ok); return ok; }
-      catch { return false; }
+    const v = await tracer.startActiveSpan("attestation.jwt_verify", { attributes: { "renown.attestation.provider": resolved.id } }, async (s) => {
+      try {
+        const r = await resolved.config.verifyJwt!(input.attestationJwt!, githubLogin);
+        s.setAttribute("renown.attestation.verified", r.ok);
+        return r;
+      } catch { return { ok: false as const }; }
       finally { s.end(); }
     });
+    if (v.ok) { verified = true; verifiedExpiresAt = v.expiresAt; }
   }
   const webauthnVerified = !!input.webauthnVerified;
   // Impersonation guard: KNOWN providers (anything in PROVIDERS) require a verified
@@ -115,6 +120,11 @@ const applyAttestationInner = async (githubLogin: string, input: AttestationInpu
     ...(input.evidenceUrl ? { evidenceUrl: input.evidenceUrl } : {}),
     ...(verified ? { verified: true } : {}),
     ...(webauthnVerified ? { webauthnVerified: true } : {}),
+    // Provider-JWT expiry, copied from the verified JWT's exp claim. UI surfaces a
+    // countdown; /api/verify re-checks at sync time and demotes verified=true to a
+    // public claim when expired (without clearing the attestation outright — the
+    // provider can re-sign and bump it back).
+    ...(verifiedExpiresAt ? { expiresAt: verifiedExpiresAt } : {}),
   };
 
   const update: Partial<typeof players.$inferInsert> = { aiAttestation: attestation, isAi: true };

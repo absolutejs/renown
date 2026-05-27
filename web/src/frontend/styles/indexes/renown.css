@@ -235,6 +235,21 @@ a:hover { text-decoration: underline; }
    green reads as "personally vouched for" vs. purple's "provider-vouched"). Same
    tier weight as .attested, distinct hue. */
 .aiBadge.selfKeyed { background: rgba(134,239,172,.18); border-color: rgba(134,239,172,.55); box-shadow: 0 0 10px rgba(134,239,172,.30); color: #c4f6da; }
+/* Verified attestation that's within ~a week of expiring — same purple as .verified
+   but with an amber border to telegraph "re-attest soon." Doesn't change the trust
+   tier (still verified), just the urgency cue. */
+.aiBadge.verified.expiringSoon { border-color: rgba(255,200,80,.85); box-shadow: 0 0 12px rgba(255,200,80,.45); }
+
+/* WebAuthn credential management list — one row per registered key, label-rename
+   in place, delete confirmed via window.confirm. Stays tight visually since this
+   lives inside the AiAttestationCard's collapsed Advanced section. */
+.webauthnKeys { padding-top: 6px; border-top: 1px dashed var(--line); margin-top: 12px; }
+.webauthnKeyList { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.webauthnKeyRow { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.webauthnKeyLabel { font-weight: 600; color: var(--text); background: none; border: 0; padding: 0; font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.webauthnKeyLabel:hover { color: var(--accent); }
+.webauthnKeyDelete { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+.webauthnKeyDelete:hover { background: rgba(255,180,120,.18); color: #ffb478; }
 
 /* AI of the Week — a low-weight pill above the leaderboard featuring the highest-
    scoring AI participant. Clickable; opens that AI's profile. Subtle so it informs

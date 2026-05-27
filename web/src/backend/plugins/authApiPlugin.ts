@@ -102,6 +102,15 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
             .where(eq(playerAchievements.playerId, player.id))
             .orderBy(desc(achievementsTable.tier))
         : [],
+      // Registered WebAuthn credentials for the key-management UI. Public-key bytes
+      // intentionally not exposed; only metadata the user needs to recognize each key.
+      webauthnCredentials: player
+        ? await gameDb
+            .select({ id: webauthnCredentials.id, label: webauthnCredentials.label, transports: webauthnCredentials.transports, createdAt: webauthnCredentials.createdAt, lastUsedAt: webauthnCredentials.lastUsedAt })
+            .from(webauthnCredentials)
+            .where(eq(webauthnCredentials.playerId, player.id))
+            .orderBy(desc(webauthnCredentials.createdAt))
+        : [],
     } : null,
     identities: identities.map((i) => ({
       id: i.id,
@@ -289,8 +298,8 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     )
     .post("/webauthn/register-finish", ({ body, protectRoute, status }) =>
       protectRoute(async (user) => {
-        const b = body as { response?: Parameters<typeof verifyRegistration>[1] };
-        if (!b?.response) return status("Bad Request", "response required");
+        const b = (body ?? {}) as { response?: Parameters<typeof verifyRegistration>[1]; label?: string };
+        if (!b.response) return status("Bad Request", "response required");
         const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
         const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
         if (!ghLogin) return status("Bad Request", "link GitHub first");
@@ -299,6 +308,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         if (!player) return status("Not Found", "player not found");
         const v = await verifyRegistration(player.id, b.response);
         if (!v.ok) return status("Bad Request", v.error);
+        const label = typeof b.label === "string" && b.label.trim() ? b.label.trim().slice(0, 60) : "Hardware key";
         await gameDb.insert(webauthnCredentials).values({
           id: `wac_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
           playerId: player.id,
@@ -306,8 +316,39 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
           publicKey: v.publicKey,
           counter: v.counter,
           transports: v.transports,
+          label,
         });
-        return { ok: true, credentialId: v.credentialId };
+        return { ok: true, credentialId: v.credentialId, ...(await accountPayload(db, user.sub)) };
+      }),
+    )
+    .patch("/webauthn/credentials/:id", ({ params, body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const b = (body ?? {}) as { label?: string };
+        const label = typeof b.label === "string" && b.label.trim() ? b.label.trim().slice(0, 60) : null;
+        if (!label) return status("Bad Request", "label required");
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const player = playerRows[0];
+        if (!player) return status("Not Found", "player not found");
+        // The WHERE-id-AND-player guards against renaming someone else's credential by id.
+        const r = await gameDb.update(webauthnCredentials).set({ label }).where(and(eq(webauthnCredentials.id, params.id), eq(webauthnCredentials.playerId, player.id))).returning({ id: webauthnCredentials.id });
+        if (r.length === 0) return status("Not Found", "credential not found");
+        return { ok: true, ...(await accountPayload(db, user.sub)) };
+      }),
+    )
+    .delete("/webauthn/credentials/:id", ({ params, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const player = playerRows[0];
+        if (!player) return status("Not Found", "player not found");
+        const r = await gameDb.delete(webauthnCredentials).where(and(eq(webauthnCredentials.id, params.id), eq(webauthnCredentials.playerId, player.id))).returning({ id: webauthnCredentials.id });
+        if (r.length === 0) return status("Not Found", "credential not found");
+        return { ok: true, ...(await accountPayload(db, user.sub)) };
       }),
     )
     .post("/webauthn/attest-begin", ({ protectRoute, status }) =>

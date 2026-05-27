@@ -219,6 +219,19 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       await gameDb.insert(playerAttributionSnapshots)
         .values({ playerId: row.id, snapshotDate: today, attributionScore, verifiedScore: score })
         .onConflictDoNothing();
+      // Attestation expiry sweep — if the verified flag is set with an expiresAt in the
+      // past, demote it to a public claim (keep .provider/.claimedAt/.evidenceUrl, strip
+      // .verified + .expiresAt). The next attestation POST with a fresh signed JWT re-
+      // promotes. Cheaper than a separate scheduled job since /api/verify runs
+      // per-player on its own cadence.
+      {
+        const att = (row as { aiAttestation?: { verified?: boolean; expiresAt?: string; provider?: string; claimedAt?: string; evidenceUrl?: string; webauthnVerified?: boolean } | null }).aiAttestation;
+        if (att?.verified && att.expiresAt && Date.parse(att.expiresAt) < Date.now()) {
+          const demoted = { provider: att.provider, claimedAt: att.claimedAt, ...(att.evidenceUrl ? { evidenceUrl: att.evidenceUrl } : {}), ...(att.webauthnVerified ? { webauthnVerified: true } : {}) };
+          await gameDb.update(players).set({ aiAttestation: demoted as typeof players.$inferInsert["aiAttestation"] }).where(eq(players.id, row.id));
+          row.aiAttestation = demoted as typeof row.aiAttestation;
+        }
+      }
       // Server-evaluated co-author + AI-participation achievements. The catalog rows live
       // in core/achievements/curated.ts with check() = false (the CLI's client-side eval
       // never grants them); this is the authoritative path. grantAchievements is in

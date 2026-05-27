@@ -164,6 +164,10 @@ export const webauthnCredentials = pgTable("webauthn_credentials", {
   publicKey: text("public_key").notNull(),                // base64url-encoded COSE bytes
   counter: integer("counter").notNull().default(0),
   transports: jsonb("transports").$type<string[]>().notNull().default([]),
+  // User-chosen label for the management UI ("YubiKey 5C", "iCloud Passkey", …).
+  // Optional; defaults to "Hardware key" on registration so the row always reads as
+  // something. Editable via PATCH /api/account/webauthn/credentials/:id.
+  label: text("label").notNull().default("Hardware key"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   lastUsedAt: timestamp("last_used_at"),
 });

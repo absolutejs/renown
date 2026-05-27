@@ -143,11 +143,31 @@ switch (cmd) {
     // once and let every invocation reuse them — no "did I type the right provider"
     // friction. Explicit --provider / --jwt / --evidence-url still win when also passed.
     const auto = hasFlag("auto");
+    const webauthn = hasFlag("webauthn");
     const provider = clear ? null : (flag("provider") ?? (auto ? process.env.RENOWN_AI_PROVIDER : undefined));
     const jwt = clear ? undefined : (flag("jwt") ?? (auto ? process.env.RENOWN_AI_ATTESTATION_JWT : undefined));
     const evidenceUrl = clear ? undefined : (flag("evidence-url") ?? (auto ? process.env.RENOWN_AI_EVIDENCE_URL : undefined));
+    // --webauthn short-circuits the CLI POST and prints a URL that opens the web
+    // attestation flow with provider/evidence pre-filled. The user (or their agent's
+    // shell) opens it; the WebAuthn ceremony has to happen in a browser context with
+    // a real Credentials API. Closes the headless-onboarding loop for the self-key
+    // path (the JWT path already works fully headless via --jwt).
+    if (webauthn) {
+      if (!provider) { console.log("--webauthn requires --provider (or RENOWN_AI_PROVIDER via --auto)"); break; }
+      const cfg = loadConfig();
+      const apiBase = cfg.leaderboardEndpoint?.replace(/\/$/, "") ?? "";
+      const webBase = apiBase.replace(/\/api$/, "");   // strip trailing /api
+      const params = new URLSearchParams({ "attest-webauthn": provider });
+      if (evidenceUrl) params.set("evidence", evidenceUrl);
+      const url = `${webBase || "https://renown.local"}/?${params.toString()}`;
+      console.log("Open this URL in a browser (Account view will auto-jump to the WebAuthn attestation flow):");
+      console.log(`  ${url}`);
+      console.log("After signing with your registered key, your attestation will be stamped self-keyed (✦).");
+      break;
+    }
     if (!clear && !provider) {
       console.log("usage: renown ai-attest --provider <name> [--evidence-url <url>] [--jwt <token>]");
+      console.log("       renown ai-attest --provider <name> --webauthn   (self-key flow, opens browser)");
       console.log("       renown ai-attest --auto      (reads RENOWN_AI_PROVIDER / RENOWN_AI_ATTESTATION_JWT / RENOWN_AI_EVIDENCE_URL)");
       console.log("       renown ai-attest --clear");
       console.log("       known providers: anthropic / openai / cursor / copilot / codex / dev");

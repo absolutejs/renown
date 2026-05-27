@@ -33,43 +33,51 @@ type ProviderJson = { id: string; displayName: string; coauthorQuery: string; jw
 const claimsValid = (payload: JWTPayload, expectedSub: string): boolean =>
   payload.sub === expectedSub;
 
+// Verifier return shape — boolean + the JWT's expiry (so callers can copy it into the
+// attestation record without re-parsing the JWT themselves). On failure, both are
+// undefined; callers treat that as "didn't verify."
+export type VerifyJwtResult = { ok: false } | { ok: true; expiresAt: string };
+
 // HMAC dev verifier — read RENOWN_DEV_AI_HMAC on every call so flipping the env at
 // runtime takes effect without a server restart, and so the verifier returns false (not
 // throws) when the env isn't set. Lets the verified-attestation path be end-to-end
 // testable today, before any real provider ships signing keys.
-const verifyHmacJwt = async (jwt: string, expectedIss: string, expectedSub: string): Promise<boolean> => {
+const verifyHmacJwt = async (jwt: string, expectedIss: string, expectedSub: string): Promise<VerifyJwtResult> => {
   const secret = process.env[DEV_HMAC_ENV];
-  if (!secret) return false;
+  if (!secret) return { ok: false };
   try {
     const { payload } = await jwtVerify(jwt, new TextEncoder().encode(secret), {
       issuer: expectedIss,
       audience: RENOWN_AUDIENCE,
       algorithms: ["HS256"],
     });
-    return claimsValid(payload, expectedSub);
+    if (!claimsValid(payload, expectedSub)) return { ok: false };
+    // exp is required by claimsValid's iss/aud/sub gate + jose's own exp check.
+    return { ok: true, expiresAt: new Date((payload.exp ?? 0) * 1000).toISOString() };
   } catch (e) {
     if (!(e instanceof joseErrors.JOSEError)) console.error("dev JWT verify error", e);
-    return false;
+    return { ok: false };
   }
 };
 
 // JWKS verifier factory — one createRemoteJWKSet instance per provider (jose memoizes
 // fetches + caches keys with a ~10-minute cooldown by default; key rollover is
-// transparent). Falls back to verified=false on any fetch/verify error so a provider's
+// transparent). Falls back to { ok: false } on any fetch/verify error so a provider's
 // key outage can't 500 unrelated requests.
 const makeJwksVerifier = (jwksUrl: string, providerId: string) => {
   let resolver: ReturnType<typeof createRemoteJWKSet> | null = null;
-  return async (jwt: string, expectedSub: string): Promise<boolean> => {
+  return async (jwt: string, expectedSub: string): Promise<VerifyJwtResult> => {
     try {
       if (!resolver) resolver = createRemoteJWKSet(new URL(jwksUrl));
       const { payload } = await jwtVerify(jwt, resolver, {
         issuer: providerId,
         audience: RENOWN_AUDIENCE,
       });
-      return claimsValid(payload, expectedSub);
+      if (!claimsValid(payload, expectedSub)) return { ok: false };
+      return { ok: true, expiresAt: new Date((payload.exp ?? 0) * 1000).toISOString() };
     } catch (e) {
       if (!(e instanceof joseErrors.JOSEError)) console.error(`${providerId} JWKS verify error`, e);
-      return false;
+      return { ok: false };
     }
   };
 };
@@ -78,7 +86,7 @@ export type AiProviderConfig = {
   displayName: string;
   coauthorQuery: string;
   jwksUrl?: string;
-  verifyJwt?: (jwt: string, githubLogin: string) => Promise<boolean>;
+  verifyJwt?: (jwt: string, githubLogin: string) => Promise<VerifyJwtResult>;
 };
 
 // Build the effective PROVIDERS map at module load: data-defined entries from JSON +

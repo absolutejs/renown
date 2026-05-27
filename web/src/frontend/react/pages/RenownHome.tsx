@@ -1,4 +1,5 @@
 import { Head } from "@absolutejs/absolute/react/components";
+import { createSyncSubscriber } from "@absolutejs/sync/client";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
@@ -13,10 +14,11 @@ type SkillSheet = { id: string; name: string | null; totalLevel: number; skills:
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
-type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean };
+type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean; expiresAt?: string };
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
+type WebauthnCredential = { id: string; label: string; transports: string[]; createdAt: string; lastUsedAt: string | null };
 type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean };
-type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[] };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievements?: AchievementRow[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
@@ -93,8 +95,11 @@ const AiBadge = ({ isAi, attestation, compact, style }: { isAi?: boolean; attest
   //   (nothing)        — public claim, anyone could post it
   const verified = !!attestation?.verified;
   const webauthnVerified = !!attestation?.webauthnVerified;
+  const expiresAt = attestation?.expiresAt ? Date.parse(attestation.expiresAt) : NaN;
+  const expiresInDays = !isNaN(expiresAt) ? Math.round((expiresAt - Date.now()) / (24 * 3600 * 1000)) : null;
+  const expiringSoon = expiresInDays !== null && expiresInDays >= 0 && expiresInDays <= 7;
   const trustNote = verified
-    ? " · cryptographically verified by provider"
+    ? ` · cryptographically verified by provider${expiresInDays !== null ? ` (expires in ${expiresInDays}d)` : ""}`
     : webauthnVerified
       ? " · self-keyed (WebAuthn hardware key)"
       : " (public claim)";
@@ -103,7 +108,7 @@ const AiBadge = ({ isAi, attestation, compact, style }: { isAi?: boolean; attest
     : "AI participant — earns score and pets the same way humans do, with the badge for transparency";
   const mark = verified ? " ✓" : webauthnVerified ? " ✦" : "";
   const label = compact ? "🤖" : attestation ? `🤖 ${attestation.provider}${mark}` : "🤖 AI";
-  return <span className={`aiBadge${compact ? " compact" : ""}${attestation ? " attested" : ""}${verified ? " verified" : ""}${webauthnVerified && !verified ? " selfKeyed" : ""}`} style={style} title={title}>{label}</span>;
+  return <span className={`aiBadge${compact ? " compact" : ""}${attestation ? " attested" : ""}${verified ? " verified" : ""}${webauthnVerified && !verified ? " selfKeyed" : ""}${expiringSoon ? " expiringSoon" : ""}`} style={style} title={title}>{label}</span>;
 };
 
 // AbsoluteJS logomark — embedded inline so it follows currentColor.
@@ -128,19 +133,17 @@ const VerifiedAttestationAnnouncer = ({ openProfile }: { openProfile: (login: st
   const [queue, setQueue] = useState<Announcement[]>([]);
   const nextIdRef = useRef(1);
   useEffect(() => {
-    const es = new EventSource("/sync?topics=verified-attestation");
-    es.onmessage = (e) => {
-      try {
-        const evt = JSON.parse(e.data) as { topic: string; payload?: { login: string; provider: string; claimedAt: string } };
-        if (evt.topic !== "verified-attestation" || !evt.payload) return;
+    const sub = createSyncSubscriber({
+      topics: ["verified-attestation"],
+      onEvent: (evt) => {
+        const payload = evt.payload as { login: string; provider: string; claimedAt: string } | undefined;
+        if (evt.topic !== "verified-attestation" || !payload) return;
         const id = nextIdRef.current++;
-        const ann: Announcement = { id, ...evt.payload };
+        const ann: Announcement = { id, ...payload };
         setQueue((q) => [...q, ann]);
         window.setTimeout(() => setQueue((q) => q.filter((a) => a.id !== id)), 8000);
-        // OS notification when the tab is hidden — keeps the moment visible to a user
-        // who's looking at another tab. Conditional on the user having opted in via
-        // the SoundToggle's Notifications request (see SoundToggle below). When the
-        // user clicks the OS notification the tab focuses and the profile opens.
+        // OS notification on hidden tab — pairs with the in-page banner so a user
+        // looking at another tab still gets the moment. Click focuses + opens profile.
         if (typeof Notification !== "undefined" && Notification.permission === "granted" && typeof document !== "undefined" && document.hidden) {
           const notif = new Notification("🤖 Verified AI attestation", {
             body: `@${ann.login} attested as ${ann.provider} ✓`,
@@ -148,9 +151,9 @@ const VerifiedAttestationAnnouncer = ({ openProfile }: { openProfile: (login: st
           });
           notif.onclick = () => { window.focus(); openProfile(ann.login); notif.close(); };
         }
-      } catch { /* malformed frame */ }
-    };
-    return () => es.close();
+      },
+    });
+    return () => sub.close();
   }, [openProfile]);
   if (queue.length === 0) return null;
   return (
@@ -322,20 +325,19 @@ const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => vo
     // Two subscriptions: 'weekly-ai-leader' for leader-change events (cheap, fires only
     // when the login changes), 'top' as a fallback nudge to re-pull delta numbers since
     // the leader's own attribution might update without a leader-change.
-    const es = new EventSource("/sync?topics=weekly-ai-leader,top");
-    es.onmessage = (e) => {
-      try {
-        const evt = JSON.parse(e.data) as { topic: string; payload?: { login?: string; verifiedScore?: number; aiAttestation?: Entry["aiAttestation"]; avatarSeed?: string | null } };
-        if (evt.topic === "weekly-ai-leader" && evt.payload?.login) {
-          // Patch the entry with the new leader's info; refetch the delta for the badge text.
-          setEntry((cur) => ({ ...(cur ?? { name: evt.payload!.login!, level: 0, xp: 0, streak: 0, ach: 0 }), login: evt.payload!.login!, score: evt.payload!.verifiedScore, aiAttestation: evt.payload!.aiAttestation, avatarSeed: evt.payload!.avatarSeed ?? null, isAi: true }));
-          fetch(`/api/growth/${encodeURIComponent(evt.payload.login)}?days=7`).then((r) => r.json()).then((g: { delta?: number }) => setWeekDelta(g?.delta ?? null)).catch(() => {});
+    const sub = createSyncSubscriber({
+      topics: ["weekly-ai-leader", "top"],
+      onEvent: (evt) => {
+        const payload = evt.payload as { login?: string; verifiedScore?: number; aiAttestation?: Entry["aiAttestation"]; avatarSeed?: string | null } | undefined;
+        if (evt.topic === "weekly-ai-leader" && payload?.login) {
+          setEntry((cur) => ({ ...(cur ?? { name: payload.login!, level: 0, xp: 0, streak: 0, ach: 0 }), login: payload.login!, score: payload.verifiedScore, aiAttestation: payload.aiAttestation, avatarSeed: payload.avatarSeed ?? null, isAi: true }));
+          fetch(`/api/growth/${encodeURIComponent(payload.login)}?days=7`).then((r) => r.json()).then((g: { delta?: number }) => setWeekDelta(g?.delta ?? null)).catch(() => {});
         } else if (evt.topic === "top") {
           load();
         }
-      } catch { /* malformed frame */ }
-    };
-    return () => es.close();
+      },
+    });
+    return () => sub.close();
   }, []);
   if (!entry?.login) return null;
   return (
@@ -403,16 +405,16 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
   // SSE: subscribe once; update the cursor map per incoming event. Cleanup interval
   // discards entries older than the fade window so the overlay self-empties.
   useEffect(() => {
-    const es = new EventSource("/sync?topics=cursors");
-    es.onmessage = (e) => {
-      try {
-        const evt = JSON.parse(e.data) as { topic: string; payload?: { sid: string; rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; isAi?: boolean; at: number } };
-        if (evt.topic !== "cursors" || !evt.payload) return;
-        const { sid, rowId, board: b, label, avatarSeed, isAi, at } = evt.payload;
+    const sub = createSyncSubscriber({
+      topics: ["cursors"],
+      onEvent: (evt) => {
+        const payload = evt.payload as { sid: string; rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; isAi?: boolean; at: number } | undefined;
+        if (evt.topic !== "cursors" || !payload) return;
+        const { sid, rowId, board: b, label, avatarSeed, isAi, at } = payload;
         if (sid === mySid) return;     // never render our own ghost
         setCursors((m) => { const n = new Map(m); n.set(sid, { rowId, board: b, label: label ?? null, avatarSeed: avatarSeed ?? null, isAi: !!isAi, at }); return n; });
-      } catch { /* ignore malformed frames */ }
-    };
+      },
+    });
     const sweep = window.setInterval(() => {
       const cutoff = Date.now() - 2500;
       setCursors((m) => {
@@ -422,7 +424,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
         return changed ? n : m;
       });
     }, 600);
-    return () => { es.close(); window.clearInterval(sweep); };
+    return () => { sub.close(); window.clearInterval(sweep); };
   }, [mySid]);
   // For each row, structured ghost entries currently hovering it (other tabs only, same
   // board). Returns the raw cursor info per sid so the renderer can choose between
@@ -626,11 +628,30 @@ const Pricing = ({ cfg, account, onSubscribe, busy, onLogIn }: { cfg: StripeConf
 // claim is public and inspectable. The card defers cryptographic verification (signed
 // JWTs from provider keys) to a later iteration.
 const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {
-  const [provider, setProvider] = useState(gh.aiAttestation?.provider ?? "");
-  const [evidenceUrl, setEvidenceUrl] = useState(gh.aiAttestation?.evidenceUrl ?? "");
+  // Initial state: existing attestation OR a one-shot prefill stashed by the CLI's
+  // `--webauthn` flow (?attest-webauthn=<provider>). Consume + clear the prefill so a
+  // page reload doesn't re-trigger it.
+  const initial = (() => {
+    try {
+      const raw = window.sessionStorage.getItem("renown:attestWebauthn");
+      if (!raw) return null;
+      window.sessionStorage.removeItem("renown:attestWebauthn");
+      return JSON.parse(raw) as { provider?: string; evidenceUrl?: string };
+    } catch { return null; }
+  })();
+  const [provider, setProvider] = useState(initial?.provider ?? gh.aiAttestation?.provider ?? "");
+  const [evidenceUrl, setEvidenceUrl] = useState(initial?.evidenceUrl ?? gh.aiAttestation?.evidenceUrl ?? "");
   const [attestationJwt, setAttestationJwt] = useState("");
   const [showJwt, setShowJwt] = useState(false);
   const [busy, setBusy] = useState<null | "register" | "attest">(null);
+  // Scroll-into-view when prefilled from the CLI URL so the user lands directly on
+  // the attestation card instead of having to find it. Only runs on the initial
+  // prefilled mount; subsequent prop changes don't re-scroll.
+  const cardRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (initial?.provider) cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const attested = !!gh.aiAttestation;
   const verified = !!gh.aiAttestation?.verified;
   const webauthnVerified = !!(gh.aiAttestation as { webauthnVerified?: boolean } | null)?.webauthnVerified;
@@ -682,7 +703,7 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
     } finally { setBusy(null); }
   });
   return (
-    <section className="card">
+    <section className="card" ref={cardRef}>
       <h2>AI attestation
         {verified && <span className="aiBadge verified" style={{ marginLeft: 8 }}>✓ verified</span>}
         {!verified && webauthnVerified && <span className="aiBadge attested" style={{ marginLeft: 8 }}>✦ self-keyed</span>}
@@ -728,7 +749,7 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
         {attested && gh.aiAttestation && (
           <p className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
             Attested as <strong>{gh.aiAttestation.provider}</strong>
-            {verified && <> · <span style={{ color: "#d6a3ff", fontWeight: 700 }}>cryptographically verified ✓</span></>}
+            {verified && <> · <span style={{ color: "#d6a3ff", fontWeight: 700 }}>cryptographically verified ✓</span>{gh.aiAttestation?.expiresAt && <> · <span className="muted">expires {when(gh.aiAttestation.expiresAt)}</span></>}</>}
             {!verified && webauthnVerified && <> · <span style={{ color: "#86efac", fontWeight: 700 }}>self-keyed ✦</span></>}
             {gh.aiAttestation.evidenceUrl && <> · <a href={gh.aiAttestation.evidenceUrl} target="_blank" rel="noreferrer">evidence ↗</a></>}
             {" "}· {when(gh.aiAttestation.claimedAt)}
@@ -746,8 +767,52 @@ const AiAttestationCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promis
           <button type="button" className="btn ghost sm" disabled={busy === "register"} onClick={registerKey}>{busy === "register" ? "Waiting for key…" : "Register a hardware key"}</button>
           <button type="button" className="btn solid sm" disabled={!provider.trim() || busy === "attest"} onClick={attestWithKey}>{busy === "attest" ? "Waiting for key…" : "Attest with my key"}</button>
         </div>
+        <WebauthnKeyList credentials={gh.webauthnCredentials ?? []} act={act} />
       </details>
     </section>
+  );
+};
+
+// Per-credential management row — label inline-editable, delete confirmed once. lastUsedAt
+// is the signal for "is this key in active use" vs forgotten. Credentials lacking a
+// last-used timestamp show "never" — they exist but haven't proven anything yet.
+const WebauthnKeyList = ({ credentials, act }: { credentials: WebauthnCredential[]; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {
+  if (credentials.length === 0) return null;
+  return (
+    <div className="webauthnKeys">
+      <p className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: .6, margin: "12px 0 6px" }}>Registered keys · {credentials.length}</p>
+      <ul className="webauthnKeyList">
+        {credentials.map((c) => <WebauthnKeyRow key={c.id} cred={c} act={act} />)}
+      </ul>
+    </div>
+  );
+};
+
+const WebauthnKeyRow = ({ cred, act }: { cred: WebauthnCredential; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {
+  const [editing, setEditing] = useState(false);
+  const [label, setLabel] = useState(cred.label);
+  const save = () => {
+    setEditing(false);
+    if (label.trim() === cred.label) return;
+    act(async () => api(`/api/account/webauthn/credentials/${cred.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ label: label.trim() }) }));
+  };
+  const remove = () => {
+    if (!confirm(`Delete "${cred.label}"? You'll need to re-register if you want to attest with this key again.`)) return;
+    act(async () => api(`/api/account/webauthn/credentials/${cred.id}`, { method: "DELETE" }));
+  };
+  const lastUsed = cred.lastUsedAt ? when(cred.lastUsedAt) : "never used";
+  return (
+    <li className="webauthnKeyRow">
+      {editing ? (
+        <input className="textInput" type="text" value={label} autoFocus onChange={(e) => setLabel(e.target.value)} onBlur={save} onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") { setLabel(cred.label); setEditing(false); } }} style={{ flex: 1 }} />
+      ) : (
+        <button type="button" className="webauthnKeyLabel" onClick={() => setEditing(true)} title="Click to rename">{cred.label}</button>
+      )}
+      <span className="muted" style={{ fontSize: 11 }}>
+        {cred.transports.length > 0 ? cred.transports.join(", ") + " · " : ""}registered {when(cred.createdAt)} · last used {lastUsed}
+      </span>
+      <button type="button" className="webauthnKeyDelete" onClick={remove} title="Delete this key">✕</button>
+    </li>
   );
 };
 
@@ -1295,9 +1360,12 @@ const App = () => {
     // result isn't diffed against an apples-to-oranges baseline.
     prevTopIdsRef.current = null;
     load();
-    const es = new EventSource("/sync?topics=top");
-    es.onmessage = load;
-    return () => es.close();
+    // createSyncSubscriber wraps EventSource with parsed events (no JSON.parse + try
+    // ceremony on each frame) and auto-reconnect (already in EventSource, made explicit
+    // by the @absolutejs/sync 1.2 client). Spike — if this pattern reads cleanly, the
+    // other four EventSource sites in this file follow.
+    const sub = createSyncSubscriber({ topics: ["top"], onEvent: load });
+    return () => sub.close();
   }, [board, audience]);
 
   // selected player's full skill sheet — live on that player's topic (and any "top" change)
@@ -1305,9 +1373,8 @@ const App = () => {
     if (!sel) return undefined;
     const load = () => fetch(`/api/skills?id=${encodeURIComponent(sel)}`).then((r) => r.json()).then(setSheet).catch(() => {});
     load();
-    const es = new EventSource(`/sync?topics=player:${encodeURIComponent(sel)},top`);
-    es.onmessage = load;
-    return () => es.close();
+    const sub = createSyncSubscriber({ topics: [`player:${sel}`, "top"], onEvent: load });
+    return () => sub.close();
   }, [sel]);
 
   // account + pricing config, and any redirect-back banner from Stripe / linking
@@ -1317,6 +1384,17 @@ const App = () => {
     const q = new URLSearchParams(window.location.search);
     const billing = q.get("billing"), linked = q.get("linked"), merge = q.get("merge");
     const verify = q.get("verify"), reset = q.get("reset");
+    // ?attest-webauthn=<provider>[&evidence=<url>] — the CLI's `renown ai-attest
+    // --webauthn` lands users here. Jump to Account, store the prefill so
+    // AiAttestationCard picks it up, and clean the URL.
+    const attestProvider = q.get("attest-webauthn");
+    if (attestProvider) {
+      const evidence = q.get("evidence");
+      try { window.sessionStorage.setItem("renown:attestWebauthn", JSON.stringify({ provider: attestProvider, evidenceUrl: evidence ?? undefined })); } catch { /* sessionStorage blocked */ }
+      setView("account");
+      setBanner({ kind: "info", text: `Filled in the attestation form for "${attestProvider}". Scroll to AI attestation and click "Attest with my key" to sign.` });
+      window.history.replaceState({}, "", window.location.pathname);
+    }
     if (billing === "success") setBanner({ kind: "ok", text: "🎉 Subscription active — thank you for supporting renown!" });
     else if (billing === "cancel") setBanner({ kind: "info", text: "Checkout canceled — no charge made." });
     else if (billing === "portal") setBanner({ kind: "info", text: "Billing updated." });
