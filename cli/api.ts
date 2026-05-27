@@ -29,6 +29,7 @@ import { spawn } from "node:child_process";
 import { run, runSync } from "./proc.ts";
 import { agentById, agentFromEnv, normalizeAgentId } from "../core/agents.ts";
 import { applyGains, skillProgress, topSkills, totalLevel } from "../core/skills.ts";
+import { face, generate } from "../core/procgen.ts";
 
 type AppConfig = { leaderboardEndpoint?: string; playerId?: string; clientId?: string; clientSecret?: string };
 
@@ -75,7 +76,8 @@ const renderLocalHud = (s: LocalState) => {
   const top = topSkills(skx, 1)[0];
   const pr = skillProgress(top.xp);
   const pct = String(pr.pct).padStart(2);
-  return `Lvl${totalLevel(skx)} ${pct}% ${top.def.icon} ${top.def.name} ${top.level}`;
+  const pet = s.companion ? `  ${face(generate(s.companion))}` : "";
+  return `Lvl${totalLevel(skx)} ${pct}% ${top.def.icon} ${top.def.name} ${top.level}${pet}`;
 };
 const submitLocalState = async (s: LocalState, cfg: AppConfig) => {
   const apiBase = cfg.leaderboardEndpoint?.replace(/\/$/, "");
@@ -207,6 +209,7 @@ const findOnPath = (name: string) => {
 };
 
 const sanitizeTitle = (value: string) => value.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 140).trim();
+const stripAnsi = (value: string) => value.replace(/\x1b\[[0-9;]*m/g, "");
 
 const currentHudLine = () => {
   const s = loadLocalState();
@@ -227,7 +230,7 @@ const runCodexWithTitleHud = async (args: string[]) => {
     process.exit(127);
   }
 
-  const update = () => writeTerminalTitle(currentHudLine());
+  const update = () => writeTerminalTitle(stripAnsi(currentHudLine()));
   update();
   const timer = setInterval(update, 5000);
   const child = spawn(realCodex, args, {
@@ -352,13 +355,13 @@ const installCodexAgent = (dryRun: boolean) => {
   source = ensureTomlBoolean(source, "features", "hooks", true);
   source = ensureWritableRoot(source, RDIR);
   const hookBlock = `
-# Tracks Codex sessions and refreshes the Renown HUD. Codex's native footer only
-# supports built-in fields today; use the tmux adapter for a visible Renown HUD.
+# Tracks Codex sessions and prints the Renown HUD after each turn. Codex's native
+# footer only supports built-in fields today; use tmux for a persistent bottom HUD.
 [[hooks.SessionStart]]
 hooks = [{ type = "command", command = "renown agent codex --quiet" }]
 
 [[hooks.Stop]]
-hooks = [{ type = "command", command = "renown heartbeat --quiet" }]
+hooks = [{ type = "command", command = "renown heartbeat --quiet && renown statusline" }]
 `;
   const stateIndex = source.search(/^\[hooks\.state\]/m);
   if (stateIndex >= 0) {
@@ -500,14 +503,11 @@ const main = async () => {
       return;
     }
     if (target === "all" || target === "claude") installClaudeAgent(dryRun);
-    if (target === "all" || target === "codex") {
-      installCodexAgent(dryRun);
-      installCodexLauncher(dryRun);
-    }
+    if (target === "all" || target === "codex") installCodexAgent(dryRun);
     if (target === "codex-launcher") installCodexLauncher(dryRun);
     if (target === "all" || target === "tmux") installTmuxStatus(dryRun);
     if (!dryRun && (target === "all" || target === "codex")) {
-      console.log("  Codex note: Renown tracking is native via hooks; visible HUD is via tmux until Codex supports command-backed footer items.");
+      console.log("  Codex note: Renown prints after each turn via hooks; tmux is only for a persistent bottom HUD.");
     }
     return;
   }

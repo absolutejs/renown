@@ -149,10 +149,10 @@ renown install-agent codex
 renown install-agent tmux
 ```
 
-`renown install-agent codex` also installs a small `codex` launcher shim in front of
-the real Codex binary. After that, launching plain `codex` keeps working, but Renown
-updates the terminal window/tab title with the current HUD while Codex runs. This is
-the same-terminal fallback for terminals that do not provide a bottom status bar.
+`renown install-agent codex` also makes the `Stop` hook print `renown statusline` after
+each Codex turn, so progress shows in the session without stealing Codex's conversation
+title. A small `codex` launcher shim is available as a title-bar fallback, but the
+turn-end line is the preferred no-tmux path.
 
 Manual Codex hook setup lives in `~/.codex/config.toml`; project-local
 `.codex/config.toml` only loads after the project is trusted:
@@ -165,7 +165,7 @@ hooks = true
 hooks = [{ type = "command", command = "renown agent codex --quiet" }]
 
 [[hooks.Stop]]
-hooks = [{ type = "command", command = "renown heartbeat --quiet" }]
+hooks = [{ type = "command", command = "renown heartbeat --quiet && renown statusline" }]
 ```
 
 Codex's `/statusline` command can still show Codex-native fields such as model,
@@ -200,10 +200,11 @@ Renown HUD in the terminal chrome while Codex itself remains unpatched.
 
 ### Same-terminal Codex title HUD
 
-If you do not want tmux, install the Codex launcher shim:
+If you want a persistent same-terminal title fallback, install the Codex launcher shim
+explicitly:
 
 ```bash
-renown install-agent codex
+renown install-agent codex-launcher
 codex
 ```
 
@@ -214,9 +215,10 @@ renown launch codex
 ```
 
 for you. While Codex is open, Renown writes the HUD into the terminal title using the
-standard OSC title escape sequence. It does not patch or fork Codex. It also cannot draw
-inside Codex's own footer; that still requires Codex to support command-backed footer
-items upstream.
+standard OSC title escape sequence. This competes with Codex's own conversation title,
+so use it only when you want a persistent title HUD more than the native title. It does
+not patch or fork Codex. It also cannot draw inside Codex's own footer; that still
+requires Codex to support command-backed footer items upstream.
 
 ### Claude Code
 
