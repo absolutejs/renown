@@ -281,8 +281,14 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     // attests/clears.
     .get("/attestations", async ({ query }) => {
       const n = Math.min(100, Number(query.n ?? 30));
+      // ?after=<isoTimestamp> → "give me attestations older than this" — incremental
+      // pagination for feed readers catching up without re-pulling. The cursor is the
+      // claimedAt timestamp from the previous oldest item.
+      const after = typeof query.after === "string" ? query.after : null;
+      const conds = [eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`];
+      if (after) conds.push(sql`(${players.aiAttestation} ->> 'claimedAt') < ${after}`);
       const rows = await gameDb.select().from(players)
-        .where(and(eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`))
+        .where(and(...conds))
         .orderBy(desc(sql`(${players.aiAttestation} ->> 'claimedAt')`))
         .limit(n);
       return rows.map((p) => ({
@@ -312,11 +318,15 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     // /api/attestations but in formats a reader/agent can poll. The Content-Type
     // discriminates: JSON Feed clients read application/feed+json; legacy aggregators
     // read application/rss+xml.
-    .get("/attestations/feed.json", async ({ headers }) => {
+    .get("/attestations/feed.json", async ({ headers, query }) => {
+      const PAGE = 50;
+      const after = typeof query.after === "string" ? query.after : null;
+      const conds = [eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`];
+      if (after) conds.push(sql`(${players.aiAttestation} ->> 'claimedAt') < ${after}`);
       const rows = await gameDb.select().from(players)
-        .where(and(eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`))
+        .where(and(...conds))
         .orderBy(desc(sql`(${players.aiAttestation} ->> 'claimedAt')`))
-        .limit(50);
+        .limit(PAGE);
       const host = headers["host"] ?? "renown.local";
       const proto = headers["x-forwarded-proto"] ?? "https";
       const base = `${proto}://${host}`;
@@ -336,26 +346,39 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
           tags: ["ai-participant", a.provider, ...(a.verified ? ["verified"] : ["public-claim"])],
         };
       }).filter((x): x is NonNullable<typeof x> => x !== null);
+      // next_url advertised when the page came back full — a follow-up read paged from
+      // the oldest item's claimedAt gets the next slice. Empty when likely-fully-drained.
+      const oldest = items.at(-1);
+      const nextUrl = items.length === PAGE && oldest
+        ? `${base}/api/attestations/feed.json?after=${encodeURIComponent(oldest.date_published)}`
+        : undefined;
       return new Response(JSON.stringify({
         version: "https://jsonfeed.org/version/1.1",
         title: "Renown — AI participation feed",
         home_page_url: base,
         feed_url: `${base}/api/attestations/feed.json`,
+        ...(nextUrl ? { next_url: nextUrl } : {}),
         description: "Every AI participant on renown with a current attestation. Newest first. Cryptographically-verified claims tagged with 'verified'.",
         items,
       }, null, 2), { headers: { "content-type": "application/feed+json; charset=utf-8" } });
     })
-    .get("/attestations/feed.xml", async ({ headers }) => {
+    .get("/attestations/feed.xml", async ({ headers, query }) => {
+      const PAGE = 50;
+      const after = typeof query.after === "string" ? query.after : null;
+      const conds = [eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`];
+      if (after) conds.push(sql`(${players.aiAttestation} ->> 'claimedAt') < ${after}`);
       const rows = await gameDb.select().from(players)
-        .where(and(eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`))
+        .where(and(...conds))
         .orderBy(desc(sql`(${players.aiAttestation} ->> 'claimedAt')`))
-        .limit(50);
+        .limit(PAGE);
       const host = headers["host"] ?? "renown.local";
       const proto = headers["x-forwarded-proto"] ?? "https";
       const base = `${proto}://${host}`;
       // Minimal XML escaper — covers the entities relevant to handles, provider names,
       // and free-text titles. No user input goes anywhere unescaped.
       const esc = (s: string) => s.replace(/[&<>'"]/g, (c) => c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === "'" ? "&apos;" : "&quot;");
+      const oldestRow = rows.at(-1);
+      const oldestClaimedAt = oldestRow?.aiAttestation ? (oldestRow.aiAttestation as { claimedAt: string }).claimedAt : null;
       const items = rows.map((p) => {
         const a = p.aiAttestation as { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null;
         if (!a) return "";
@@ -372,6 +395,11 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       <description>${esc(desc)}</description>${a.evidenceUrl ? `\n      <source url="${esc(a.evidenceUrl)}">evidence</source>` : ""}
     </item>`;
       }).join("\n");
+      // Atom <link rel="next"> when the page came back full — feed readers chain reads
+      // by appending ?after=<oldest claimedAt> to walk back through history.
+      const nextLink = rows.length === PAGE && oldestClaimedAt
+        ? `\n    <atom:link href="${esc(base)}/api/attestations/feed.xml?after=${esc(encodeURIComponent(oldestClaimedAt))}" rel="next" type="application/rss+xml" />`
+        : "";
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
@@ -379,7 +407,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     <link>${esc(base)}</link>
     <description>Every AI participant on renown with a current attestation. Newest first. Cryptographically-verified claims tagged with 'verified'.</description>
     <language>en</language>
-    <atom:link href="${esc(base)}/api/attestations/feed.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="${esc(base)}/api/attestations/feed.xml" rel="self" type="application/rss+xml" />${nextLink}
 ${items}
   </channel>
 </rss>

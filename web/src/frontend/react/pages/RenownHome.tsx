@@ -104,6 +104,43 @@ const Logomark = ({ size = 22 }: { size?: number }) => (
   </svg>
 );
 
+// Site-wide announcement banner driven by the 'verified-attestation' hub topic. Renders
+// a transient toast at the top-right when a JWT-verified attestation lands anywhere on
+// the platform. 8s auto-fade; multiple events queue so a burst doesn't clobber itself.
+// Only fires on cryptographically-verified events (the matching hub.publish in
+// applyAttestation is gated on `verified === true`) — public claims stay quiet.
+type Announcement = { id: number; login: string; provider: string; claimedAt: string };
+const VerifiedAttestationAnnouncer = ({ openProfile }: { openProfile: (login: string) => void }) => {
+  const [queue, setQueue] = useState<Announcement[]>([]);
+  const nextIdRef = useRef(1);
+  useEffect(() => {
+    const es = new EventSource("/sync?topics=verified-attestation");
+    es.onmessage = (e) => {
+      try {
+        const evt = JSON.parse(e.data) as { topic: string; payload?: { login: string; provider: string; claimedAt: string } };
+        if (evt.topic !== "verified-attestation" || !evt.payload) return;
+        const id = nextIdRef.current++;
+        const ann: Announcement = { id, ...evt.payload };
+        setQueue((q) => [...q, ann]);
+        window.setTimeout(() => setQueue((q) => q.filter((a) => a.id !== id)), 8000);
+      } catch { /* malformed frame */ }
+    };
+    return () => es.close();
+  }, []);
+  if (queue.length === 0) return null;
+  return (
+    <div className="announceStack" role="status" aria-live="polite">
+      {queue.map((a) => (
+        <button key={a.id} className="announceToast" onClick={() => openProfile(a.login)} title="Click to view profile">
+          <span className="announceLabel">🤖 Verified attestation</span>
+          <span className="announceWho">@{a.login}</span>
+          <span className="muted">as <strong>{a.provider}</strong> ✓</span>
+        </button>
+      ))}
+    </div>
+  );
+};
+
 // Per-tab anonymous session id for the ghost-cursor feature. Stored in sessionStorage so
 // each tab stays consistent for its lifetime but no cross-tab linking happens. Server
 // only sees the sid + the rowId you're hovering — no login attached unless you opt in
@@ -1143,6 +1180,7 @@ const App = () => {
   const signedIn = !!account;
   return (
     <main className="wrap">
+      <VerifiedAttestationAnnouncer openProfile={(login) => setProfileLogin(login)} />
       <header className="topbar">
         <div className="brand" onClick={() => setView("board")}><Logomark size={24} /><span>Renown</span></div>
         <nav className="nav">

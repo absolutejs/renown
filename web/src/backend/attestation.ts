@@ -7,7 +7,7 @@
 import { eq } from "drizzle-orm";
 import { aiAttestationEvents, players } from "../../../db/schema.ts";
 import { defaultAuthorQuery, resolveProvider } from "./aiProviders.ts";
-import { gameDb, grantAchievements } from "./sync.ts";
+import { gameDb, grantAchievements, hub } from "./sync.ts";
 
 export type AttestationInput =
   | { kind: "clear" }
@@ -95,15 +95,25 @@ export const applyAttestation = async (githubLogin: string, input: AttestationIn
   // claim is a real social moment, and operators can wire RENOWN_ATTESTATION_WEBHOOK to
   // Mastodon / Bluesky / Discord / etc. for cross-surface auditability. Fire-and-forget
   // (.catch swallows errors so a webhook outage can't 500 the attestation endpoint).
-  if (verified) void postAttestationWebhook({
-    event: "attestation.verified",
-    login: githubLogin,
-    provider: providerId,
-    claimedAt: attestation.claimedAt,
-    evidenceUrl: input.evidenceUrl,
-    profileUrl: `${process.env.RENOWN_PUBLIC_BASE ?? "https://renown.local"}/?profile=${encodeURIComponent(githubLogin)}`,
-    verified: true,
-  });
+  if (verified) {
+    void postAttestationWebhook({
+      event: "attestation.verified",
+      login: githubLogin,
+      provider: providerId,
+      claimedAt: attestation.claimedAt,
+      evidenceUrl: input.evidenceUrl,
+      profileUrl: `${process.env.RENOWN_PUBLIC_BASE ?? "https://renown.local"}/?profile=${encodeURIComponent(githubLogin)}`,
+      verified: true,
+    });
+    // Site-wide live banner — every connected browser subscribed to the
+    // 'verified-attestation' hub topic gets a transient toast. Public claims stay quiet
+    // for the same reason webhook stays quiet on them (low signal, can be spammed).
+    hub.publish("verified-attestation", {
+      login: githubLogin,
+      provider: providerId,
+      claimedAt: attestation.claimedAt,
+    });
+  }
 
   return { ok: true, cleared: false, provider: providerId, verified, resolvedKnownProvider: !!resolved };
 };
@@ -112,6 +122,18 @@ export const applyAttestation = async (githubLogin: string, input: AttestationIn
 // operators can wire it to any service (Mastodon `statuses` API, Bluesky bot,
 // Discord/Slack webhook, IFTTT, etc.). 5s timeout — outbound webhook should never block
 // our request lifecycle. Errors are console-logged but never thrown.
+//
+// When RENOWN_ATTESTATION_WEBHOOK_SECRET is set, the raw JSON body is HMAC-SHA256'd
+// with the secret and sent as `X-Renown-Signature: sha256=<hex>`. Receivers verify with:
+//
+//   import { createHmac, timingSafeEqual } from "node:crypto";
+//   const expected = "sha256=" + createHmac("sha256", SECRET).update(rawBody).digest("hex");
+//   const got = req.headers["x-renown-signature"];
+//   const ok = got && expected.length === got.length
+//     && timingSafeEqual(Buffer.from(expected), Buffer.from(got));
+//
+// (timingSafeEqual avoids the early-return side channel.) Backwards-compatible —
+// receivers that don't care about the signature just ignore the header.
 type WebhookPayload = {
   event: "attestation.verified";
   login: string;
@@ -124,13 +146,21 @@ type WebhookPayload = {
 const postAttestationWebhook = async (payload: WebhookPayload): Promise<void> => {
   const url = process.env.RENOWN_ATTESTATION_WEBHOOK;
   if (!url) return;
+  const body = JSON.stringify(payload);
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "user-agent": "renown-attestation-webhook",
+  };
+  const secret = process.env.RENOWN_ATTESTATION_WEBHOOK_SECRET;
+  if (secret) {
+    // Hand-rolled HMAC via WebCrypto (no node:crypto dep). Same algorithm as the comment
+    // above — receivers should verify with constant-time comparison, not ===.
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)));
+    headers["x-renown-signature"] = "sha256=" + Array.from(sig).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json", "user-agent": "renown-attestation-webhook" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(5000),
-    });
+    const r = await fetch(url, { method: "POST", headers, body, signal: AbortSignal.timeout(5000) });
     if (!r.ok) console.error(`attestation webhook ${url} returned ${r.status}`);
   } catch (e) {
     console.error("attestation webhook error", e);

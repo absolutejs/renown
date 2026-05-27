@@ -12,7 +12,7 @@
 //   collection       → your collectibles (drops + event loot)
 //   summon [seed]     → procedurally generate & animate a unique creature ('gallery' = 6)
 //   link             → link this install to your GitHub identity (browserless, via gh auth token)
-//   ai-attest        → mark this account as an AI participant (--provider, --jwt, --evidence-url)
+//   ai-attest        → mark this account as an AI participant (--provider, --jwt, --evidence-url; --auto reads env)
 //   weekly           → 7-day attribution + verified-score delta + new achievements (read /api/recap)
 //   adopt [seed]      → adopt a wild find (default: your rarest) as your companion
 //   companion         → watch your adopted companion (animated)
@@ -139,9 +139,16 @@ switch (cmd) {
     const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
     if (!token) { console.log("No GitHub token — run `gh auth login` first, then re-try."); break; }
     const clear = hasFlag("clear");
-    const provider = clear ? null : flag("provider");
+    // --auto reads attestation params from env so an agent's runtime can inject them
+    // once and let every invocation reuse them — no "did I type the right provider"
+    // friction. Explicit --provider / --jwt / --evidence-url still win when also passed.
+    const auto = hasFlag("auto");
+    const provider = clear ? null : (flag("provider") ?? (auto ? process.env.RENOWN_AI_PROVIDER : undefined));
+    const jwt = clear ? undefined : (flag("jwt") ?? (auto ? process.env.RENOWN_AI_ATTESTATION_JWT : undefined));
+    const evidenceUrl = clear ? undefined : (flag("evidence-url") ?? (auto ? process.env.RENOWN_AI_EVIDENCE_URL : undefined));
     if (!clear && !provider) {
       console.log("usage: renown ai-attest --provider <name> [--evidence-url <url>] [--jwt <token>]");
+      console.log("       renown ai-attest --auto      (reads RENOWN_AI_PROVIDER / RENOWN_AI_ATTESTATION_JWT / RENOWN_AI_EVIDENCE_URL)");
       console.log("       renown ai-attest --clear");
       console.log("       known providers: anthropic / openai / cursor / copilot / codex / dev");
       break;
@@ -149,7 +156,7 @@ switch (cmd) {
     const { authHeaders } = await import("../core/m2m.ts");
     const body = clear
       ? { token, provider: null }
-      : { token, provider, evidenceUrl: flag("evidence-url"), attestationJwt: flag("jwt") };
+      : { token, provider, evidenceUrl, attestationJwt: jwt };
     const res = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/cli/ai-attest`, { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders(cfg)) }, body: JSON.stringify(body) }).catch(() => null);
     const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
     if (j.error) { console.log("ai-attest failed:", j.error); break; }
