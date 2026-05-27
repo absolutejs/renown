@@ -5,7 +5,7 @@
 // "the CLI doesn't grant ai-verified" edge cases.
 
 import { trace, SpanStatusCode } from "@opentelemetry/api";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { aiAttestationEvents, players, webhookDeliveries } from "../../../db/schema.ts";
 import { defaultAuthorQuery, resolveProvider } from "./aiProviders.ts";
 import { sendPushToAll } from "./push.ts";
@@ -255,6 +255,28 @@ type WebhookPayload = {
   profileUrl: string;
   verified: boolean;
 };
+// Stale-attestation digest builder. Returns every player whose verified attestation
+// expires within `withinDays`, with the per-row metadata an operator-side emailer
+// would need. Stays in this module since it's about attestation lifecycle. The cron
+// (cronPlugin) and the admin endpoint both call it; the cron additionally POSTs the
+// digest to RENOWN_DIGEST_WEBHOOK if set so an operator can wire it to an email
+// service of their choice.
+export type StaleEntry = { login: string | null; handle: string; provider: string | null; expiresAt: string | null; daysUntilExpiry: number };
+export const buildStaleAttestationDigest = async (withinDays: number): Promise<StaleEntry[]> => {
+  const cutoffMs = Date.now() + withinDays * 24 * 60 * 60 * 1000;
+  const rows = await gameDb.select().from(players).where(and(
+    eq(players.isAi, true),
+    sql`(${players.aiAttestation} ->> 'verified')::boolean = true`,
+    sql`(${players.aiAttestation} ->> 'expiresAt') < ${new Date(cutoffMs).toISOString()}`,
+  ));
+  return rows.map((r) => {
+    const a = r.aiAttestation as { provider?: string; expiresAt?: string } | null;
+    const expiresAt = a?.expiresAt ?? null;
+    const daysUntilExpiry = expiresAt ? Math.round((Date.parse(expiresAt) - Date.now()) / (24 * 60 * 60 * 1000)) : -Infinity;
+    return { login: r.githubLogin, handle: r.handle, provider: a?.provider ?? null, expiresAt, daysUntilExpiry };
+  }).sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
+};
+
 // 0s → 4s → 16s exponential backoff. Three attempts before we give up and leave the
 // deliveries log as the dead-letter store. The loop runs detached from the caller; the
 // attestation endpoint never waits for it.

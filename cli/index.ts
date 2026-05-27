@@ -163,6 +163,14 @@ switch (cmd) {
       console.log("Open this URL in a browser (Account view will auto-jump to the WebAuthn attestation flow):");
       console.log(`  ${url}`);
       console.log("After signing with your registered key, your attestation will be stamped self-keyed (✦).");
+      // Try to open it for the user. Platform-specific helpers; fall through silently
+      // if the spawn fails — the URL is already printed for manual paste. We don't
+      // wait on the process (subprocess.unref-equivalent) so a misbehaving opener
+      // can't keep the CLI alive.
+      const opener = process.platform === "darwin" ? ["open", url]
+        : process.platform === "win32" ? ["cmd", "/c", "start", "", url]
+        : ["xdg-open", url];
+      try { Bun.spawn(opener, { stdout: "ignore", stderr: "ignore" }); } catch { /* not fatal — printed above */ }
       break;
     }
     if (!clear && !provider) {

@@ -126,12 +126,14 @@ const WebhookDeliveriesPanel = () => {
   const [rows, setRows] = useState<DeliveryRow[]>([]);
   const [failedOnly, setFailedOnly] = useState(true);
   const [eventKind, setEventKind] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const load = useCallback(async () => {
     const q = new URLSearchParams({ n: "100" });
     if (failedOnly) q.set("failed", "true");
     if (eventKind) q.set("eventKind", eventKind);
     const r = await fetch(`/api/admin/webhook-deliveries?${q.toString()}`);
     if (r.ok) setRows(await r.json());
+    setSelected(new Set());   // refetch invalidates the selection set
   }, [failedOnly, eventKind]);
   useEffect(() => { load(); }, [load]);
   const replay = async (id: string) => {
@@ -140,21 +142,36 @@ const WebhookDeliveriesPanel = () => {
     if (res.ok) load();
     else alert("replay failed");
   };
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allVisible = rows.map((r) => r.id);
+  const allSelected = allVisible.length > 0 && allVisible.every((id) => selected.has(id));
+  const toggleAll = () => setSelected((s) => allSelected ? new Set([...s].filter((id) => !allVisible.includes(id))) : new Set([...s, ...allVisible]));
+  const replayBulk = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Replay ${selected.size} selected delivery row(s)? Each is re-run through the retry-and-log loop; new attempt rows show up here.`)) return;
+    const res = await fetch("/api/admin/webhook-deliveries/replay-bulk", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [...selected] }) });
+    if (res.ok) { setSelected(new Set()); window.setTimeout(load, 500); }
+    else alert("bulk replay failed");
+  };
   return (
     <section className="card">
       <h2>Webhook deliveries <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {rows.length} {failedOnly ? "failed" : "recent"}</span></h2>
       <p className="hint">One row per delivery attempt to <code>RENOWN_ATTESTATION_WEBHOOK</code>. Failed deliveries (no status, or HTTP &ge; 400) are the dead-letter pile — use Replay to re-run them through the same retry-and-log loop.</p>
-      <div className="form" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 0 }}>
+      <div className="form" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 0, alignItems: "center" }}>
         <label className="field" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
           <input type="checkbox" checked={failedOnly} onChange={(e) => setFailedOnly(e.target.checked)} /> failed only
         </label>
         <div className="field"><input type="text" placeholder="event kind (e.g. attestation.verified)" value={eventKind} onChange={(e) => setEventKind(e.target.value)} /></div>
+        {selected.size > 0 && (
+          <button className="btn solid sm" style={{ marginLeft: "auto" }} onClick={replayBulk}>Replay selected ({selected.size})</button>
+        )}
       </div>
       <table className="atable" style={{ marginTop: 12 }}>
-        <thead><tr><th>When</th><th>Event</th><th>URL</th><th>Attempt</th><th>Status</th><th>Error</th><th>Actions</th></tr></thead>
+        <thead><tr><th style={{ width: 24 }}><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="select all visible" /></th><th>When</th><th>Event</th><th>URL</th><th>Attempt</th><th>Status</th><th>Error</th><th>Actions</th></tr></thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
+              <td><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} aria-label={`select delivery ${r.id}`} /></td>
               <td className="muted" style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{new Date(r.attemptedAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</td>
               <td><code style={{ fontSize: 11 }}>{r.eventKind}</code></td>
               <td className="muted" style={{ fontSize: 11, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.url}>{r.url}</td>
@@ -164,7 +181,7 @@ const WebhookDeliveriesPanel = () => {
               <td><button className="link" style={{ fontSize: 11 }} onClick={() => replay(r.id)}>replay</button></td>
             </tr>
           ))}
-          {rows.length === 0 && <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>No deliveries match these filters.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={8} className="muted" style={{ textAlign: "center", padding: 20 }}>No deliveries match these filters.</td></tr>}
         </tbody>
       </table>
     </section>
@@ -180,16 +197,18 @@ const AttestationsPanel = () => {
   const [providerFilter, setProviderFilter] = useState("");
   const [kindFilter, setKindFilter] = useState("");
   const [verifiedFilter, setVerifiedFilter] = useState<"" | "true" | "false">("");
+  const [actorFilter, setActorFilter] = useState("");
   const [loginFilter, setLoginFilter] = useState("");
   const load = useCallback(async () => {
     const q = new URLSearchParams({ n: "100" });
     if (providerFilter) q.set("provider", providerFilter);
     if (kindFilter) q.set("kind", kindFilter);
     if (verifiedFilter) q.set("verified", verifiedFilter);
+    if (actorFilter) q.set("actorKind", actorFilter);
     if (loginFilter) q.set("login", loginFilter);
     const r = await fetch(`/api/admin/attestations?${q.toString()}`);
     if (r.ok) setRows(await r.json());
-  }, [providerFilter, kindFilter, verifiedFilter, loginFilter]);
+  }, [providerFilter, kindFilter, verifiedFilter, actorFilter, loginFilter]);
   useEffect(() => { load(); }, [load]);
   // Live subscribe — applyAttestation publishes to 'attestation-events' on every
   // claim / verify / clear. Re-runs load() on each event so the table reflects the
@@ -206,6 +225,7 @@ const AttestationsPanel = () => {
         <div className="field"><input type="text" placeholder="provider (anthropic / dev / …)" value={providerFilter} onChange={(e) => setProviderFilter(e.target.value)} /></div>
         <div className="field"><select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}><option value="">all kinds</option><option value="claimed">claimed</option><option value="verified">verified</option><option value="cleared">cleared</option></select></div>
         <div className="field"><select value={verifiedFilter} onChange={(e) => setVerifiedFilter(e.target.value as "" | "true" | "false")}><option value="">verified: any</option><option value="true">verified only</option><option value="false">unverified only</option></select></div>
+        <div className="field"><select value={actorFilter} onChange={(e) => setActorFilter(e.target.value)}><option value="">actor: any</option><option value="user">user</option><option value="admin">admin</option><option value="cli">cli</option><option value="system">system</option></select></div>
         <div className="field"><input type="text" placeholder="login (e.g. claude)" value={loginFilter} onChange={(e) => setLoginFilter(e.target.value)} /></div>
       </div>
       <table className="atable" style={{ marginTop: 12 }}>

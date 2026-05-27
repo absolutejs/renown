@@ -3,12 +3,12 @@
 //
 // Hard-separated from the user realm: a regular user session DOES NOT grant admin authority,
 // and an admin session DOES NOT grant user authority. Admin endpoints check `requireAdmin`.
-import { and, desc, eq, ilike, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia, t } from "elysia";
 import { aiAttestationEvents, players, webhookDeliveries } from "../../../../db/schema.ts";
 import { schema, SchemaType } from "../../../db/schema";
-import { applyAttestation, deliverWebhook } from "../attestation.ts";
+import { applyAttestation, buildStaleAttestationDigest, deliverWebhook } from "../attestation.ts";
 import { gameDb } from "../sync.ts";
 import { adminCookieAttrs, adminCookieName, issueAdminToken, verifyAdminToken } from "../admin/adminCookie";
 import { isTier, normalizeTier, type Tier } from "../billing/tiers";
@@ -106,6 +106,17 @@ export const adminAuthPlugin = ({ db }: Deps) =>
     // webhook URL (RENOWN_ATTESTATION_WEBHOOK) — i.e. respects any URL change the
     // operator made since the original failed attempt. Adds new rows to the delivery
     // log so the trail of replay attempts is itself auditable.
+    // Stale-attestation digest — every verified attestation expiring within
+    // ?withinDays= (default 30). Admin-only; the cron also calls the same builder
+    // and POSTs the digest to RENOWN_DIGEST_WEBHOOK so an operator can wire it to
+    // email/Slack/whatever. Honest scope: actually delivering the email is
+    // operator-owned; we surface the data.
+    .get("/api/admin/expiring-attestations", async ({ query, request, set }) => {
+      const admin = await requireAdmin(db, request);
+      if (!admin) { set.status = 401; return { error: "not admin" }; }
+      const days = Math.max(1, Math.min(365, Number(query.withinDays ?? 30)));
+      return buildStaleAttestationDigest(days);
+    })
     // Admin attestations dashboard — paginated read of ai_attestation_events across
     // all players. Filters: ?provider= / ?kind= (claimed|verified|cleared) /
     // ?verified=true|false / ?login= / ?after=<iso> / ?before=<iso>. Joins to players
@@ -120,6 +131,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       if (typeof query.kind === "string" && query.kind) conds.push(eq(aiAttestationEvents.kind, query.kind));
       if (query.verified === "true") conds.push(eq(aiAttestationEvents.verified, true));
       if (query.verified === "false") conds.push(eq(aiAttestationEvents.verified, false));
+      if (typeof query.actorKind === "string" && query.actorKind) conds.push(eq(aiAttestationEvents.actorKind, query.actorKind));
       if (typeof query.after === "string" && query.after) conds.push(sql`${aiAttestationEvents.at} >= ${query.after}`);
       if (typeof query.before === "string" && query.before) conds.push(sql`${aiAttestationEvents.at} <= ${query.before}`);
       if (typeof query.login === "string" && query.login) conds.push(eq(players.githubLogin, query.login));
@@ -172,6 +184,25 @@ export const adminAuthPlugin = ({ db }: Deps) =>
         .orderBy(desc(webhookDeliveries.attemptedAt))
         .limit(limit);
       return rows;
+    })
+    // Bulk replay — accepts an array of delivery ids and re-runs the retry-and-log
+    // loop against the current configured webhook URL for each. Detached: returns
+    // immediately, attempts log new rows. Caps at 200 ids per call to keep a runaway
+    // request from holding the connection.
+    .post("/api/admin/webhook-deliveries/replay-bulk", async ({ body, request, set }) => {
+      const admin = await requireAdmin(db, request);
+      if (!admin) { set.status = 401; return { error: "not admin" }; }
+      const url = process.env.RENOWN_ATTESTATION_WEBHOOK;
+      if (!url) { set.status = 400; return { error: "RENOWN_ATTESTATION_WEBHOOK not configured" }; }
+      const ids = ((body ?? {}) as { ids?: string[] }).ids ?? [];
+      if (!Array.isArray(ids) || ids.length === 0) { set.status = 400; return { error: "ids array required" }; }
+      const capped = ids.slice(0, 200);
+      const rows = await gameDb.select().from(webhookDeliveries).where(inArray(webhookDeliveries.id, capped));
+      for (const row of rows) {
+        void deliverWebhook(url, row.eventKind, row.payload as Record<string, unknown>);
+      }
+      console.log(`[renown:admin] ${admin.email} → bulk replay of ${rows.length} delivery row(s)`);
+      return { ok: true, replaying: rows.length };
     })
     .post("/api/admin/webhook-deliveries/:id/replay", async ({ params, request, set }) => {
       const admin = await requireAdmin(db, request);

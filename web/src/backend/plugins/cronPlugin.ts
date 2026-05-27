@@ -10,6 +10,7 @@ import { cron } from "@elysiajs/cron";
 import { and, eq, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { players } from "../../../../db/schema.ts";
+import { buildStaleAttestationDigest, deliverWebhook } from "../attestation.ts";
 import { gameDb } from "../sync.ts";
 
 const sweepExpiredAttestations = async (): Promise<number> => {
@@ -33,6 +34,26 @@ const sweepExpiredAttestations = async (): Promise<number> => {
   return rows.length;
 };
 
+// Weekly digest of attestations expiring soon. POST to RENOWN_DIGEST_WEBHOOK if set;
+// admin can also pull the same data from /api/admin/expiring-attestations on demand.
+// Honest scope: actual email sending is operator-owned (wire the webhook to whatever
+// service you use — Resend / SendGrid / Postmark / a Slack channel / a Discord bot /
+// IFTTT). Mondays 09:00 UTC because the bulk of contributors check their inbox
+// Monday morning regardless of timezone.
+const DIGEST_WITHIN_DAYS = 30;
+const postDigestIfConfigured = async () => {
+  const url = process.env.RENOWN_DIGEST_WEBHOOK;
+  if (!url) return;
+  const entries = await buildStaleAttestationDigest(DIGEST_WITHIN_DAYS);
+  if (entries.length === 0) return;   // nothing to remind anyone about
+  await deliverWebhook(url, "attestation.expiring-digest", {
+    event: "attestation.expiring-digest",
+    withinDays: DIGEST_WITHIN_DAYS,
+    generatedAt: new Date().toISOString(),
+    entries,
+  });
+};
+
 export const cronPlugin = () =>
   new Elysia({ name: "renown-cron" })
     .use(cron({
@@ -47,5 +68,13 @@ export const cronPlugin = () =>
         } catch (e) {
           console.error("[renown:cron] attestation-expiry-sweep failed", e);
         }
+      },
+    }))
+    .use(cron({
+      name: "attestation-expiring-digest",
+      pattern: "0 9 * * 1",   // Mondays 09:00 UTC
+      run: async () => {
+        try { await postDigestIfConfigured(); }
+        catch (e) { console.error("[renown:cron] attestation-expiring-digest failed", e); }
       },
     }));
