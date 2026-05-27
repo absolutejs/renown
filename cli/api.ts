@@ -22,9 +22,10 @@
 // adopt / etc.) are intentionally not here — some require Bun's $ and the richer local
 // state machine. Run those via the full CLI in this repo: `bun run cli/index.ts`.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { run, runSync } from "./proc.ts";
 import { agentById, agentFromEnv, normalizeAgentId } from "../core/agents.ts";
 import { applyGains, skillProgress, topSkills, totalLevel } from "../core/skills.ts";
@@ -36,6 +37,7 @@ const RDIR = join(HOME, ".renown");
 const STATE = join(RDIR, "state.json");
 const HUD = join(RDIR, "hud.txt");
 const TMUX_CONF = join(RDIR, "tmux-status.conf");
+const CODEX_REAL = join(RDIR, "codex-real-path");
 
 // Minimal config-loader — accepts the historical XDG path and the current ~/.renown
 // path used by the local engine.
@@ -162,6 +164,7 @@ const usage = () => {
   console.log("commands:");
   console.log("  agent <provider>          count one coding-agent session (codex / claude / cursor / etc.)");
   console.log("  install-agent <target>    install first-party agent wiring (claude / codex / tmux / all)");
+  console.log("  launch codex              run Codex with Renown terminal-title HUD");
   console.log("  statusline                print the local renown HUD for shells and agent footers");
   console.log("  heartbeat                 refresh local HUD and submit current state");
   console.log("  link                     link this install to GitHub (browserless, via gh auth token)");
@@ -185,6 +188,69 @@ const usage = () => {
   console.log("  oxlint / deno-check                 (alternative JS/TS)");
   console.log("");
   console.log("renown is part of @absolutejs/renown — https://github.com/absolutejs/renown");
+};
+
+const isExecutable = (path: string) => {
+  try {
+    return existsSync(path);
+  } catch { return false; }
+};
+
+const findOnPath = (name: string) => {
+  const pathEnv = process.env.PATH ?? "";
+  for (const dir of pathEnv.split(process.platform === "win32" ? ";" : ":")) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    if (isExecutable(candidate)) return candidate;
+  }
+  return undefined;
+};
+
+const sanitizeTitle = (value: string) => value.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 140).trim();
+
+const currentHudLine = () => {
+  const s = loadLocalState();
+  return existsSync(HUD) ? readFileSync(HUD, "utf8").trim() : renderLocalHud(s);
+};
+
+const writeTerminalTitle = (title: string) => {
+  if (!process.stdout.isTTY) return;
+  process.stdout.write(`\x1b]0;${sanitizeTitle(title)}\x07`);
+};
+
+const runCodexWithTitleHud = async (args: string[]) => {
+  const realCodex = process.env.RENOWN_REAL_CODEX
+    ?? (existsSync(CODEX_REAL) ? readFileSync(CODEX_REAL, "utf8").trim() : undefined)
+    ?? findOnPath("codex");
+  if (!realCodex) {
+    console.error("renown launch codex: could not find Codex. Install Codex first.");
+    process.exit(127);
+  }
+
+  const update = () => writeTerminalTitle(currentHudLine());
+  update();
+  const timer = setInterval(update, 5000);
+  const child = spawn(realCodex, args, {
+    stdio: "inherit",
+    env: { ...process.env, RENOWN_TITLE_HUD: "1" },
+  });
+  const forward = (signal: NodeJS.Signals) => {
+    if (!child.killed) child.kill(signal);
+  };
+  process.on("SIGINT", forward);
+  process.on("SIGTERM", forward);
+  process.on("SIGHUP", forward);
+  child.on("error", (err) => {
+    clearInterval(timer);
+    console.error(`renown launch codex: ${err.message}`);
+    process.exit(1);
+  });
+  child.on("close", (code, signal) => {
+    clearInterval(timer);
+    writeTerminalTitle("codex");
+    if (signal) process.kill(process.pid, signal);
+    process.exit(code ?? 0);
+  });
 };
 
 const backupFile = (path: string) => {
@@ -314,6 +380,59 @@ hooks = [{ type = "command", command = "renown heartbeat --quiet" }]
   console.log("  run /hooks in Codex if it asks you to trust new hooks.");
 };
 
+const installCodexLauncher = (dryRun: boolean) => {
+  const codexPath = findOnPath("codex");
+  if (!codexPath) {
+    console.log("Codex launcher not installed: could not find `codex` on PATH.");
+    return;
+  }
+  let existing = "";
+  try { existing = readFileSync(codexPath, "utf8"); } catch {}
+  const alreadyShim = existing.includes("RENOWN_CODEX_TITLE_SHIM");
+  const realCodex = alreadyShim && existsSync(CODEX_REAL)
+    ? readFileSync(CODEX_REAL, "utf8").trim()
+    : realpathSync(codexPath);
+  if (alreadyShim && realCodex) {
+    if (dryRun) {
+      console.log(`[dry-run] Codex launcher already managed at ${codexPath}`);
+      return;
+    }
+  }
+  const script = `#!/usr/bin/env sh
+# RENOWN_CODEX_TITLE_SHIM
+RENOWN_REAL_CODEX=${JSON.stringify(realCodex)}
+export RENOWN_REAL_CODEX
+exec renown launch codex "$@"
+`;
+  if (dryRun) {
+    console.log(`[dry-run] would replace ${codexPath} with Renown Codex title shim`);
+    console.log(`[dry-run] real Codex preserved as ${realCodex}`);
+    return;
+  }
+  mkdirSync(RDIR, { recursive: true });
+  writeFileSync(CODEX_REAL, `${realCodex}\n`);
+  const backup = `${codexPath}.renown-bak-${Date.now()}`;
+  if (!alreadyShim) {
+    try {
+      const stat = lstatSync(codexPath);
+      if (stat.isSymbolicLink()) {
+        writeFileSync(backup, `symlink -> ${realCodex}\n`);
+        unlinkSync(codexPath);
+      } else {
+        renameSync(codexPath, backup);
+      }
+    } catch {
+      // If backup fails, do not proceed with replacing the launcher.
+      throw new Error(`Could not back up existing Codex launcher at ${codexPath}`);
+    }
+  }
+  writeFileSync(codexPath, script);
+  chmodSync(codexPath, 0o755);
+  console.log(`✓ Codex launcher shim installed: ${codexPath}`);
+  console.log(`  real Codex: ${realCodex}`);
+  if (!alreadyShim) console.log(`  backup: ${backup}`);
+};
+
 const tmuxQuote = (value: string) => JSON.stringify(value);
 
 const readTmuxStatusRight = () => {
@@ -376,16 +495,25 @@ const main = async () => {
   if (cmd === "install-agent" || cmd === "install-agents") {
     const target = rest.find((arg) => !arg.startsWith("-")) ?? "all";
     const dryRun = hasFlag(rest, "dry-run");
-    if (!["all", "claude", "codex", "tmux"].includes(target)) {
-      console.log("usage: renown install-agent <all|claude|codex|tmux> [--dry-run]");
+    if (!["all", "claude", "codex", "codex-launcher", "tmux"].includes(target)) {
+      console.log("usage: renown install-agent <all|claude|codex|codex-launcher|tmux> [--dry-run]");
       return;
     }
     if (target === "all" || target === "claude") installClaudeAgent(dryRun);
-    if (target === "all" || target === "codex") installCodexAgent(dryRun);
+    if (target === "all" || target === "codex") {
+      installCodexAgent(dryRun);
+      installCodexLauncher(dryRun);
+    }
+    if (target === "codex-launcher") installCodexLauncher(dryRun);
     if (target === "all" || target === "tmux") installTmuxStatus(dryRun);
     if (!dryRun && (target === "all" || target === "codex")) {
       console.log("  Codex note: Renown tracking is native via hooks; visible HUD is via tmux until Codex supports command-backed footer items.");
     }
+    return;
+  }
+
+  if (cmd === "launch" && rest[0] === "codex") {
+    await runCodexWithTitleHud(rest.slice(1));
     return;
   }
 

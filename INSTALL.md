@@ -149,6 +149,11 @@ renown install-agent codex
 renown install-agent tmux
 ```
 
+`renown install-agent codex` also installs a small `codex` launcher shim in front of
+the real Codex binary. After that, launching plain `codex` keeps working, but Renown
+updates the terminal window/tab title with the current HUD while Codex runs. This is
+the same-terminal fallback for terminals that do not provide a bottom status bar.
+
 Manual Codex hook setup lives in `~/.codex/config.toml`; project-local
 `.codex/config.toml` only loads after the project is trusted:
 
@@ -192,6 +197,26 @@ The installer writes:
 and ensures `~/.tmux.conf` sources it. The snippet prepends `#(renown statusline)` to
 tmux `status-right` and refreshes every 5 seconds. This gives Codex sessions a persistent
 Renown HUD in the terminal chrome while Codex itself remains unpatched.
+
+### Same-terminal Codex title HUD
+
+If you do not want tmux, install the Codex launcher shim:
+
+```bash
+renown install-agent codex
+codex
+```
+
+The shim preserves the real Codex binary path in `~/.renown/codex-real-path` and runs:
+
+```bash
+renown launch codex
+```
+
+for you. While Codex is open, Renown writes the HUD into the terminal title using the
+standard OSC title escape sequence. It does not patch or fork Codex. It also cannot draw
+inside Codex's own footer; that still requires Codex to support command-backed footer
+items upstream.
 
 ### Claude Code
 
