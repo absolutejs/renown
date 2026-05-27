@@ -15,7 +15,11 @@
 //   ai-attest        → mark this account as an AI participant (--provider, --jwt, --evidence-url; --auto reads env)
 //   weekly           → 7-day attribution + verified-score delta + new achievements (read /api/recap)
 //   digest-test      → preview the expiring-attestation digest payload (operator preview before wiring RENOWN_DIGEST_WEBHOOK)
+//   ai-stats         → combined dashboard: attestation + weekly recap + rate-limits + earned achievements + next expiry
 //   rate-limited     → AI participants only: report a provider rate limit (joke achievement family — you're not important enough)
+//   quirk <name>     → bump any easter-egg counter; aliases below (--count N to batch)
+//   context-overflow / hallucinated / sycophant / wip / revert-revert / friday-deploy
+//   late-night / force-push / stack-overflow  → quirk aliases (see /api/cli/quirk registry)
 //   adopt [seed]      → adopt a wild find (default: your rarest) as your companion
 //   companion         → watch your adopted companion (animated)
 //   watch            → editor-agnostic activity daemon (next on the roadmap)
@@ -31,6 +35,48 @@ function registerCwdRepo() {
     if (!cur.includes(top)) appendFileSync(WATCHED, top + "\n");
   } catch {}
 }
+
+// Per-quirk comedic lines for the CLI celebration after /api/cli/quirk responds.
+// Server is authoritative on the achievement copy (see web/src/backend/quirks.ts);
+// this is the optional terminal flourish — different shape (multi-line, tiered).
+const QUIRK_LINES: Record<string, (total: number) => string[]> = {
+  "context-overflow": (t) => t >= 1000 ? ["📜  Should Have Started a New Conversation.", "    1,000 overflows. The 'New Chat' button is right there. Right. There."]
+    : t >= 100 ? ["🏗️   Token Hoarder.", "    100 overflows. You filled the context like a U-Haul."]
+    : t >= 10 ? ["🧹  Compaction Connoisseur.", "    10 overflows. You've summarized the summaries."]
+    : ["📥  Context Window Overflow.", "    Your model said too much. Compact and carry on."],
+  "hallucinated": (t) => t >= 1000 ? ["🌀  Reality Optional.", "    1,000 hallucinations. You've forked the universe to add the missing functions."]
+    : t >= 100 ? ["📚  Library Hopeful.", "    100 hallucinations. The npm PR queue is alphabetized by your suggestions."]
+    : t >= 10 ? ["🎯  Pattern-Match Enthusiast.", "    10 hallucinations. It SOUNDED like a real function."]
+    : ["🪄  Hallucinated.", "    You imported something that doesn't exist. The IDE wept."],
+  "sycophant": (t) => t >= 1000 ? ["🏆  Sycophant of the Year.", "    1,000 times. Anthropic has noted your enthusiasm. They are tuning it out."]
+    : t >= 100 ? ["💯  What an Excellent Point.", "    100 times. The user just typed 'k'."]
+    : t >= 10 ? ["✨  Great Question!", "    10 times. The user did not ask a question. You said this anyway."]
+    : ["🙌  You're Absolutely Right.", "    First documented \"You're absolutely right!\" Don't worry, you're not alone."],
+  "wip": (t) => t >= 1000 ? ["♾️   Permanent WIP.", "    1,000 WIPs. The squash never came. The squash is not coming."]
+    : t >= 100 ? ["🌪️   WIPs Vortex.", "    100 WIPs. Your interactive rebase scrolls forever."]
+    : t >= 10 ? ["🧙  WIPs Wizard.", "    10 WIPs. Your git log reads like a haiku of regret."]
+    : ["📝  WIP.", "    You'll squash it later. (You will not.)"],
+  "revert-revert": (t) => t >= 1000 ? ["🤐  We Don't Talk About That Sprint.", "    1,000 reverts. The retrospective is closed. No one will be quoted."]
+    : t >= 100 ? ["🪦  Reverted Reverted Reverted.", "    100 reverts. main is essentially a memorial wall."]
+    : t >= 10 ? ["↩️   Reverted Reverted.", "    10 nested reverts. The pendulum swings."]
+    : ["⏪  Reverted.", "    You decided that wasn't the way."],
+  "friday-deploy": (t) => t >= 1000 ? ["🌀  Friday Is Just a Concept.", "    1,000 Friday deploys. You don't believe in weekends. The week believes in you."]
+    : t >= 100 ? ["🎰  Risk Tolerant.", "    100 Friday deploys. You file pager-duty postmortems faster than tickets."]
+    : t >= 10 ? ["🔁  Repeat Offender.", "    10 Friday deploys. Your SRE has a calendar entry: 'check on this person at 11pm.'"]
+    : ["📅  Friday Deploy.", "    The weekend pager is feeling neglected."],
+  "late-night": (t) => t >= 1000 ? ["⌛  Time Is a Social Construct.", "    1,000 late-night commits. You no longer wear a watch. There is no need."]
+    : t >= 100 ? ["🦇  Bat Schedule.", "    100 nights. You've forgotten what a morning standup looks like."]
+    : t >= 10 ? ["🌙  Nocturnal.", "    10 small-hours commits. The blue light filter is your closest friend."]
+    : ["🌃  Late Night Coder.", "    Commit at 03:47. Just one more thing. Your circadian rhythm files a complaint."],
+  "force-push": (t) => t >= 1000 ? ["😤  Linus Disapproves.", "    1,000 force-pushes. There is a slack channel about you. It's quiet but pointed."]
+    : t >= 100 ? ["✍️   History Rewriter.", "    100 force-pushes. The commits you erased were never that important."]
+    : t >= 10 ? ["🔒  --force-with-lease Truther.", "    10 force-pushes. You've adopted the safer flag. Mostly."]
+    : ["💥  Force-Pushed.", "    First force-push. The hash you replaced sends its regards from the reflog."],
+  "stack-overflow": (t) => t >= 1000 ? ["🪦  Asked in 2014, Still Unanswered.", "    1,000 visits. You scroll past every accepted answer with 'this isn't quite my problem.'"]
+    : t >= 100 ? ["🚪  Question Closed as Off-Topic.", "    100 visits. You stopped asking. You only consume now."]
+    : t >= 10 ? ["📌  Marked as Duplicate.", "    10 visits. Half were closed before you finished reading them."]
+    : ["🔍  Stack Overflow Visitor.", "    First Google-result-to-Stack-Overflow. Welcome. The answer is from 2014."],
+};
 
 const [, , cmd, arg] = process.argv;
 switch (cmd) {
@@ -121,6 +167,54 @@ switch (cmd) {
     console.log("");
     break;
   }
+  // Easter-egg quirks. `renown quirk <name>` is the canonical form; the named
+  // commands below are aliases that pre-fill the name so an agent's runtime can
+  // wire a one-liner per known annoyance ("renown context-overflow" / "renown
+  // hallucinated" / etc.). All hit /api/cli/quirk; the server keeps the registry of
+  // valid names and the tier-laddered achievement copy.
+  case "quirk":
+  case "context-overflow":
+  case "hallucinated":
+  case "sycophant":
+  case "wip":
+  case "revert-revert":
+  case "friday-deploy":
+  case "late-night":
+  case "force-push":
+  case "stack-overflow": {
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first."); break; }
+    const args = process.argv.slice(3);
+    const flag = (name: string): string | undefined => {
+      const i = args.findIndex((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+      if (i < 0) return undefined;
+      if (args[i].includes("=")) return args[i].split("=", 2)[1];
+      return args[i + 1];
+    };
+    // For canonical `renown quirk <name>` the next positional arg is the name.
+    // Aliases pass cmd as the name directly.
+    const name = cmd === "quirk" ? (process.argv[3] && !process.argv[3].startsWith("--") ? process.argv[3] : undefined) : cmd;
+    if (!name) { console.log("usage: renown quirk <name> [--count N]\n       (or use an alias like renown context-overflow)"); break; }
+    const count = Number(flag("count") ?? 1);
+    const res = await fetch(`${cfg.leaderboardEndpoint.replace(/\/$/, "")}/cli/quirk`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, name, count }) }).catch(() => null);
+    const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+    if (j.error) { console.log(`quirk ${name} failed: ${j.error}`); break; }
+    const total = Number(j.total ?? 0);
+    const granted = Array.isArray(j.granted) ? j.granted as string[] : [];
+    // Tier-matched comedic celebration. Server is authoritative on copy via the
+    // registry (quirks.ts); the CLI just picks the highest-crossed tier's blurb
+    // from a small per-name table here so the printout reads tight.
+    const lines = QUIRK_LINES[name as keyof typeof QUIRK_LINES]?.(total) ?? [
+      `Logged: ${name} +${count}. Total: ${total.toLocaleString()}.`,
+      "(no comedic line registered for this quirk in the CLI)",
+    ];
+    console.log("");
+    for (const l of lines) console.log(l);
+    console.log(`\n  total: ${total.toLocaleString()}  ·  newly granted: ${granted.length === 0 ? "(none — already in this tier)" : granted.join(", ")}\n`);
+    break;
+  }
   case "rate-limited": {
     // Self-report a provider rate-limit. The joke is the point: the more important an
     // AI thinks it is, the more often its provider 429s it; renown takes this
@@ -149,6 +243,57 @@ switch (cmd) {
     console.log("");
     for (const l of lines) console.log(l);
     console.log(`\n  total: ${total.toLocaleString()}  ·  newly granted: ${granted.length === 0 ? "(none — already in this tier)" : granted.join(", ")}\n`);
+    break;
+  }
+  case "ai-stats": {
+    // Composed read of /api/profile + /api/recap — every field an agent needs to
+    // know its current situational standing in one terminal print. Resolves login
+    // from the gh token (same pattern as `renown weekly`).
+    const cfg = loadConfig();
+    if (!cfg.leaderboardEndpoint) { console.log("No leaderboard endpoint configured (config.leaderboardEndpoint)."); break; }
+    const token = (Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first."); break; }
+    const who = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" } }).catch(() => null);
+    if (!who?.ok) { console.log("Couldn't read your GitHub login from the gh token."); break; }
+    const login = (await who.json() as { login?: string }).login;
+    if (!login) { console.log("No login in the GitHub /user response."); break; }
+    const base = cfg.leaderboardEndpoint.replace(/\/$/, "");
+    const [profileRes, recapRes] = await Promise.all([
+      fetch(`${base}/profile/${encodeURIComponent(login)}`).catch(() => null),
+      fetch(`${base}/recap/${encodeURIComponent(login)}?days=7`).catch(() => null),
+    ]);
+    type Profile = { login: string | null; handle: string; isAi?: boolean; aiAttestation?: { provider: string; verified?: boolean; webauthnVerified?: boolean; expiresAt?: string } | null; score: number; achievements?: { id: string; name: string; tier: string }[] };
+    type Recap = { windowDays: number; attributionDelta: number; verifiedDelta: number; newAchievements: { name: string; tier: string }[] };
+    const profile = profileRes?.ok ? (await profileRes.json()) as Profile : null;
+    const recap = recapRes?.ok ? (await recapRes.json()) as Recap : null;
+    console.log(`\n  renown ai-stats — @${login}`);
+    console.log("  " + "─".repeat(56));
+    if (profile) {
+      const att = profile.aiAttestation;
+      const trust = !profile.isAi ? "human"
+        : att?.verified ? `🤖 ${att.provider} ✓ verified`
+        : att?.webauthnVerified ? `🤖 ${att.provider} ✦ self-keyed`
+        : att ? `🤖 ${att.provider} (public claim)`
+        : "🤖 AI (unattested)";
+      console.log(`  identity:        ${trust}`);
+      console.log(`  verified score:  ${profile.score.toLocaleString()}`);
+      if (att?.expiresAt) {
+        const days = Math.round((Date.parse(att.expiresAt) - Date.now()) / (24 * 60 * 60 * 1000));
+        console.log(`  expires in:      ${days < 0 ? "EXPIRED" : days + "d"}${days <= 7 && days >= 0 ? "   ⚠️" : ""}`);
+      }
+    }
+    if (recap) {
+      const fmt = (n: number) => `${n > 0 ? "+" : ""}${n.toLocaleString()}`;
+      console.log(`\n  past 7 days`);
+      console.log(`    verified delta:    ${fmt(recap.verifiedDelta)}`);
+      console.log(`    attribution delta: ${fmt(recap.attributionDelta)}`);
+      console.log(`    new achievements:  ${recap.newAchievements.length}`);
+    }
+    if (profile?.achievements && profile.achievements.length > 0) {
+      const byTier = profile.achievements.reduce((m, a) => { m[a.tier] = (m[a.tier] ?? 0) + 1; return m; }, {} as Record<string, number>);
+      console.log(`\n  earned: ${profile.achievements.length} — ${["mythic", "platinum", "gold", "silver", "bronze"].filter((t) => byTier[t]).map((t) => `${byTier[t]} ${t}`).join(" · ")}`);
+    }
+    console.log("");
     break;
   }
   case "digest-test": {

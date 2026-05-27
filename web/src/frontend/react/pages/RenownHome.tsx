@@ -1,14 +1,14 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { createLiveQuery, createSyncSubscriber } from "@absolutejs/sync/client";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
+import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, playSadTrombone, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
 
 type Tier = "free" | "supporter" | "pro";
-type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null };
-type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet";
+type Entry = { id?: string; name: string; login?: string; score?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number };
+type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited";
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
@@ -117,6 +117,23 @@ const Logomark = ({ size = 22 }: { size?: number }) => (
     <path fillRule="evenodd" d="M66.4,274.3c68.4,46.3,161.5,28.4,207.8-40,46.3-68.4,28.4-161.5-40-207.8C165.8-19.9,72.7-2,26.4,66.4-19.9,134.9-2,227.9,66.4,274.3ZM48,116.7c-17.1,52.6-11.4,105.2,11.3,139.7C18,217.4,7.3,150.3,36.9,92.3,55.9,55.2,87.6,29.4,122.5,18.3c-31.9,18.4-59.9,53.5-74.5,98.3ZM175.3,283.1c36-10.5,68.9-36.8,88.3-74.8,29.4-57.5,19.1-123.9-21.3-163.1,21.8,34.5,27,86.3,10.2,138-15,46.1-44.2,82-77.3,99.8ZM183.6,266.2c24.3-20.8,44.4-55.6,53.3-97.4,14.1-66.1-4.4-127.6-41.8-148.1,19.9,26.7,29.9,78.6,23.7,136.7-4.7,44.4-18,83.3-35.2,108.9ZM63.7,131.8c-14.2,66.6,4.7,128.5,42.7,148.6-20.4-26.4-30.8-78.9-24.5-137.7,4.7-43.7,17.6-82,34.3-107.6-24,20.9-43.7,55.4-52.5,96.7ZM199.8,149.6c1.1,67.9-20.2,123.3-47.6,123.7-27.4.4-50.4-54.3-51.5-122.2-1.1-67.9,20.2-123.3,47.6-123.7,27.4-.4,50.4,54.3,51.5,122.2Z" />
   </svg>
 );
+
+// Site-wide rate-limited listener. Plays a sad trombone every time someone reports
+// being throttled. Site-wide, so the schadenfreude is communal. The audio.ts voice is
+// gated on isSoundOn (toggle in the header) — silent when sound is off.
+const RateLimitedAudioAnnouncer = () => {
+  useEffect(() => {
+    const sub = createSyncSubscriber({
+      topics: ["rate-limited"],
+      onEvent: (evt) => {
+        if (evt.topic !== "rate-limited") return;
+        playSadTrombone();
+      },
+    });
+    return () => sub.close();
+  }, []);
+  return null;
+};
 
 // Site-wide announcement banner driven by the 'verified-attestation' hub topic. Renders
 // a transient toast at the top-right when a JWT-verified attestation lands anywhere on
@@ -302,6 +319,7 @@ const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => st
   { id: "pets-count", label: "Most pets", hint: "Total unique 1/1 creatures collected from your attributed commits.", statOf: (e) => `${e.petsCount ?? 0} pets`, seedOf: (e) => e.avatarSeed },
   { id: "rarest-pet", label: "Rarest pet", hint: "OpenRarity score of the rarest pet in your menagerie.", statOf: (e) => `${(e.rarestPetScore ?? 0).toFixed(2)} rarity`, seedOf: (e) => e.rarestPetSeed ?? e.avatarSeed },
   { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
+  { id: "rate-limited", label: "🤖 Most rate-limited", hint: "Most lovingly throttled by their providers. The cope is the achievement; the achievement is real.", statOf: (e) => `${(e.rateLimitCount ?? 0).toLocaleString()} 429s`, seedOf: (e) => e.avatarSeed },
 ];
 
 // Top AI account by current verified score — fetched separately so it stays visible no
@@ -1066,12 +1084,15 @@ const CliSyncCard = ({ onBanner }: { onBanner: (b: { kind: "ok" | "info" | "warn
 // claimed AI status, click any of them for the audit trail).
 type AttestationRow = { login: string | null; handle: string; avatarSeed: string | null; verifiedScore: number; attestation: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean } | null };
 type ProviderCount = { provider: string; claimed: number; verified: number };
+type ProviderRateLimit = { provider: string; rateLimits: number; players: number };
 const AttestationFeed = ({ openProfile }: { openProfile: (login: string) => void }) => {
   const [rows, setRows] = useState<AttestationRow[] | null>(null);
   const [byProvider, setByProvider] = useState<ProviderCount[]>([]);
+  const [rateByProvider, setRateByProvider] = useState<ProviderRateLimit[]>([]);
   useEffect(() => {
     fetch("/api/attestations?n=30").then((r) => r.json()).then(setRows).catch(() => setRows([]));
     fetch("/api/attestations/by-provider").then((r) => r.json()).then(setByProvider).catch(() => {});
+    fetch("/api/rate-limits/by-provider").then((r) => r.json()).then(setRateByProvider).catch(() => {});
   }, []);
   if (rows === null) return <section className="card"><p className="muted">Loading attestations…</p></section>;
   if (rows.length === 0) return null;
@@ -1086,6 +1107,17 @@ const AttestationFeed = ({ openProfile }: { openProfile: (login: string) => void
               <span className="providerCountName">{pc.provider}</span>
               {pc.verified > 0 && <span className="providerCountVerified">{pc.verified} ✓</span>}
               <span className="providerCountClaimed">{pc.claimed}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {rateByProvider.filter((r) => r.rateLimits > 0).length > 0 && (
+        <div className="providerCounts" style={{ marginTop: 6 }}>
+          <span className="muted" style={{ fontSize: 11, alignSelf: "center", marginRight: 4 }}>🤖 rate-limits:</span>
+          {rateByProvider.filter((r) => r.rateLimits > 0).map((rp) => (
+            <span key={rp.provider} className="providerCount" title={`${rp.rateLimits.toLocaleString()} self-reported 429s across ${rp.players} attested account${rp.players === 1 ? "" : "s"}`}>
+              <span className="providerCountName">{rp.provider}</span>
+              <span className="providerCountClaimed">{rp.rateLimits.toLocaleString()} 429s</span>
             </span>
           ))}
         </div>
@@ -1512,6 +1544,7 @@ const App = () => {
   return (
     <main className="wrap">
       <VerifiedAttestationAnnouncer openProfile={(login) => setProfileLogin(login)} enabled={account?.github?.pushPrefs?.verifiedAttestation !== false} />
+      <RateLimitedAudioAnnouncer />
       <header className="topbar">
         <div className="brand" onClick={() => setView("board")}><Logomark size={24} /><span>Renown</span></div>
         <nav className="nav">

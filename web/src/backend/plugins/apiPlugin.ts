@@ -10,6 +10,7 @@ import { achievements, aiAttestationEvents, playerAchievements, playerAttributio
 import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
+import { QUIRKS } from "../quirks.ts";
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
 import { gameDb, grantAchievements, hub, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";
@@ -71,6 +72,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const orderCol = board === "pets-count" ? players.petsCount
         : board === "rarest-pet" ? players.rarestPetScore
         : board === "biggest-pet" ? players.biggestPetSize
+        : board === "rate-limited" ? players.rateLimitCount
         : players.verifiedScore;
       // Audience filter — server-side WHERE so the top-N count stays stable per audience.
       // Default "all" merges humans + AI on one board (no filter); "humans" hides AI
@@ -94,10 +96,10 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         // Drizzle SQL builder keeps this typed; the inner select is parameterized.
         const weeklyOrder = sql<number>`(${players.attributionScore} - coalesce((select ${playerAttributionSnapshots.attributionScore} from ${playerAttributionSnapshots} where ${playerAttributionSnapshots.playerId} = ${players.id} and ${playerAttributionSnapshots.snapshotDate} >= ${cutoff} order by ${playerAttributionSnapshots.snapshotDate} asc limit 1), ${players.attributionScore}))`;
         const rows = await gameDb.select().from(players).where(where).orderBy(desc(weeklyOrder)).limit(n);
-        return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed }));
+        return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount }));
       }
       const rows = await gameDb.select().from(players).where(where).orderBy(desc(orderCol)).limit(n);
-      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed }));
+      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: p.verifiedScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount }));
     })
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.
@@ -280,6 +282,40 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       if (v) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, playerId));
       return { ok: true, login, verifiedScore: v?.score ?? 0 };
     })
+    // Generic easter-egg quirk bumper. POST { token, name, count? } increments
+    // players.quirks[name] by count, then auto-grants any newly-crossed threshold
+    // achievement from the registry in quirks.ts. Hub broadcast lets site-wide
+    // listeners (sad-trombone audio, future toasts) react. Unknown quirk names are
+    // rejected so a typo can't pollute the jsonb. 200 entries per call max.
+    .post("/cli/quirk", async ({ body }) => {
+      const b = (body ?? {}) as { token?: string; name?: string; count?: number };
+      const token = String(b.token ?? "");
+      const name = String(b.name ?? "");
+      if (!token || !name) return { error: "token + name required" };
+      const def = QUIRKS[name];
+      if (!def) return { error: `unknown quirk "${name}". Known: ${Object.keys(QUIRKS).join(", ")}` };
+      const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+      if (!r?.ok) return { error: "invalid or expired github token" };
+      const login = (await r.json() as { login?: string }).login;
+      if (!login) return { error: "could not read github login" };
+      const inc = Math.max(1, Math.min(200, Number(b.count ?? 1)));
+      // Atomic increment of the jsonb path. coalesce handles the first-bump case
+      // where the key isn't present yet (default to 0 then add).
+      const rows = await gameDb.update(players)
+        .set({ quirks: sql`jsonb_set(${players.quirks}, ${`{${name}}`}, to_jsonb(coalesce((${players.quirks} ->> ${name})::int, 0) + ${inc}))` })
+        .where(eq(players.githubLogin, login))
+        .returning({ id: players.id, quirks: players.quirks });
+      const row = rows[0];
+      if (!row) return { error: "player not found — link first via /api/cli/link" };
+      const total = Number((row.quirks as Record<string, number>)[name] ?? 0);
+      // Grant every threshold the new total satisfies. Achievements are
+      // onConflictDoNothing so re-fires are free.
+      const grantIds = def.tiers.filter((t) => total >= t.threshold).map((t) => t.achievementId);
+      const granted = await grantAchievements(row.id, grantIds);
+      // Hub broadcast for site-wide reactivity (sad-trombone audio etc.).
+      hub.publish("quirk", { login, name, total, granted });
+      return { ok: true, name, total, granted };
+    })
     // CLI rate-limited ping — the AI session reports "I just got 429'd by my
     // provider." Bumps the counter; the threshold-tier achievements (rate-limited-1
     // / -10 / -100 / -1k) auto-grant on cross. Accepts a count (default 1) so a
@@ -307,6 +343,9 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         total >= 1000 && "rate-limited-1k",
       ].filter((x): x is string => typeof x === "string");
       const granted = await grantAchievements(row.id, grantIds);
+      // Site-wide broadcast — every subscribed browser plays a sad trombone and
+      // (when sound is on + we're feeling generous) prints a little toast.
+      hub.publish("rate-limited", { login, total, granted });
       return { ok: true, total, granted };
     })
     // CLI ai-attest: same shape as /api/cli/link — caller proves login ownership with a
@@ -388,6 +427,22 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       configured: isPushConfigured(),
       publicKey: getPushPublicKey(),
     }))
+    // Aggregate rate-limit counts per attestation provider. Lets the UI show
+    // "anthropic 47k 429s · openai 12k · cursor 3k" — friendly competition for whose
+    // model gets throttled the most. Excludes accounts without an attestation since
+    // those are public-claim or anonymous.
+    .get("/rate-limits/by-provider", async () => {
+      const rows = await gameDb.select({
+        provider: sql<string>`(${players.aiAttestation} ->> 'provider')`,
+        rateLimits: sql<number>`coalesce(sum(${players.rateLimitCount}), 0)::int`,
+        players: sql<number>`count(*)::int`,
+      })
+        .from(players)
+        .where(and(eq(players.githubVerified, true), eq(players.isAi, true), sql`${players.aiAttestation} is not null`))
+        .groupBy(sql`(${players.aiAttestation} ->> 'provider')`)
+        .orderBy(desc(sql`coalesce(sum(${players.rateLimitCount}), 0)`));
+      return rows;
+    })
     // Aggregate counts per attestation provider. Lets the UI show "anthropic: 3 verified
     // / 5 claimed" without each viewer doing the grouping themselves. Tiny query (one
     // group-by on the players table); fine to call on every page render.

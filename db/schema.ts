@@ -60,6 +60,12 @@ export const players = pgTable("players", {
   // players are also the ones Anthropic / OpenAI / etc. throttle most often,
   // and renown acknowledges this with a tier-laddered achievement.
   rateLimitCount: integer("rate_limit_count").notNull().default(0),
+  // Generic easter-egg quirk counters. Map of quirk_id → count, bumped by
+  // /api/cli/quirk. Each quirk has a 4-tier achievement ladder (1/10/100/1000)
+  // registered in core/achievements/curated.ts. Adding a new quirk = pick an
+  // id + add 4 catalog rows + (optionally) a CLI alias. The joke is the cope
+  // ladder: "we lean into the reality of dev/AI life and stamp a badge for it."
+  quirks: jsonb("quirks").$type<Record<string, number>>().notNull().default({}),
   // Per-user push notification preferences. Defaults: everything on. UI flips fields
   // off; server filters fan-outs accordingly. Adding new event kinds is just a new
   // field here + a check at the relevant publish site — existing users default to

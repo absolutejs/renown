@@ -129,6 +129,35 @@ export const playGong = () => {
   note(164, 0.35, "sine", 0.08, 0.010, 0.35, 4);
 };
 
+/** Sad trombone — descending slide every time a rate-limit event lands on the hub.
+ *  Three-note "wah wah waaaaah" via overlapping bent notes; gentle, the joke is the
+ *  delivery. Used by the site-wide rate-limit SSE listener. */
+export const playSadTrombone = () => {
+  if (!isSoundOn()) return;
+  const c = ensureCtx();
+  if (!c || !masterGain) return;
+  const t0 = c.currentTime;
+  // Three slide segments. Each is a sawtooth (brassy) with a pitch ramp + tight gain
+  // envelope so the notes punctuate rather than mush together.
+  const seg = (startT: number, fromHz: number, toHz: number, durS: number, peakG: number) => {
+    const osc = c.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(fromHz, startT);
+    osc.frequency.exponentialRampToValueAtTime(toHz, startT + durS);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, startT);
+    g.gain.exponentialRampToValueAtTime(peakG, startT + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, startT + durS);
+    osc.connect(g).connect(masterGain!);
+    osc.start(startT);
+    osc.stop(startT + durS + 0.05);
+    osc.onended = () => { try { osc.disconnect(); g.disconnect(); } catch { /* gone */ } };
+  };
+  seg(t0,        220, 165, 0.18, 0.18);                // first wah
+  seg(t0 + 0.20, 175, 130, 0.22, 0.16);                // second wah
+  seg(t0 + 0.45, 145, 82,  0.55, 0.14);                // long sad descent
+};
+
 // ── Ambient pad ────────────────────────────────────────────────────────────
 // A slow, breathing sine bed for the menagerie. Two octaves stacked, routed through a
 // lowpass whose cutoff is gently swept by an LFO so the timbre opens and closes over
