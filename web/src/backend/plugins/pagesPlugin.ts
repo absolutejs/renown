@@ -4,6 +4,7 @@ import { Elysia } from "elysia";
 import { RenownAdmin } from "../../frontend/react/pages/RenownAdmin";
 import { RenownHome } from "../../frontend/react/pages/RenownHome";
 import { RenownProfile } from "../../frontend/react/pages/RenownProfile";
+import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { loadProfile, profileShareSnippet } from "../profile";
 
 // Resolve the absolute origin (https://host) the request was made to. Used
@@ -53,8 +54,29 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
       request,
     });
   };
+  const profileOg = async ({ request, params }: { request: Request; params: { login: string } }) => {
+    const loginParam = String(params.login ?? "").toLowerCase();
+    const data = await loadProfile(loginParam);
+    if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+
+    const etag = profileOgEtag(data);
+    const headers = {
+      "cache-control": "public, max-age=300",
+      etag,
+    };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+
+    const png = renderProfileOgPng(data);
+    return new Response(png, {
+      headers: {
+        ...headers,
+        "content-type": "image/png",
+      },
+    });
+  };
   return new Elysia()
     .get("/", home)
     .get("/admin", admin)
+    .get("/profile/:login/og.png", profileOg)
     .get("/profile/:login", profile);
 };

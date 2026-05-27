@@ -1,7 +1,7 @@
 {
   "name": "@absolutejs/renown",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "private": false,
   "description": "Renown — earn XP and renown for real, meritorious dev work. Editor-agnostic, with 10k achievements and competitive per-project leaderboards. By AbsoluteJS.",
   "type": "module",
   "bin": {
@@ -12,6 +12,7 @@
     "cli/",
     "core/",
     "db/schema.ts",
+    "INSTALL.md",
     "README.md"
   ],
   "scripts": {

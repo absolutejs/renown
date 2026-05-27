@@ -85,9 +85,11 @@ a:hover { text-decoration: underline; }
 
 /* ── leaderboard ───────────────────────────────────────────── */
 .ranks { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-.ranks li { display: grid; grid-template-columns: 30px 56px 1fr auto auto auto auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.02); cursor: pointer; transition: background .12s; }
+.ranks li { border-radius: 9px; background: rgba(255,255,255,.02); transition: background .12s; }
 .ranks li:hover { background: var(--card); }
 .ranks li.sel { background: var(--accent-soft); outline: 1px solid var(--accent-line); }
+.rankLink { display: grid; grid-template-columns: 30px 56px 1fr auto auto auto auto; gap: 12px; align-items: center; padding: 10px 12px; color: inherit; cursor: pointer; text-decoration: none; }
+.rankLink:hover { text-decoration: none; }
 /* Newcomer flash — matches the in-canvas entranceBurst on the SinglePet to its left.
    ~2s pulse so the row reads as having "just arrived" even when the user scans the
    list quickly. Cleared from React state at 2.5s so the class doesn't linger. */

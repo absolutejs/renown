@@ -1,6 +1,6 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { createLiveQuery, createSyncSubscriber } from "@absolutejs/sync/client";
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { type FormEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, playSadTrombone, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
@@ -36,6 +36,8 @@ const ORDER: Tier[] = ["free", "supporter", "pro"];
 const money = (a?: Amount) =>
   a && a.amount != null ? `$${(a.amount / 100).toFixed(a.amount % 100 ? 2 : 0)}/${a.interval ?? "mo"}` : "";
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "");
+const profileHref = (login: string) => `/profile/${encodeURIComponent(login)}`;
+const isPlainPrimaryClick = (ev: MouseEvent<HTMLElement>) => ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey;
 
 const api = async (url: string, opts?: RequestInit) => {
   const r = await fetch(url, opts);
@@ -165,9 +167,14 @@ const RecentUnlocks = ({ openProfile }: { openProfile: (login: string) => void }
       <p className="muted hint">The {rows.length} most recent shown-visibility unlocks anywhere on renown. Click to open a player's profile.</p>
       <div className="achList" style={{ marginTop: 8, flexDirection: "column", alignItems: "stretch", gap: 6 }}>
         {rows.map((r, i) => (
-          <button
+          <a
             key={`${r.player.login}:${r.achievement.id}:${i}`}
-            onClick={() => openProfile(r.player.login)}
+            href={profileHref(r.player.login)}
+            onClick={(ev) => {
+              if (!isPlainPrimaryClick(ev)) return;
+              ev.preventDefault();
+              openProfile(r.player.login);
+            }}
             className={`achChip tier-${r.achievement.tier}`}
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", textAlign: "left", cursor: "pointer", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}
             title={r.achievement.description}
@@ -180,7 +187,7 @@ const RecentUnlocks = ({ openProfile }: { openProfile: (login: string) => void }
               </span>
               <span className="muted" style={{ fontSize: 11 }}>{r.achievement.category} · {r.achievement.tier} · {ago(r.unlockedAt)}</span>
             </span>
-          </button>
+          </a>
         ))}
       </div>
     </section>
@@ -769,38 +776,60 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
               {top.map((e, i) => {
                 const seed = meta.seedOf(e);
                 const fresh = !!e.id && freshIds.has(e.id);
+                const activeSwarm = swarmRow?.rowId === e.id ? swarmRow : null;
+                const swarmClass = !activeSwarm
+                  ? ""
+                  : activeSwarm.ai === "verified"
+                    ? " swarm swarmAiVerified"
+                    : activeSwarm.ai === "ai"
+                      ? " swarm swarmAi"
+                      : " swarm";
                 return (
-                  <li key={e.id ?? i} className={`${e.id === sel ? "sel" : ""}${fresh ? " fresh" : ""}${swarmRow?.rowId === e.id ? (swarmRow.ai === "verified" ? " swarm swarmAiVerified" : swarmRow.ai === "ai" ? " swarm swarmAi" : " swarm") : ""}`}
+                  <li key={e.id ?? i} className={`${e.id === sel ? "sel" : ""}${fresh ? " fresh" : ""}${swarmClass}`}
                     onMouseEnter={() => { if (e.id) { setHovered(e.id); trySoundOnHover(); postCursor(e.id); } }}
-                    onMouseLeave={() => { if (e.id && hovered === e.id) { setHovered(null); postCursor(null); } }}
-                    onClick={() => { if (e.id) setSel(e.id); if (e.login) openProfile(e.login); }}>
-                    <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
-                    <span className="rankPet">{seed ? <SinglePet seed={seed} entranceBurst={fresh} /> : <span className="petCanvas rankPetEmpty" />}</span>
-                    <span className="who">{e.name}<TierBadge tier={e.tier} /><AiBadge isAi={e.isAi} attestation={e.aiAttestation} compact /></span>
-                    <span className="score">{meta.statOf(e)}</span>
-                    <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
-                    {(() => {
-                      const ghosts = ghostsFor(e.id);
-                      if (ghosts.length === 0) return null;
-                      // Cap visible at 4 so a swarm doesn't overflow the row; show "+N"
-                      // suffix if there are more eyes on this entry than will fit. Labeled
-                      // ghosts with an avatarSeed render as a tiny live pet via GhostAvatar
-                      // (own View into MenagerieCanvas); anonymous ghosts stay as a colored
-                      // dot. Hover any ghost to see the handle (when shared).
-                      const shown = ghosts.slice(0, 4);
-                      const extra = ghosts.length - shown.length;
-                      return (
-                        <span className="rankGhosts" aria-label={`${ghosts.length} other viewer${ghosts.length === 1 ? "" : "s"}`}>
-                          {shown.map((g) => {
-                            const tooltip = g.label ? `${g.label}${g.isAi ? " · AI" : ""}` : "anonymous viewer";
-                            return g.avatarSeed
-                              ? <span key={g.sid} className={`ghostAvatarWrap${g.isAi ? " ai" : ""}`} title={tooltip} style={{ boxShadow: `0 0 6px ${g.color}` }}><GhostAvatar seed={g.avatarSeed} />{g.isAi && <span className="ghostAiPip" aria-hidden>🤖</span>}</span>
-                              : <span key={g.sid} className={`ghostDot${g.isAi ? " ai" : ""}`} title={tooltip} style={{ background: g.color, boxShadow: `0 0 8px ${g.color}` }} />;
-                          })}
-                          {extra > 0 && <span className="ghostMore">+{extra}</span>}
-                        </span>
-                      );
-                    })()}
+                    onMouseLeave={() => { if (e.id && hovered === e.id) { setHovered(null); postCursor(null); } }}>
+                    <a
+                      className="rankLink"
+                      href={e.login ? profileHref(e.login) : "#"}
+                      onClick={(ev) => {
+                        if (!e.login) {
+                          ev.preventDefault();
+                          return;
+                        }
+                        if (!isPlainPrimaryClick(ev)) return;
+                        ev.preventDefault();
+                        if (e.id) setSel(e.id);
+                        openProfile(e.login);
+                      }}
+                    >
+                      <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
+                      <span className="rankPet">{seed ? <SinglePet seed={seed} entranceBurst={fresh} /> : <span className="petCanvas rankPetEmpty" />}</span>
+                      <span className="who">{e.name}<TierBadge tier={e.tier} /><AiBadge isAi={e.isAi} attestation={e.aiAttestation} compact /></span>
+                      <span className="score">{meta.statOf(e)}</span>
+                      <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
+                      {(() => {
+                        const ghosts = ghostsFor(e.id);
+                        if (ghosts.length === 0) return null;
+                        // Cap visible at 4 so a swarm doesn't overflow the row; show "+N"
+                        // suffix if there are more eyes on this entry than will fit. Labeled
+                        // ghosts with an avatarSeed render as a tiny live pet via GhostAvatar
+                        // (own View into MenagerieCanvas); anonymous ghosts stay as a colored
+                        // dot. Hover any ghost to see the handle (when shared).
+                        const shown = ghosts.slice(0, 4);
+                        const extra = ghosts.length - shown.length;
+                        return (
+                          <span className="rankGhosts" aria-label={`${ghosts.length} other viewer${ghosts.length === 1 ? "" : "s"}`}>
+                            {shown.map((g) => {
+                              const tooltip = g.label ? `${g.label}${g.isAi ? " · AI" : ""}` : "anonymous viewer";
+                              return g.avatarSeed
+                                ? <span key={g.sid} className={`ghostAvatarWrap${g.isAi ? " ai" : ""}`} title={tooltip} style={{ boxShadow: `0 0 6px ${g.color}` }}><GhostAvatar seed={g.avatarSeed} />{g.isAi && <span className="ghostAiPip" aria-hidden>🤖</span>}</span>
+                                : <span key={g.sid} className={`ghostDot${g.isAi ? " ai" : ""}`} title={tooltip} style={{ background: g.color, boxShadow: `0 0 8px ${g.color}` }} />;
+                            })}
+                            {extra > 0 && <span className="ghostMore">+{extra}</span>}
+                          </span>
+                        );
+                      })()}
+                    </a>
                   </li>
                 );
               })}
