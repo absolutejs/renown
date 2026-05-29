@@ -23,6 +23,42 @@ IS the headline — not a separate dashboard.
 
 ## What's done in this arc
 
+### Pet looks + portal (most recent — uncommitted as of 2026-05-28)
+- ✅ Type-safe pet look registry in `core/petLooks.ts`:
+  - `PetLookId` union: `"legacy" | "volumetric"`
+  - `PET_LOOKS` catalog + `resolvePetLookId` helper; default is `legacy`
+- ✅ DB persistence so look changes are **historical**:
+  - `players.active_pet_look_id` for future summons
+  - `pet_look_assignments(player_id, pet_seed, look_id)` for per-pet history
+  - Migration + backfill: `db/migrate-add-pet-looks.ts` (re-runnable)
+- ✅ Backend helper layer for look reads/writes: `web/src/backend/petLooks.ts`
+- ✅ Look selection wired into procgen rendering (`core/procgen.ts`):
+  - `voxelize()` accepts `lookId`; volumetric builds z-depth stacks
+    (`clampVoxelDepth`); callsites carry dimensional look data
+- ✅ Look metadata plumbed through API payloads:
+  - `/api/verify` returns `newPetLooks` and records look assignment for new
+    pets at mint time
+  - `/api/top` includes `activePetLookId` + `petLookAssignments` per row
+  - `/api/profile/:login` includes the same look fields via shared loader
+  - account payload includes look fields for signed-in session state
+  - (`web/src/backend/plugins/apiPlugin.ts`, `authApiPlugin.ts`)
+- ✅ Account APIs for portal UX:
+  - `POST /api/account/pet-look` → change active default for future pets;
+    snapshots existing pets' current look first
+  - `POST /api/account/pets/:seed/look` → override one owned pet
+- ✅ Frontend pet portal + per-pet override controls:
+  - per-card look dropdown (`PetViewer` card controls)
+  - "Pet portal" card in account view to set default future look
+  - spotlight/avatar/showcase resolves look per seed (historical overrides
+    respected)
+  - (`PetViewer.tsx`, `RenownHome.tsx`, `ProfileModal.tsx`,
+    `RenownProfile.tsx`, `petMaterials.tsx`, styles `renown.css`)
+
+**Why "historical looks stay" holds:** changing the portal default only
+changes `players.active_pet_look_id`. Existing owned seeds keep their specific
+`pet_look_assignments` row and render by that historical look later. Newly
+earned seeds after a change get the new active look at verify/mint time.
+
 ### Merit (the load-bearing addition)
 - ✅ 5 ladders × 5 tiers (Reviewer, Contributor, Shipper, Maintainer, Substance)
   — 25 achievement rows seeded
@@ -119,8 +155,11 @@ IS the headline — not a separate dashboard.
 [done]    Merit panel + activity feed + leaderboard integration
 [done]    Standalone /profile/:login page + OG metadata + share row
 [done]    @absolutejs/absolute beta 1053 released (CJS wrapper fix)
+[done]    Pet look registry + portal + historical per-pet assignments (code)
 
+[next]    Run pet-looks migration against DB + smoke-test the flow
 [next]    OG image generator at /profile/:login/og.png
+[soon]    Tune volumetric look parity in compact views (camera/scale)
 [soon]    Leaderboard rows as proper <a> tags (cmd-click → new tab to /profile)
 [soon]    Substance backfill script (counterpart to merit backfill)
 
@@ -134,7 +173,18 @@ IS the headline — not a separate dashboard.
 
 ## Next steps (concrete, in order)
 
-### 1. OG image generator — `/profile/:login/og.png`
+### 1. Pet-looks: migrate + smoke-test
+The code is built but the migration hasn't run against the real DB and the
+flow is untested end-to-end.
+- Run migration: `bunx tsx db/migrate-add-pet-looks.ts`
+- Smoke-test: sign in → grant a 2nd pet → set look on the legacy pet →
+  switch portal default to volumetric → verify one more pet → confirm the
+  old pet is unchanged and the new pet is volumetric.
+- Confirm visual parity for volumetric in compact views (camera/scale may
+  need tuning; current volumetric is depth-stacking, not a full skeletal 3D
+  rewrite).
+
+### 2. OG image generator — `/profile/:login/og.png`
 **Why**: og:image already points at it (in RenownProfile.tsx). Without an
 actual image, share cards in Slack/Discord/Twitter show text-only previews.
 Image is what makes shares POP in feeds — the whole point of profile pages.
@@ -153,7 +203,7 @@ tier-tinted gradient background, 🤖 badge if AI. Optionally a top-down
 2D-projected pet voxel grid (the seed is deterministic — `core/procgen.ts`
 generates the voxel data; you'd render a top-down projection).
 
-### 2. Leaderboard rows → real anchors
+### 3. Leaderboard rows → real anchors
 Right now clicks on leaderboard ranks call `openProfile()` which opens the
 modal. Wrap the row content in `<a href="/profile/${login}">` so:
 - Left click: prevent default, open modal (current behavior, fast in-place)
@@ -161,7 +211,7 @@ modal. Wrap the row content in `<a href="/profile/${login}">` so:
 
 Same change in RecentUnlocks rows.
 
-### 3. Substance backfill
+### 4. Substance backfill
 `db/backfill-substance.ts` mirroring `db/backfill-merit.ts`. Each verified
 player: `fetchRecentCommits(attributionQuery, 30)` →
 `aggregateSubstance()` → write `substance_score` + `substance_sample_size`
@@ -171,7 +221,7 @@ Expensive — N players × ~30 GitHub API calls each. Add a `--limit N` for
 safe batches. Could also chain into the merit backfill so one command does
 both.
 
-### 4. Ship-ready
+### 5. Ship-ready
 - Flip `package.json` `"private": true` → false
 - Bump version to `0.1.0`
 - Smoke test `bun run build:cli` and `npm pack` content
