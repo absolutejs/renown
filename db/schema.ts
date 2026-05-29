@@ -41,6 +41,9 @@ export const players = pgTable("players", {
   biggestPetSeed: text("biggest_pet_seed"),
   // Avatar = the one pet shown on profile + (later) in the header. Default = rarest wild.
   avatarSeed: text("avatar_seed"),
+  // Active look used for future pets. Existing seeds can continue rendering with
+  // their historical look assignment in pet_look_assignments.
+  activePetLookId: text("active_pet_look_id").notNull().default("legacy"),
   // Showcase = curated pets shown on public profile. Length capped by billing tier (free 2,
   // supporter 4, pro 8). Default = top-N by score.
   showcaseSeeds: jsonb("showcase_seeds").$type<string[]>().notNull().default([]),
@@ -164,6 +167,18 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   lastNotifiedAt: timestamp("last_notified_at"),
 });
+
+// Per-player, per-pet visual style choice. Preserves historical looks:
+// every seed can keep its previously assigned look even after you update your active
+// portal look. New wild-seed grants read from players.active_pet_look_id.
+export const petLookAssignments = pgTable("pet_look_assignments", {
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  petSeed: text("pet_seed").notNull(),
+  lookId: text("look_id").notNull(),
+  assignedAt: timestamp("assigned_at").notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.playerId, t.petSeed] }),
+}));
 
 // Outbound webhook delivery log — one row per ATTEMPT (not per event), so a payload
 // retried 3 times leaves 3 rows. Lets admins inspect what failed and why; doubles as

@@ -5,9 +5,12 @@ import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, p
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
+import { DEFAULT_PET_LOOK_ID, isPetLookId, PET_LOOKS, type PetLookId } from "../../../../../core/petLooks.ts";
 
 type Tier = "free" | "supporter" | "pro";
-type Entry = { id?: string; name: string; login?: string; score?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number };
+type PetLookMap = Record<string, PetLookId>;
+type SummonPet = { seed: string; lookId: PetLookId };
+type Entry = { id?: string; name: string; login?: string; score?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number; activePetLookId?: string; petLookAssignments?: PetLookMap };
 // Board ids: well-known fixed strings + a "quirk:<name>" dynamic family for the
 // cope leaderboards (one per registered quirk in web/src/backend/quirks.ts).
 type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | "merit" | `quirk:${string}` | `merit:${"reviews" | "crossRepo" | "shipper" | "downloads" | "substance"}`;
@@ -20,7 +23,7 @@ type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
 type WebauthnCredential = { id: string; label: string; transports: string[]; createdAt: string; lastUsedAt: string | null };
 type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean };
-type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[]; rateLimitCount?: number; quirks?: Record<string, number> };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; activePetLookId?: string; petLookAssignments?: PetLookMap; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[]; rateLimitCount?: number; quirks?: Record<string, number> };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievements?: AchievementRow[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
@@ -38,6 +41,13 @@ const money = (a?: Amount) =>
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "");
 const profileHref = (login: string) => `/profile/${encodeURIComponent(login)}`;
 const isPlainPrimaryClick = (ev: MouseEvent<HTMLElement>) => ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey;
+const resolvePetLookId = (seed: string | null, activePetLookId: string | undefined, assignments?: PetLookMap): PetLookId => {
+  const override = seed ? assignments?.[seed] : undefined;
+  if (isPetLookId(override)) return override;
+  return isPetLookId(activePetLookId) ? activePetLookId : DEFAULT_PET_LOOK_ID;
+};
+const resolveLookId = (value: string | undefined | null): PetLookId => isPetLookId(value) ? value : DEFAULT_PET_LOOK_ID;
+const PET_LOOK_OPTIONS = Object.values(PET_LOOKS);
 
 const api = async (url: string, opts?: RequestInit) => {
   const r = await fetch(url, opts);
@@ -631,7 +641,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
   // small colored dots next to each row that another tab is currently hovering. Anonymous
   // and ephemeral — entries auto-expire 2.5s after the last update from that sid.
   const mySid = getSid();
-  const [cursors, setCursors] = useState<Map<string, { rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; isAi: boolean; at: number }>>(() => new Map());
+  const [cursors, setCursors] = useState<Map<string, { rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; avatarLookId?: PetLookId; isAi: boolean; at: number }>>(() => new Map());
   const lastCursorPostRef = useRef({ at: 0, rowId: null as string | null });
   const postCursor = useCallback((rowId: string | null) => {
     const now = performance.now();
@@ -659,11 +669,16 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
     const sub = createSyncSubscriber({
       topics: ["cursors"],
       onEvent: (evt) => {
-        const payload = evt.payload as { sid: string; rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; isAi?: boolean; at: number } | undefined;
+        const payload = evt.payload as { sid: string; rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; avatarLookId?: string; isAi?: boolean; at: number } | undefined;
         if (evt.topic !== "cursors" || !payload) return;
-        const { sid, rowId, board: b, label, avatarSeed, isAi, at } = payload;
+        const { sid, rowId, board: b, label, avatarSeed, avatarLookId, isAi, at } = payload;
         if (sid === mySid) return;     // never render our own ghost
-        setCursors((m) => { const n = new Map(m); n.set(sid, { rowId, board: b, label: label ?? null, avatarSeed: avatarSeed ?? null, isAi: !!isAi, at }); return n; });
+        setCursors((m) => {
+          const n = new Map(m);
+          const resolvedLook = isPetLookId(avatarLookId) ? avatarLookId : undefined;
+          n.set(sid, { rowId, board: b, label: label ?? null, avatarSeed: avatarSeed ?? null, avatarLookId: resolvedLook, isAi: !!isAi, at });
+          return n;
+        });
       },
     });
     const sweep = window.setInterval(() => {
@@ -680,10 +695,10 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
   // For each row, structured ghost entries currently hovering it (other tabs only, same
   // board). Returns the raw cursor info per sid so the renderer can choose between
   // anonymous dot and labeled mini-avatar per ghost.
-  const ghostsFor = (rowId: string | undefined): { sid: string; color: string; label: string | null; avatarSeed: string | null; isAi: boolean }[] => {
+  const ghostsFor = (rowId: string | undefined): { sid: string; color: string; label: string | null; avatarSeed: string | null; avatarLookId?: PetLookId; isAi: boolean }[] => {
     if (!rowId) return [];
-    const out: { sid: string; color: string; label: string | null; avatarSeed: string | null; isAi: boolean }[] = [];
-    for (const [sid, v] of cursors) if (v.rowId === rowId && v.board === board) out.push({ sid, color: colorForSid(sid), label: v.label, avatarSeed: v.avatarSeed, isAi: v.isAi });
+    const out: { sid: string; color: string; label: string | null; avatarSeed: string | null; avatarLookId?: PetLookId; isAi: boolean }[] = [];
+    for (const [sid, v] of cursors) if (v.rowId === rowId && v.board === board) out.push({ sid, color: colorForSid(sid), label: v.label, avatarSeed: v.avatarSeed, avatarLookId: v.avatarLookId, isAi: v.isAi });
     return out;
   };
 
@@ -803,7 +818,10 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
                       }}
                     >
                       <span className="rank">{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
-                      <span className="rankPet">{seed ? <SinglePet seed={seed} entranceBurst={fresh} /> : <span className="petCanvas rankPetEmpty" />}</span>
+                      <span className="rankPet">{seed
+                        ? <SinglePet seed={seed} entranceBurst={fresh} lookId={resolvePetLookId(seed, e.activePetLookId, e.petLookAssignments)} />
+                        : <span className="petCanvas rankPetEmpty" />}
+                      </span>
                       <span className="who">{e.name}<TierBadge tier={e.tier} /><AiBadge isAi={e.isAi} attestation={e.aiAttestation} compact /></span>
                       <span className="score">{meta.statOf(e)}</span>
                       <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
@@ -822,7 +840,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
                             {shown.map((g) => {
                               const tooltip = g.label ? `${g.label}${g.isAi ? " · AI" : ""}` : "anonymous viewer";
                               return g.avatarSeed
-                                ? <span key={g.sid} className={`ghostAvatarWrap${g.isAi ? " ai" : ""}`} title={tooltip} style={{ boxShadow: `0 0 6px ${g.color}` }}><GhostAvatar seed={g.avatarSeed} />{g.isAi && <span className="ghostAiPip" aria-hidden>🤖</span>}</span>
+                                ? <span key={g.sid} className={`ghostAvatarWrap${g.isAi ? " ai" : ""}`} title={tooltip} style={{ boxShadow: `0 0 6px ${g.color}` }}><GhostAvatar seed={g.avatarSeed} lookId={g.avatarLookId} />{g.isAi && <span className="ghostAiPip" aria-hidden>🤖</span>}</span>
                                 : <span key={g.sid} className={`ghostDot${g.isAi ? " ai" : ""}`} title={tooltip} style={{ background: g.color, boxShadow: `0 0 8px ${g.color}` }} />;
                             })}
                             {extra > 0 && <span className="ghostMore">+{extra}</span>}
@@ -837,7 +855,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
             {/* Spotlight pane: one big View into the shared canvas, swapped by hover. Sticky
                 on desktop so it stays in frame while you scroll the (eventually long) list. */}
             <aside className="boardSpotlight">
-              <SpotlightView seed={spotlightSeed} />
+              <SpotlightView seed={spotlightSeed} lookId={spotlightEntry ? resolvePetLookId(spotlightSeed, spotlightEntry.activePetLookId, spotlightEntry.petLookAssignments) : undefined} />
               {spotlightEntry && (
                 <div className="boardSpotlightMeta">
                   <h3>{spotlightEntry.name}<TierBadge tier={spotlightEntry.tier} /><AiBadge isAi={spotlightEntry.isAi} attestation={spotlightEntry.aiAttestation} /></h3>
@@ -1275,8 +1293,32 @@ const PushPrefsCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promise<{ 
   );
 };
 
+// Appearance defaults for future summons. Existing pets stay fixed by assignment,
+// so changing this only affects new seeds minted afterward.
+const PetPortalCard = ({ activePetLookId, onSetLook, act }: { activePetLookId?: string; onSetLook: (lookId: PetLookId) => Promise<{ ok: boolean; data: unknown }>; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {
+  const current = resolveLookId(activePetLookId);
+  return (
+    <section className="card">
+      <h2>Pet portal</h2>
+      <p className="hint">
+        Set how <strong>newly found</strong> pets are rendered from now on. Existing pets keep their historical look, so you can evolve your style over time without changing what you already earned.
+      </p>
+      <div className="row" style={{ marginTop: 10, alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "var(--muted)", fontSize: 13 }}>
+          Default look:
+          <select value={current} onChange={(event) => act(() => onSetLook(resolveLookId(event.target.value)))} className="petPortalSelect">
+            {PET_LOOK_OPTIONS.map((look) => (
+              <option key={look.id} value={look.id}>{look.name}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </section>
+  );
+};
+
 // ── GitHub sync card ───────────────────────────────────────────────────────
-const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | null; refresh: () => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void; onSummon: (seeds: string[]) => void }) => {
+const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | null; refresh: () => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void; onSummon: (pets: SummonPet[]) => void }) => {
   const [busy, setBusy] = useState(false);
   if (!gh) return (
     <section className="card">
@@ -1288,7 +1330,7 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
     setBusy(true);
     const r = await post("/api/verify", { login: gh.login });
     setBusy(false);
-    const j = r.data as { ok?: boolean; score?: number; attributionDelta?: number; throttled?: boolean; tier?: string; error?: string; newPets?: number; newPetSeeds?: string[] } | null;
+    const j = r.data as { ok?: boolean; score?: number; attributionDelta?: number; throttled?: boolean; tier?: string; error?: string; newPets?: number; newPetSeeds?: string[]; newPetLooks?: Record<string, string> } | null;
     if (!r.ok || j?.error) { onBanner({ kind: "warn", text: j?.error ?? "Sync failed." }); return; }
     refresh();
     if (j?.throttled) onBanner({ kind: "info", text: `Sync cooldown hit (${j.tier ?? "your tier"}). Showing the last verified score.` });
@@ -1298,7 +1340,12 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
       // If the verify produced new pets, trigger the cinematic. Server caps the seed list
       // at 6 so this can't run forever; remaining pets land in the menagerie silently.
       const fresh = j?.newPetSeeds ?? [];
-      if (fresh.length > 0) onSummon(fresh);
+      const lookMap = j?.newPetLooks ?? {};
+      const summonPets: SummonPet[] = fresh.map((seed) => ({
+        seed,
+        lookId: resolvePetLookId(lookMap[seed], gh.activePetLookId),
+      }));
+      if (summonPets.length > 0) onSummon(summonPets);
     }
   };
   return (
@@ -1479,7 +1526,7 @@ const CatalogView = ({ earnedIds }: { earnedIds: Set<string> }) => {
 
 // ── Account ────────────────────────────────────────────────────────────────
 const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy, act, onBanner, onSummon }:
-  { account: Account; cfg: StripeConfig | null; user: { email?: string; first_name?: string } | null; refresh: () => void; onManage: () => void; onSubscribe: (t: Tier) => void; busy: string | null; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void; onSummon: (seeds: string[]) => void }) => {
+  { account: Account; cfg: StripeConfig | null; user: { email?: string; first_name?: string } | null; refresh: () => void; onManage: () => void; onSubscribe: (t: Tier) => void; busy: string | null; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void; onSummon: (pets: SummonPet[]) => void }) => {
   const { billing, identities, mergeRequests } = account;
   const name = user?.first_name || user?.email || "your account";
   const paid = billing.tier !== "free";
@@ -1525,6 +1572,11 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
       <GithubSyncCard gh={account.github} refresh={refresh} onBanner={onBanner} onSummon={onSummon} />
       {account.github && <RecapCard login={account.github.login} />}
       {account.github && <AiAttestationCard gh={account.github} act={act} />}
+      {account.github && <PetPortalCard
+        activePetLookId={account.github.activePetLookId}
+        act={act}
+        onSetLook={(lookId) => post("/api/account/pet-look", { lookId })}
+      />}
       {account.achievements && <AchievementsPanel items={account.achievements} title="Your achievements" />}
       {account.github?.login && <MeritPanel login={account.github.login} title="Your merit" />}
       {account.github?.quirks && <QuirksPanel quirks={account.github.quirks} title="Your quirks" />}
@@ -1535,9 +1587,16 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
           <PetViewer
             seeds={account.github.wild}
             avatarSeed={account.github.avatarSeed}
+            activePetLookId={account.github.activePetLookId}
+            petLookAssignments={account.github.petLookAssignments ?? {}}
             onSetAvatar={(seed) => act(async () => {
               const r = await post("/api/account/avatar", { seed });
               if (r.ok) onBanner({ kind: "ok", text: "✓ Avatar updated." });
+              return r;
+            })}
+            onSetPetLook={(seed, lookId) => act(async () => {
+              const r = await post(`/api/account/pets/${encodeURIComponent(seed)}/look`, { lookId });
+              if (r.ok) onBanner({ kind: "ok", text: "✓ Pet look updated." });
               return r;
             })}
           />
@@ -1682,9 +1741,9 @@ const App = () => {
   // preference, not a scoring change.
   const [audience, setAudience] = useState<"all" | "humans" | "ai">("all");
   const [profileLogin, setProfileLogin] = useState<string | null>(null);
-  // Seeds for the post-/api/verify cinematic. Set non-null to take over the screen; the
-  // cinematic auto-closes when it's done cycling, and Esc / Skip / scrim-click close early.
-  const [summonSeeds, setSummonSeeds] = useState<string[] | null>(null);
+  // Summon payload for the post-/api/verify cinematic. Keep per-pet look assignments
+  // with each seed so newly-earned pets preserve the look they were minted with.
+  const [summonPets, setSummonPets] = useState<SummonPet[] | null>(null);
   const [top, setTop] = useState<Entry[]>([]);
   // Newcomers: IDs that appeared in the most recent /api/top result but weren't in the
   // previous one. Their leaderboard row gets a spring zoom + one-shot burst so the entry
@@ -1861,12 +1920,12 @@ const App = () => {
         <CatalogView earnedIds={new Set((account?.achievements ?? []).map((a) => a.id))} />
       </>}
       {view === "account" && (signedIn
-        ? <AccountView account={account!} cfg={cfg} user={user} refresh={loadAccount} onManage={manage} onSubscribe={subscribe} busy={busy} act={act} onBanner={setBanner} onSummon={setSummonSeeds} />
+        ? <AccountView account={account!} cfg={cfg} user={user} refresh={loadAccount} onManage={manage} onSubscribe={subscribe} busy={busy} act={act} onBanner={setBanner} onSummon={(pets) => setSummonPets(pets)} />
         : <section className="card"><h2>Account</h2><p className="muted">Log in to manage your account and subscription.</p><div className="cta"><button className="btn solid" onClick={() => { setAuthMode("login"); setView("auth"); }}>Log in</button><button className="btn ghost" onClick={() => { setAuthMode("register"); setView("auth"); }}>Sign up</button></div></section>)}
       {view === "auth" && <AuthView initial={authMode} onAuthed={() => { loadAccount(); setView("account"); setBanner({ kind: "ok", text: "Welcome back." }); }} onBanner={setBanner} />}
       {view === "reset" && resetToken && <ResetView token={resetToken} onDone={(ok, msg) => { setBanner({ kind: ok ? "ok" : "warn", text: msg }); setView("auth"); setResetToken(null); }} />}
       {profileLogin && <ProfileModal login={profileLogin} onClose={() => setProfileLogin(null)} />}
-      {summonSeeds && summonSeeds.length > 0 && <SummonCinematic seeds={summonSeeds} onClose={() => setSummonSeeds(null)} />}
+      {summonPets && summonPets.length > 0 && <SummonCinematic summons={summonPets} onClose={() => setSummonPets(null)} />}
       {/* One shared WebGL context for all <View>-based pets on the page: the Board view (one
           mini-pet per row), the Account view (menagerie grid), or the ProfileModal (showcase
           row's non-hero SinglePets). Pricing / auth / reset stay text-only and skip WebGL

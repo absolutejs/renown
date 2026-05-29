@@ -3,6 +3,7 @@
 // no PII; just what the leaderboard already exposes plus the curated 3D showcase.
 import { useEffect, useState } from "react";
 import { SinglePet } from "./PetViewer";
+import { isPetLookId, resolvePetLookId, type PetLookId } from "../../../../../core/petLooks.ts";
 
 type Tier = "free" | "supporter" | "pro";
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
@@ -11,6 +12,10 @@ type MeritBlock = {
   score: number; reviews: number; crossRepo: number; authored: number; merged: number;
   mergeRatio: number; downloads: number; substanceScore: number; substanceSampleSize: number;
   lastSyncAt: string | null;
+};
+const resolveProfilePetLook = (seed: string, activePetLookId: string | undefined, petLookAssignments: Record<string, PetLookId>): PetLookId => {
+  const override = petLookAssignments[seed];
+  return isPetLookId(override) ? override : resolvePetLookId(activePetLookId);
 };
 type Profile = {
   login: string; handle: string; tier: Tier; isAi?: boolean;
@@ -22,6 +27,8 @@ type Profile = {
   attestationEvents?: AttestationEvent[];
   rateLimitCount?: number;
   quirks?: Record<string, number>;
+  activePetLookId?: string;
+  petLookAssignments?: Record<string, PetLookId>;
   merit?: MeritBlock;
 };
 
@@ -119,7 +126,7 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
             <ProfileShareRow login={profile.login} />
             <div className="profileAvatar">
               {profile.avatarSeed
-                ? <SinglePet seed={profile.avatarSeed} hero />
+                ? <SinglePet seed={profile.avatarSeed} hero lookId={resolveProfilePetLook(profile.avatarSeed, profile.activePetLookId, profile.petLookAssignments ?? {})} />
                 : <div className="petCanvas profileAvatarEmpty"><span className="muted">no avatar pet yet</span></div>}
             </div>
             <div className="profileStats">
@@ -153,7 +160,7 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
                 <h3 className="muted" style={{ marginTop: 18, fontSize: 13, textTransform: "uppercase", letterSpacing: 0.8 }}>Showcase</h3>
                 <div className="profileShowcase">
                   {profile.showcaseSeeds.map((seed) => (
-                    <div className="petCard" key={seed}><SinglePet seed={seed} /></div>
+                    <div className="petCard" key={seed}><SinglePet seed={seed} lookId={resolveProfilePetLook(seed, profile.activePetLookId, profile.petLookAssignments ?? {})} /></div>
                   ))}
                 </div>
               </>

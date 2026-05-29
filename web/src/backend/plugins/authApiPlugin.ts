@@ -12,6 +12,7 @@ import { authIdentities, SchemaType, User } from "../../../db/schema";
 import { SignJWT } from "jose";
 import { applyAttestation } from "../attestation.ts";
 import { gameDb, hub } from "../sync.ts";
+import { isPetLookId, resolvePetLookId } from "../../../../core/petLooks.ts";
 import { buildAuthenticationOptions, buildRegistrationOptions, verifyAuthentication, verifyRegistration } from "../webauthn.ts";
 import {
   deleteDBAuthIdentityMergeRequest,
@@ -22,23 +23,29 @@ import {
   removeDBAuthIdentity,
   setPrimaryAuthIdentity,
 } from "../handlers/userHandlers";
+import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookAssignment, type PetLookAssignments } from "../petLooks.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 
 // Small in-memory cache for the authoritative-cursor lookup. Cursors fire frequently
 // (every hover, throttled at ~150ms client-side) but the (login → avatarSeed/isAi)
 // mapping changes rarely (avatar set, AI flag flipped). Keyed by github login; 30s TTL.
-type CachedPlayerInfo = { login: string; avatarSeed: string | null; isAi: boolean };
+type CachedPlayerInfo = { login: string; avatarSeed: string | null; avatarLookId: string | null; isAi: boolean };
 const PLAYER_INFO_TTL_MS = 30_000;
 const playerInfoCache = new Map<string, { value: CachedPlayerInfo; expiresAt: number }>();
 const getCachedPlayerInfo = async (login: string): Promise<CachedPlayerInfo | null> => {
   const now = Date.now();
   const hit = playerInfoCache.get(login);
   if (hit && hit.expiresAt > now) return hit.value;
-  const rows = await gameDb.select().from(players).where(eq(players.githubLogin, login));
+  const rows = await gameDb
+    .select({ id: players.id, githubLogin: players.githubLogin, avatarSeed: players.avatarSeed, activePetLookId: players.activePetLookId, isAi: players.isAi })
+    .from(players)
+    .where(eq(players.githubLogin, login));
   const p = rows[0];
   if (!p) { playerInfoCache.delete(login); return null; }
-  const value: CachedPlayerInfo = { login: p.githubLogin ?? login, avatarSeed: p.avatarSeed, isAi: !!p.isAi };
+  const assignment = p.id ? await getPlayerPetLookAssignments(p.id, p.avatarSeed ? [p.avatarSeed] : []) : {};
+  const avatarLookId = p.avatarSeed ? resolvePetLookId(assignment[p.avatarSeed], p.activePetLookId) : null;
+  const value: CachedPlayerInfo = { login: p.githubLogin ?? login, avatarSeed: p.avatarSeed, avatarLookId, isAi: !!p.isAi };
   playerInfoCache.set(login, { value, expiresAt: now + PLAYER_INFO_TTL_MS });
   return value;
 };
@@ -58,6 +65,10 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
   const player = ghLogin
     ? (await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin)))[0] ?? null
     : null;
+  const wild = Array.isArray(player?.wild) ? (player!.wild as string[]) : [];
+  const petLookAssignments: PetLookAssignments = player?.id && wild.length > 0
+    ? await getPlayerPetLookAssignments(player.id, wild)
+    : {};
   return {
     sub: userSub,
     billing: {
@@ -78,8 +89,9 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       verifiedAt: player?.verifiedAt ?? null,
       totalLevel: player?.totalLevel ?? 0,
       playerId: player?.id ?? null,
-      // Pet seeds (real commit SHAs) — each renders as a deterministic procgen creature.
-      wild: Array.isArray(player?.wild) ? (player!.wild as string[]) : [],
+      wild,
+      activePetLookId: player?.activePetLookId ?? resolvePetLookId(undefined),
+      petLookAssignments,
       avatarSeed: player?.avatarSeed ?? null,
       showcaseSeeds: Array.isArray(player?.showcaseSeeds) ? (player!.showcaseSeeds as string[]) : [],
       petsCount: player?.petsCount ?? 0,
@@ -177,7 +189,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     //
     // The per-cursor player lookup is cached for 30s (cursors fire frequently; the player
     // row changes rarely) so we don't beat up Neon during normal hover.
-    .post("/cursor", ({ body, protectRoute }) =>
+      .post("/cursor", ({ body, protectRoute }) =>
       protectRoute(async (user) => {
         const b = (body ?? {}) as { sid?: string; rowId?: string | null; board?: string };
         const sid = String(b.sid ?? "").slice(0, 40);
@@ -193,6 +205,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
           board: typeof b.board === "string" ? b.board.slice(0, 20) : null,
           label: playerInfo?.login ?? null,
           avatarSeed: playerInfo?.avatarSeed ?? null,
+          avatarLookId: playerInfo?.avatarLookId ?? null,
           isAi: playerInfo?.isAi ?? false,
           at: Date.now(),
         });
@@ -454,6 +467,51 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const wild = Array.isArray(p.wild) ? (p.wild as string[]) : [];
         if (!wild.includes(seed)) return status("Bad Request", "you don't own that pet");
         await gameDb.update(players).set({ avatarSeed: seed }).where(eq(players.id, p.id));
+        return { ok: true, ...(await accountPayload(db, user.sub)) };
+      }),
+    )
+    // Change your active look for future wild-seed grants. Existing per-seed pet
+    // appearances stay frozen to their historical assignments.
+    .post("/pet-look", ({ body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const b = (body ?? {}) as { lookId?: string };
+        if (!isPetLookId(b.lookId ?? "")) return status("Bad Request", "invalid look id");
+        const rows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (rows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const p = playerRows[0];
+        if (!p) return status("Not Found", "player not found");
+        const nextLookId = resolvePetLookId(b.lookId);
+        const currentLookId = resolvePetLookId(p.activePetLookId);
+        if (nextLookId !== currentLookId) {
+          const wild = Array.isArray(p.wild) ? (p.wild as string[]) : [];
+          // Freeze historical pets to the look they currently have (current portal style)
+          // before changing the portal default for future summons.
+          if (wild.length > 0) await setPetLookAssignmentsForSeeds(p.id, wild, currentLookId);
+        }
+        await gameDb.update(players).set({ activePetLookId: nextLookId }).where(eq(players.id, p.id));
+        playerInfoCache.delete(ghLogin);
+        return { ok: true, ...(await accountPayload(db, user.sub)) };
+      }),
+    )
+    // Override a specific pet's visual style. The assignment is stored separately and
+    // read on every render path so historical look changes are preserved.
+    .post("/pets/:seed/look", ({ body, params, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const b = (body ?? {}) as { lookId?: string };
+        if (!isPetLookId(b.lookId ?? "")) return status("Bad Request", "invalid look id");
+        const rows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
+        const ghLogin = (rows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
+        if (!ghLogin) return status("Bad Request", "link GitHub first");
+        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
+        const p = playerRows[0];
+        if (!p) return status("Not Found", "player not found");
+        const seed = String(params.seed ?? "").trim();
+        const wild = Array.isArray(p.wild) ? (p.wild as string[]) : [];
+        if (!wild.includes(seed)) return status("Bad Request", "you don't own that pet");
+        await setPetLookAssignment(p.id, seed, b.lookId as string);
+        playerInfoCache.delete(ghLogin);
         return { ok: true, ...(await accountPayload(db, user.sub)) };
       }),
     );

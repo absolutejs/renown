@@ -12,7 +12,43 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { useEffect, useState } from "react";
 import { SinglePet } from "../components/PetViewer";
-import type { ProfileData } from "../../../backend/profile";
+import { isPetLookId, resolvePetLookId, type PetLookId } from "../../../../../core/petLooks.ts";
+
+type Tier = "free" | "supporter" | "pro";
+type Attestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean; expiresAt?: string };
+type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
+type Merit = {
+  score: number;
+  reviews: number;
+  crossRepo: number;
+  authored: number;
+  merged: number;
+  mergeRatio: number;
+  downloads: number;
+  substanceScore: number;
+  substanceSampleSize: number;
+  lastSyncAt: string | null;
+};
+type ProfileForUI = {
+  login: string;
+  handle: string;
+  tier: Tier;
+  isAi: boolean;
+  aiAttestation: Attestation | null;
+  score: number;
+  meritScore?: number;
+  totalLevel: number;
+  petsCount: number;
+  rarestPetScore: number;
+  biggestPetSize: number;
+  avatarSeed: string | null;
+  showcaseSeeds: string[];
+  quirks?: Record<string, number>;
+  activePetLookId?: string;
+  petLookAssignments?: Record<string, PetLookId>;
+  merit?: Merit | null;
+  achievements?: AchievementRow[];
+};
 
 // Mirrors ProfileModal's quirk tier mapping. Inlined to keep this page free
 // of cross-page imports (ProfileModal pulls in modal/scrim CSS we don't need).
@@ -21,11 +57,9 @@ const quirkTierFor = (n: number): [string, string] =>
   n >= 1000 ? QUIRK_TIER[1000]! : n >= 100 ? QUIRK_TIER[100]! : n >= 10 ? QUIRK_TIER[10]! : QUIRK_TIER[1]!;
 const TIER_ORDER: Record<string, number> = { mythic: 0, platinum: 1, gold: 2, silver: 3, bronze: 4, secret: 5 };
 
-// Concrete profile type that the SSR-prefetched data has gone through JSON
-// serialization (Dates become strings on the wire). Mirrors what loadProfile
-// returns once it crosses the React island boundary.
-type ProfileForUI = Omit<NonNullable<ProfileData>, "merit"> & {
-  merit: Omit<NonNullable<ProfileData>["merit"], "lastSyncAt"> & { lastSyncAt: string | null };
+const resolveProfilePetLook = (seed: string, activePetLookId: string | null | undefined, petLookAssignments: Record<string, PetLookId>): PetLookId => {
+  const override = petLookAssignments[seed];
+  return isPetLookId(override) ? override : resolvePetLookId(activePetLookId);
 };
 
 const ShareButton = ({ url }: { url: string }) => {
@@ -120,7 +154,7 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
         <h2>Avatar</h2>
         <div className="profileAvatar">
           {profile.avatarSeed
-            ? <SinglePet seed={profile.avatarSeed} hero />
+            ? <SinglePet seed={profile.avatarSeed} hero lookId={resolveProfilePetLook(profile.avatarSeed, profile.activePetLookId, profile.petLookAssignments ?? {})} />
             : <div className="petCanvas profileAvatarEmpty"><span className="muted">no avatar pet yet</span></div>}
         </div>
         <div className="profileStats">
@@ -155,7 +189,7 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
           <h2>Showcase <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {profile.showcaseSeeds.length} {profile.showcaseSeeds.length === 1 ? "pet" : "pets"}</span></h2>
           <div className="profileShowcase">
             {profile.showcaseSeeds.map((seed) => (
-              <div className="petCard" key={seed}><SinglePet seed={seed} /></div>
+              <div className="petCard" key={seed}><SinglePet seed={seed} lookId={resolveProfilePetLook(seed, profile.activePetLookId, profile.petLookAssignments ?? {})} /></div>
             ))}
           </div>
         </section>
@@ -266,7 +300,7 @@ export const RenownProfile = ({
 }: RenownProfileProps) => {
   const fullUrl = `${origin}/profile/${encodeURIComponent(profile?.login ?? login)}`;
   const title = profile
-    ? `@${profile.login} on Renown · ${profile.score.toLocaleString()} score${profile.meritScore > 0 ? ` · ${profile.meritScore.toLocaleString()} merit` : ""}`
+    ? `@${profile.login} on Renown · ${profile.score.toLocaleString()} score${(profile.meritScore ?? 0) > 0 ? ` · ${(profile.meritScore ?? 0).toLocaleString()} merit` : ""}`
     : `@${login} — not on Renown yet`;
   return (
     <html lang="en">

@@ -8,6 +8,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { achievements, aiAttestationEvents, playerAchievements, players } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
+import { getPlayerPetLookAssignments, type PetLookAssignments } from "./petLooks.ts";
 import { gameDb } from "./sync.ts";
 
 export type ProfileData = Awaited<ReturnType<typeof loadProfile>>;
@@ -31,6 +32,11 @@ export const loadProfile = async (login: string) => {
     .orderBy(desc(aiAttestationEvents.at))
     .limit(30);
 
+  const wild = Array.isArray(p.wild) ? p.wild : [];
+  const petLookAssignments: PetLookAssignments = wild.length > 0 && p.id
+    ? await getPlayerPetLookAssignments(p.id, wild)
+    : {};
+
   return {
     login: p.githubLogin!,
     handle: p.handle,
@@ -48,6 +54,8 @@ export const loadProfile = async (login: string) => {
     biggestPetSize: p.biggestPetSize,
     biggestPetSeed: p.biggestPetSeed,
     avatarSeed: p.avatarSeed,
+    activePetLookId: p.activePetLookId,
+    petLookAssignments,
     showcaseSeeds: Array.isArray(p.showcaseSeeds) ? p.showcaseSeeds : [],
     rateLimitCount: p.rateLimitCount,
     quirks: p.quirks ?? {},

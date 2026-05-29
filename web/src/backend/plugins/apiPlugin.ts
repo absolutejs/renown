@@ -12,6 +12,8 @@ import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { computeMeritScore, fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
 import { loadProfile } from "../profile.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
+import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } from "../petLooks.ts";
+import { resolvePetLookId } from "../../../../core/petLooks.ts";
 import { QUIRKS } from "../quirks.ts";
 import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
 
@@ -138,10 +140,18 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         // Drizzle SQL builder keeps this typed; the inner select is parameterized.
         const weeklyOrder = sql<number>`(${players.attributionScore} - coalesce((select ${playerAttributionSnapshots.attributionScore} from ${playerAttributionSnapshots} where ${playerAttributionSnapshots.playerId} = ${players.id} and ${playerAttributionSnapshots.snapshotDate} >= ${cutoff} order by ${playerAttributionSnapshots.snapshotDate} asc limit 1), ${players.attributionScore}))`;
         const rows = await gameDb.select().from(players).where(where).orderBy(desc(weeklyOrder)).limit(n);
-        return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore }));
+        const petLookAssignmentsByPlayer = await getPlayerPetLookAssignmentsForRows(rows);
+        return rows.map((p) => {
+          const assignments = petLookAssignmentsByPlayer.get(p.id) ?? {};
+          return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
+        });
       }
       const rows = await gameDb.select().from(players).where(where).orderBy(desc(orderCol)).limit(n);
-      return rows.map((p) => ({ id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore }));
+      const petLookAssignmentsByPlayer = await getPlayerPetLookAssignmentsForRows(rows);
+      return rows.map((p) => {
+        const assignments = petLookAssignmentsByPlayer.get(p.id) ?? {};
+          return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
+      });
     })
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.
@@ -197,14 +207,18 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       if (row.attributionQuery) {
         const since = row.lastAttributionSyncAt ?? row.createdAt;
         attrDelta = await searchAttributions(row.attributionQuery, since);
-        // Pet seeds: pull up to 30 fresh SHAs from this window. Each = a unique procgen 1/1.
-        if (attrDelta > 0) newShas = await fetchAttributionShas(row.attributionQuery, since, 30);
+      // Pet seeds: pull up to 30 fresh SHAs from this window. Each = a unique procgen 1/1.
+      if (attrDelta > 0) newShas = await fetchAttributionShas(row.attributionQuery, since, 30);
       }
       const attributionScore = Number(row.attributionScore) + attrDelta;
       const score = v.score + attributionScore;
       // Append new SHAs to the player's wild; cap at the 100 newest so it doesn't grow forever.
       const wild: string[] = Array.isArray(row.wild) ? row.wild : [];
       const mergedWild = Array.from(new Set([...newShas, ...wild])).slice(0, 100);
+      const newLookId = resolvePetLookId(row.activePetLookId);
+      const newPetSeeds = newShas.slice(0, 6);
+      const newPetLooks = Object.fromEntries(newPetSeeds.map((seed) => [seed, newLookId]));
+      await setPetLookAssignmentsForSeeds(row.id, newPetSeeds, newLookId);
       // Recompute denormalized pet aggregates for the leaderboards (cheap pure generate calls).
       const creatures = mergedWild.map((s) => ({ s, c: generate(s) }));
       const sortedByScore = [...creatures].sort((a, b) => b.c.score - a.c.score);
@@ -272,7 +286,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // small (<= 6) — the cinematic burns ~2s per pet on-screen so dumping 30 at once
       // would be tedious. Anything beyond the cap still lands in `wild` (the player owns
       // every pet they earned this sync), it just doesn't get a screen-takeover entrance.
-      return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, newPets: newShas.length, newPetSeeds: newShas.slice(0, 6), totalPets: mergedWild.length, rarestPetScore, biggestPetSize, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
+      return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, newPets: newShas.length, newPetSeeds, newPetLooks, totalPets: mergedWild.length, rarestPetScore, biggestPetSize, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
     })
     // Browserless CLI link: the CLI presents its existing GitHub OAuth token (gh auth token).
     // We verify it against GitHub (GET /user) — which PROVES the caller owns that login, no

@@ -8,22 +8,29 @@ import { Canvas, useFrame, type ThreeElements } from "@react-three/fiber";
 import { Bloom, ChromaticAberration, EffectComposer, Noise, Vignette } from "@react-three/postprocessing";
 import { animated, useSpring } from "@react-spring/three";
 import { BlendFunction, KernelSize } from "postprocessing";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BoxGeometry, BufferAttribute, type BufferGeometry, ExtrudeGeometry, Float32BufferAttribute, type Group, type PerspectiveCamera as ThreePerspectiveCamera, Shape, Vector2 } from "three";
 import * as CANNON from "cannon-es";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { type Creature, generate, type RGB, voxelize } from "../../../../../core/procgen";
+import { type Creature, generate, voxelize } from "../../../../../core/procgen";
+import type { RGB } from "../../../../../core/shiny.ts";
+import { DEFAULT_PET_LOOK_ID, PET_LOOKS, isPetLookId, type PetLookId } from "../../../../../core/petLooks.ts";
 import { chimeVoiceFor, playChime } from "../../audio";
 import { ProceduralMat } from "./petMaterials";
+
+const resolveLookId = (value: string | undefined | null): PetLookId => isPetLookId(value) ? value : DEFAULT_PET_LOOK_ID;
+const PET_LOOK_OPTIONS = Object.values(PET_LOOKS);
+type PetLookMap = Record<string, PetLookId>;
+export type SummonPet = { seed: string; lookId: PetLookId };
 
 // One merged BoxGeometry for the whole pet body (per-voxel translation baked in + a custom
 // `voxColor` attribute carrying the procgen gradient color per cube). One draw call per pet
 // instead of N — the biggest single perf win for the menagerie grid.
-const buildBodyGeom = (voxels: { x: number; y: number; color: RGB }[], offsetX: number, offsetY: number): BufferGeometry | null => {
+const buildBodyGeom = (voxels: { x: number; y: number; z: number; color: RGB }[], offsetX: number, offsetY: number, offsetZ: number): BufferGeometry | null => {
   if (voxels.length === 0) return null;
   const geoms = voxels.map((v) => {
     const g = new BoxGeometry(0.94, 0.94, 0.94);
-    g.translate(v.x + offsetX, -v.y + offsetY, 0);
+    g.translate(v.x + offsetX, -v.y + offsetY, v.z + offsetZ);
     const n = g.attributes.position.count;
     const arr = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
@@ -167,18 +174,19 @@ const GhostCopy = ({ geom, creature, warpMode, index, count, burstRef }: { geom:
   );
 };
 
-const Pet = ({ seed, autoRotate = 0, entranceBurst = false }: { seed: string; autoRotate?: number; entranceBurst?: boolean }) => {
+const Pet = ({ seed, autoRotate = 0, entranceBurst = false, lookId = DEFAULT_PET_LOOK_ID }: { seed: string; autoRotate?: number; entranceBurst?: boolean; lookId?: PetLookId }) => {
   const c = useMemo(() => generate(seed), [seed]);
-  const grid = useMemo(() => voxelize(c, 0), [c]);
+  const grid = useMemo(() => voxelize(c, 0, resolveLookId(lookId)), [c, lookId]);
   const mp = useMemo(() => movementFor(c), [c]);
   const groupRef = useRef<Group>(null);
   const offsetX = -grid.w / 2 + 0.5;
   const offsetY = grid.h / 2 - 0.5;
+  const offsetZ = -(grid.d - 1) / 2;
   // Merged body geometry — one mesh + one shader program instance per pet.
   const bodyGeom = useMemo(() => {
     const bodyVoxels = grid.voxels.filter((v) => v.kind === "body");
-    return buildBodyGeom(bodyVoxels, offsetX, offsetY);
-  }, [grid, offsetX, offsetY]);
+    return buildBodyGeom(bodyVoxels, offsetX, offsetY, offsetZ);
+  }, [grid, offsetX, offsetY, offsetZ]);
 
   // Imperative entry spring (function form). Function runs once at mount; initial config
   // has from/to so the animation kicks off — no useEffect needed. `api` available in scope
@@ -263,10 +271,11 @@ const Pet = ({ seed, autoRotate = 0, entranceBurst = false }: { seed: string; au
         {grid.voxels.filter((v) => v.kind !== "body").map((v, i) => {
           const x = v.x + offsetX;
           const y = -v.y + offsetY;
+          const z = v.z + offsetZ;
           const color = css(v.color);
-          if (v.kind === "eye") return <Eye key={i} pos={[x, y, 0.5]} color={color} trait={c.traits.eyes} mythic={c.mythicAura} />;
+          if (v.kind === "eye") return <Eye key={i} pos={[x, y, z]} color={color} trait={c.traits.eyes} mythic={c.mythicAura} />;
           return (
-            <mesh key={i} position={[x, y, 0.42]}>
+            <mesh key={i} position={[x, y, z]}>
               <boxGeometry args={[0.55, 0.18, 0.25]} />
               <meshStandardMaterial color={color} roughness={0.4} emissive={color} emissiveIntensity={0.25} />
             </mesh>
@@ -295,7 +304,7 @@ const Pet = ({ seed, autoRotate = 0, entranceBurst = false }: { seed: string; au
 // the spotlight (for 1/1 only) and by the menagerie grid (every card, with a smaller
 // drop tuned for the card camera). dropFrom / floorY let callers scale the drop to the
 // scene's vertical extent.
-const PhysicsPet = ({ seed, autoRotate, entranceBurst = false, dropFrom = 12, floorY = -4 }: { seed: string; autoRotate: number; entranceBurst?: boolean; dropFrom?: number; floorY?: number }) => {
+const PhysicsPet = ({ seed, autoRotate, entranceBurst = false, dropFrom = 12, floorY = -4, lookId = DEFAULT_PET_LOOK_ID }: { seed: string; autoRotate: number; entranceBurst?: boolean; dropFrom?: number; floorY?: number; lookId?: PetLookId }) => {
   const worldRef = useRef<CANNON.World | null>(null);
   const bodyRef = useRef<CANNON.Body | null>(null);
   const groupRef = useRef<Group>(null);
@@ -339,7 +348,7 @@ const PhysicsPet = ({ seed, autoRotate, entranceBurst = false, dropFrom = 12, fl
 
   return (
     <group ref={groupRef}>
-      <Pet seed={seed} autoRotate={autoRotate} entranceBurst={entranceBurst} />
+      <Pet seed={seed} autoRotate={autoRotate} entranceBurst={entranceBurst} lookId={lookId} />
     </group>
   );
 };
@@ -368,7 +377,7 @@ const spotlightZFor = (seed: string | null) => seed ? Math.max(10, 7 + generate(
 //   a two-leg `api.start({ to: async (next) => ... })` chain — dolly out, swap displaySeed,
 //   dolly in. No useEffect-coupled timing on the animation itself; useEffect is only the
 //   prop-change detector, the animation is event-driven (start → resolve → start).
-export const SpotlightView = ({ seed }: { seed: string | null }) => {
+export const SpotlightView = ({ seed, lookId = DEFAULT_PET_LOOK_ID }: { seed: string | null; lookId?: PetLookId }) => {
   // displaySeed = what's currently being shown in the scene (lags behind `seed` during the
   // dolly-out leg of the transition; updated mid-chain so the new pet renders only after
   // the outgoing one has scaled away).
@@ -414,8 +423,8 @@ export const SpotlightView = ({ seed }: { seed: string | null }) => {
           displaySeed so a fresh 1/1 spawns a fresh world. */}
       <animated.group scale={springs.scale}>
         {c.oneOfOne
-          ? <PhysicsPet key={displaySeed} seed={displaySeed} autoRotate={dramatic ? 0.35 : 0.2} />
-          : <Pet seed={displaySeed} autoRotate={dramatic ? 0.35 : 0.2} />}
+          ? <PhysicsPet key={displaySeed} seed={displaySeed} autoRotate={dramatic ? 0.35 : 0.2} lookId={lookId} />
+          : <Pet seed={displaySeed} autoRotate={dramatic ? 0.35 : 0.2} lookId={lookId} />}
       </animated.group>
     </View>
   );
@@ -425,7 +434,7 @@ export const SpotlightView = ({ seed }: { seed: string | null }) => {
 // and ignores the `track` prop. So the View IS the petCanvas div (className routes our CSS).
 // The shared MenagerieCanvas picks up the View through tunnel-rat and scissor-renders the
 // scene at this div's rect.
-const PetCardView = ({ seed, creature, entranceBurst = false }: { seed: string; creature: Creature; entranceBurst?: boolean }) => {
+const PetCardView = ({ seed, creature, entranceBurst = false, lookId = DEFAULT_PET_LOOK_ID }: { seed: string; creature: Creature; entranceBurst?: boolean; lookId?: PetLookId }) => {
   const z = Math.max(8, 6 + creature.sizeN * 0.10);
   const dramatic = creature.tier === "Mythic" || creature.tier === "Legendary" || creature.oneOfOne;
   const rate = creature.tier === "Mythic" ? 0.5 : creature.tier === "Legendary" ? 0.3 : 0.18;   // rad/sec
@@ -440,7 +449,7 @@ const PetCardView = ({ seed, creature, entranceBurst = false }: { seed: string; 
           and settles on an invisible "shelf" at floorY=-3, then continues its intrinsic
           motion in local space on top of the resting body. Smaller drop/floor than the
           spotlight defaults to fit the card camera's tighter vertical extent. */}
-      <PhysicsPet seed={seed} autoRotate={rate} entranceBurst={entranceBurst} dropFrom={8} floorY={-3} />
+      <PhysicsPet seed={seed} autoRotate={rate} entranceBurst={entranceBurst} dropFrom={8} floorY={-3} lookId={lookId} />
     </View>
   );
 };
@@ -472,7 +481,7 @@ const OrbitingTrail = ({ color, radius, speed, phase, height }: { color: string;
 // HERO canvas for big single-pet displays (avatar in profile modal) — adds chromatic
 // aberration on the rarest pets + denser stars + a slightly slower auto-rotate so it
 // reads as a presentation piece, not a thumbnail.
-export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creature }) => {
+export const HeroCanvas = ({ seed, creature, lookId = DEFAULT_PET_LOOK_ID }: { seed: string; creature: Creature; lookId?: PetLookId }) => {
   const z = Math.max(8, 6 + creature.sizeN * 0.10);
   const cam = { fov: 32, position: [0, 0, z] as [number, number, number] };
   const wild = creature.oneOfOne || creature.mythicAura;
@@ -500,7 +509,7 @@ export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creatur
         color={wild ? "#ffe9b3" : "#9cd6ff"}
         opacity={0.7}
       />
-      <Pet seed={seed} />
+      <Pet seed={seed} lookId={lookId} />
       {/* Glass aura sphere — only for frost / void creatures. Real refraction via drei's
           MeshTransmissionMaterial. Sized to wrap the whole pet so the body is seen "through"
           a colored glass shell. Heavy effect, gated to these auras only. */}
@@ -532,7 +541,7 @@ export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creatur
       <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={wild ? 1.3 : 0.5} />
       <EffectComposer>
         <Bloom intensity={wild ? 1.7 : 1.15} luminanceThreshold={0.45} luminanceSmoothing={0.5} kernelSize={KernelSize.HUGE} mipmapBlur />
-        {wild && <ChromaticAberration offset={caOffset} blendFunction={BlendFunction.NORMAL} radialModulation={false} modulationOffset={0} />}
+        {wild ? <ChromaticAberration offset={caOffset} blendFunction={BlendFunction.NORMAL} radialModulation={false} modulationOffset={0} /> : <></>}
         <Vignette offset={0.15} darkness={0.55} />
         <Noise opacity={0.035} />
       </EffectComposer>
@@ -550,9 +559,10 @@ export const HeroCanvas = ({ seed, creature }: { seed: string; creature: Creatur
 // Per-pet remount via `key={seed}` is intentional: each cinematic beat is short enough that
 // the WebGL/post-FX warm-up is hidden by the next pet's entrance burst. Keeping one Canvas
 // + crossfade would be smoother but adds complexity; the current trade reads punchy.
-export const SummonCinematic = ({ seeds, onClose }: { seeds: string[]; onClose: () => void }) => {
+export const SummonCinematic = ({ summons, onClose }: { summons: SummonPet[]; onClose: () => void }) => {
   const [index, setIndex] = useState(0);
-  const seed = seeds[index] ?? null;
+  const summon = summons[index];
+  const seed = summon?.seed ?? null;
   const c = useMemo(() => seed ? generate(seed) : null, [seed]);
 
   // Tier-scaled dwell so rare pets get a longer beat (they have more visual going on:
@@ -567,11 +577,11 @@ export const SummonCinematic = ({ seeds, onClose }: { seeds: string[]; onClose: 
     // cluster. Same trigger point, different acoustic information per pet.
     playChime(chimeVoiceFor(c.tier, c.oneOfOne, c.mythicAura));
     const id = window.setTimeout(() => {
-      if (index < seeds.length - 1) setIndex(index + 1);
+      if (index < summons.length - 1) setIndex(index + 1);
       else window.setTimeout(onClose, 700);     // brief hold on the last pet before closing
     }, dwell);
     return () => window.clearTimeout(id);
-  }, [seed, c, index, seeds.length, dwell, onClose]);
+  }, [seed, c, index, summons.length, dwell, onClose]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -583,12 +593,12 @@ export const SummonCinematic = ({ seeds, onClose }: { seeds: string[]; onClose: 
   return (
     <div className="summonScrim" role="dialog" aria-modal onClick={onClose}>
       <header className="summonHead" onClick={(e) => e.stopPropagation()}>
-        <span className="summonLabel">✦ {seeds.length === 1 ? "A new pet was summoned" : `${seeds.length} new pets summoned`} ✦</span>
-        <span className="summonProgress">{index + 1} / {seeds.length}</span>
+        <span className="summonLabel">✦ {summons.length === 1 ? "A new pet was summoned" : `${summons.length} new pets summoned`} ✦</span>
+        <span className="summonProgress">{index + 1} / {summons.length}</span>
         <button className="btn ghost summonSkip" onClick={onClose}>Skip ›</button>
       </header>
       <div className="summonStage" onClick={(e) => e.stopPropagation()}>
-        <HeroCanvas key={seed} seed={seed} creature={c} />
+        <HeroCanvas key={seed} seed={seed} creature={c} lookId={summon?.lookId} />
       </div>
       <div className="summonMeta" onClick={(e) => e.stopPropagation()}>
         <h2 className={`summonName tier-${c.tier.toLowerCase()}`}>{c.name}</h2>
@@ -604,7 +614,7 @@ export const SummonCinematic = ({ seeds, onClose }: { seeds: string[]; onClose: 
 // scene than PetCardView (no Stars, single light, fast spin). Used in place of the
 // colored dot for cursors whose owner has opted in to label-sharing. Mount-gated so
 // SSR is safe.
-export const GhostAvatar = ({ seed }: { seed: string }) => {
+export const GhostAvatar = ({ seed, lookId = DEFAULT_PET_LOOK_ID }: { seed: string; lookId?: PetLookId }) => {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const c = useMemo(() => generate(seed), [seed]);
@@ -615,7 +625,7 @@ export const GhostAvatar = ({ seed }: { seed: string }) => {
       <PerspectiveCamera makeDefault position={[0, 0, z]} fov={36} />
       <ambientLight intensity={0.8} />
       <directionalLight position={[3, 4, 5]} intensity={1.0} />
-      <Pet seed={seed} autoRotate={0.7} />
+      <Pet seed={seed} autoRotate={0.7} lookId={lookId} />
     </View>
   );
 };
@@ -625,7 +635,7 @@ export const GhostAvatar = ({ seed }: { seed: string }) => {
 // hero=false → drei <View> that scissor-renders into the shared MenagerieCanvas. Callers
 // using non-hero (e.g. ProfileModal's showcase row) MUST ensure MenagerieCanvas is mounted
 // in the page; otherwise the View has nowhere to render and the pet is invisible.
-export const SinglePet = ({ seed, hero = false, entranceBurst = false }: { seed: string; hero?: boolean; entranceBurst?: boolean }) => {
+export const SinglePet = ({ seed, hero = false, entranceBurst = false, lookId = DEFAULT_PET_LOOK_ID }: { seed: string; hero?: boolean; entranceBurst?: boolean; lookId?: PetLookId }) => {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const c = useMemo(() => generate(seed), [seed]);
@@ -635,16 +645,46 @@ export const SinglePet = ({ seed, hero = false, entranceBurst = false }: { seed:
   // flows through the non-hero path — the hero canvas is presentation-only (no leaderboard
   // newcomer story).
   return hero
-    ? <div className="petCanvas"><HeroCanvas seed={seed} creature={c} /></div>
-    : <PetCardView seed={seed} creature={c} entranceBurst={entranceBurst} />;
+    ? <div className="petCanvas"><HeroCanvas seed={seed} creature={c} lookId={lookId} /></div>
+    : <PetCardView seed={seed} creature={c} entranceBurst={entranceBurst} lookId={lookId} />;
 };
 
 // One card. The PetCardView IS the visible canvas region (it renders a div internally and
 // the shared MenagerieCanvas scissor-renders the pet to its rect via tunnel-rat).
-const PetCard = ({ seed, creature, isAvatar, onSetAvatar, mounted }: { seed: string; creature: Creature; isAvatar: boolean; onSetAvatar?: (seed: string) => void; mounted: boolean }) => {
+const PetCard = ({
+  seed,
+  creature,
+  isAvatar,
+  onSetAvatar,
+  mounted,
+  lookId = DEFAULT_PET_LOOK_ID,
+  onLookChange,
+}: {
+  seed: string;
+  creature: Creature;
+  isAvatar: boolean;
+  onSetAvatar?: (seed: string) => void;
+  mounted: boolean;
+  lookId?: PetLookId;
+  onLookChange?: (seed: string, nextLookId: PetLookId) => void;
+}) => {
+  const onLookChangeEvent = (event: ChangeEvent<HTMLSelectElement>) => {
+    onLookChange?.(seed, resolveLookId(event.target.value));
+  };
   return (
     <div className={`petCard tier-${creature.tier.toLowerCase()}${isAvatar ? " isAvatar" : ""}`}>
-      {mounted ? <PetCardView seed={seed} creature={creature} /> : <div className="petCanvas" />}
+      {mounted ? <PetCardView seed={seed} creature={creature} lookId={lookId} /> : <div className="petCanvas" />}
+      {onLookChange && (
+        <label className="petLookControl">
+          <select value={lookId} onChange={onLookChangeEvent} title="Choose pet appearance">
+            {PET_LOOK_OPTIONS.map((look) => (
+              <option key={look.id} value={look.id}>
+                {look.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {onSetAvatar && (
         <button className={`avatarBtn${isAvatar ? " on" : ""}`} title={isAvatar ? "Your avatar" : "Set as avatar"} onClick={() => !isAvatar && onSetAvatar(seed)}>
           {isAvatar ? "★" : "☆"}
@@ -659,21 +699,53 @@ const PetCard = ({ seed, creature, isAvatar, onSetAvatar, mounted }: { seed: str
   );
 };
 
-export const PetViewer = ({ seeds, limit = 6, avatarSeed, onSetAvatar }: { seeds: string[]; limit?: number; avatarSeed?: string | null; onSetAvatar?: (seed: string) => void }) => {
+export const PetViewer = ({
+  seeds,
+  limit = 6,
+  avatarSeed,
+  onSetAvatar,
+  activePetLookId = DEFAULT_PET_LOOK_ID,
+  petLookAssignments = {},
+  onSetPetLook,
+}: {
+  seeds: string[];
+  limit?: number;
+  avatarSeed?: string | null;
+  onSetAvatar?: (seed: string) => void;
+  activePetLookId?: string;
+  petLookAssignments?: PetLookMap;
+  onSetPetLook?: (seed: string, lookId: PetLookId) => void;
+}) => {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  const resolveSeedLookId = useCallback((seed: string): PetLookId => {
+    const override = petLookAssignments[seed];
+    return isPetLookId(override) ? override : resolveLookId(activePetLookId);
+  }, [petLookAssignments, activePetLookId]);
   // Top N by rarity score (rarest first), unique seeds only.
   const top = useMemo(() => {
     const uniq = Array.from(new Set(seeds));
-    return uniq.map((seed) => ({ c: generate(seed), seed })).sort((a, b) => b.c.score - a.c.score).slice(0, limit);
-  }, [seeds, limit]);
+    return uniq
+      .map((seed) => ({ c: generate(seed), seed, lookId: resolveSeedLookId(seed) }))
+      .sort((a, b) => b.c.score - a.c.score)
+      .slice(0, limit);
+  }, [seeds, limit, resolveSeedLookId]);
 
   if (top.length === 0) return <p className="muted">No wild creatures yet — they drop from real attributed commits each sync.</p>;
 
   return (
     <div className="petStage">
-      {top.map(({ c, seed }) => (
-        <PetCard key={seed} seed={seed} creature={c} isAvatar={seed === avatarSeed} onSetAvatar={onSetAvatar} mounted={mounted} />
+      {top.map(({ c, seed, lookId }) => (
+        <PetCard
+          key={seed}
+          seed={seed}
+          creature={c}
+          isAvatar={seed === avatarSeed}
+          onSetAvatar={onSetAvatar}
+          mounted={mounted}
+          lookId={lookId}
+          onLookChange={onSetPetLook}
+        />
       ))}
     </div>
   );

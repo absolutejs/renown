@@ -6,6 +6,7 @@
 // reproduces the SAME creature, anywhere — which is exactly what an optional on-chain
 // proof layer would record ("the seed is the asset"). Powers collectibles AND pets.
 import { R, type RGB, fg, hsvToRgb } from "./shiny.ts";
+import { DEFAULT_PET_LOOK_ID, isPetLookId, type PetLookId } from "./petLooks.ts";
 
 // ---- seeded PRNG: xmur3 (string→ints) feeding sfc32 (full-period, high quality) ----
 const xmur3 = (str: string) => {
@@ -166,9 +167,14 @@ export const frames = (c: Creature, count = 16) => Array.from({ length: count },
 
 // Structured 3D-friendly view of the same creature: a grid of voxels (one per filled ASCII
 // cell) with rgb color + kind. Same algorithm as renderCreature, sans ANSI — for R3F.
-export type Voxel = { x: number; y: number; color: RGB; kind: "body" | "eye" | "mouth" };
-export interface VoxelGrid { w: number; h: number; voxels: Voxel[]; aura: boolean; mythicAura: boolean; tier: Tier }
-export const voxelize = (c: Creature, frame = 0): VoxelGrid => {
+export type Voxel = { x: number; y: number; z: number; color: RGB; kind: "body" | "eye" | "mouth" };
+export interface VoxelGrid { w: number; h: number; d: number; voxels: Voxel[]; aura: boolean; mythicAura: boolean; tier: Tier }
+const clampVoxelDepth = (lookId: PetLookId, c: Creature) => {
+  if (lookId !== "volumetric") return 1;
+  return Math.max(2, Math.min(4, Math.round(1 + c.sizeN / 26)));
+};
+export const voxelize = (c: Creature, frame = 0, lookId: PetLookId = DEFAULT_PET_LOOK_ID): VoxelGrid => {
+  const effectiveLookId = isPetLookId(lookId) ? lookId : DEFAULT_PET_LOOK_ID;
   const rng = makeRng(c.seed + ":sprite");
   const { H, halfW, fillP } = dimsFor(c.sizeN);
   let half: boolean[][] = Array.from({ length: H }, () => Array.from({ length: halfW }, () => rng() < fillP));
@@ -196,6 +202,7 @@ export const voxelize = (c: Creature, frame = 0): VoxelGrid => {
   const pulse = 0.82 + 0.18 * Math.sin(frame * 0.6);
   const shimmerCol = c.tier === "Legendary" ? frame % W : -99;
   const voxels: Voxel[] = [];
+  const maxDepth = clampVoxelDepth(effectiveLookId, c);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       if (!body[y][x]) continue;
@@ -210,12 +217,25 @@ export const voxelize = (c: Creature, frame = 0): VoxelGrid => {
       const isEye = y === eyeRow && (x === Math.floor(W * 0.3) || x === Math.ceil(W * 0.7) - 1) && c.traits.eyes !== "cyclops";
       const isCyclops = y === eyeRow && c.traits.eyes === "cyclops" && x === Math.floor(W / 2);
       const isMouth = y === mouthRow && hasMouth && x === Math.floor(W / 2);
-      if (isEye || isCyclops) voxels.push({ color: c.eyeColor, kind: "eye", x, y });
-      else if (isMouth) voxels.push({ color: [20, 20, 30], kind: "mouth", x, y });
-      else voxels.push({ color: col, kind: "body", x, y });
+      // Volumetric mode gives depth by stacking the body across z.
+      // Keep legacy mode 100% flat so old visuals continue unchanged.
+      const radialBias = 1 - Math.abs((x / (W - 1)) - 0.5) * 2;
+      const stackDepth = effectiveLookId === "legacy"
+        ? 1
+        : Math.max(1, Math.min(maxDepth, Math.round(1 + radialBias * (maxDepth - 1) + (rng() - 0.5))));
+      const topZ = Math.max(0, stackDepth - 1);
+      if (isEye || isCyclops) {
+        voxels.push({ color: c.eyeColor, kind: "eye", x, y, z: topZ });
+      } else if (isMouth) {
+        voxels.push({ color: [20, 20, 30], kind: "mouth", x, y, z: Math.max(0, Math.floor(topZ * 0.6)) });
+      } else {
+        for (let z = 0; z < stackDepth; z++) {
+          voxels.push({ color: col, kind: "body", x, y, z });
+        }
+      }
     }
   }
-  return { aura: c.traits.aura === "sparkle" || c.traits.aura === "rainbow", h: H, mythicAura: c.mythicAura, tier: c.tier, voxels, w: W };
+  return { aura: c.traits.aura === "sparkle" || c.traits.aura === "rainbow", d: maxDepth, h: H, mythicAura: c.mythicAura, tier: c.tier, voxels, w: W };
 };
 // a one-line "chibi" face for compact spots (status line / lists)
 const FACE_MOUTH: Record<string, string> = { smile: "ᵕ", neutral: "–", fangs: "ᴥ", agape: "o", none: "·", grin: "▿", tongue: "ᵕ" };
