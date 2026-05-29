@@ -57,6 +57,29 @@ bun run build:cli   # builds dist/cli.mjs for any-runtime use
 ./dist/cli.mjs help
 ```
 
+## Upgrading
+
+Update to the latest published version at any time:
+
+```bash
+renown upgrade
+```
+
+It detects your global package manager (Bun / npm / pnpm / yarn), pulls
+`@absolutejs/renown@latest`, and no-ops if you're already current.
+
+**Auto-update on new sessions.** `renown install-agent <claude|codex>` also wires a
+`renown self-update --quiet` hook into the agent's `SessionStart`. It's throttled to one
+check per day, runs the network call + install in a detached background process (so it
+never delays a session), and only upgrades when npm actually has something newer. Opt out
+with either:
+
+```bash
+export RENOWN_NO_SELF_UPDATE=1          # env, per-shell
+# or, persistently, in ~/.renown/config.json:
+{ "autoUpdate": false }
+```
+
 ## What runtimes work?
 
 The CLI bundle (`dist/cli.mjs`) is built with `bun build --target=node`. It runs under:
@@ -149,10 +172,10 @@ renown install-agent codex
 renown install-agent tmux
 ```
 
-`renown install-agent codex` also makes the `Stop` hook print `renown statusline` after
-each Codex turn, so progress shows in the session without stealing Codex's conversation
-title. A small `codex` launcher shim is available as a title-bar fallback, but the
-turn-end line is the preferred no-tmux path.
+`renown install-agent codex` also makes the `Stop` hook run `renown heartbeat` and
+return valid stop-hook JSON so Codex accepts the hook result. A small `codex` launcher
+shim is available as a title-bar fallback, but the turn-end hook is the preferred
+no-tmux path.
 
 Manual Codex hook setup lives in `~/.codex/config.toml`; project-local
 `.codex/config.toml` only loads after the project is trusted:
@@ -165,7 +188,7 @@ hooks = true
 hooks = [{ type = "command", command = "renown agent codex --quiet" }]
 
 [[hooks.Stop]]
-hooks = [{ type = "command", command = "renown heartbeat --quiet && renown statusline" }]
+hooks = [{ type = "command", command = "renown heartbeat --quiet >/dev/null 2>&1; renown statusline 1>&2; echo '{\\"continue\\":true}'" }]
 ```
 
 Codex's `/statusline` command can still show Codex-native fields such as model,

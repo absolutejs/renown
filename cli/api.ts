@@ -24,19 +24,22 @@
 
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { run, runSync } from "./proc.ts";
 import { agentById, agentFromEnv, normalizeAgentId } from "../core/agents.ts";
 import { applyGains, skillProgress, topSkills, totalLevel } from "../core/skills.ts";
 import { face, generate } from "../core/procgen.ts";
+import { gradientBar, rainbow } from "../core/shiny.ts";
 
-type AppConfig = { leaderboardEndpoint?: string; playerId?: string; clientId?: string; clientSecret?: string };
+type AppConfig = { leaderboardEndpoint?: string; playerId?: string; clientId?: string; clientSecret?: string; autoUpdate?: boolean };
 
 const HOME = homedir();
 const RDIR = join(HOME, ".renown");
 const STATE = join(RDIR, "state.json");
 const HUD = join(RDIR, "hud.txt");
+const CELEBRATIONS = join(RDIR, "celebrations.txt");
 const TMUX_CONF = join(RDIR, "tmux-status.conf");
 const CODEX_REAL = join(RDIR, "codex-real-path");
 
@@ -71,13 +74,37 @@ const saveLocalState = (s: LocalState) => {
   writeFileSync(t, JSON.stringify(s));
   renameSync(t, STATE);
 };
+// Color codes mirrored from core/runtime.ts's `C` so this node bundle stays hermetic
+// (importing runtime here would pull in its Bun.* references). Keep in sync with `C`.
+const HC = { r: "\x1b[0m", b: "\x1b[1m", dim: "\x1b[2m", mag: "\x1b[95m" };
+
+// Must render IDENTICALLY to renderHud() in core/runtime.ts — both write the same
+// ~/.renown/hud.txt and feed the same status line. If you change one, change both.
 const renderLocalHud = (s: LocalState) => {
   const skx = s.skillXp ?? {};
+  const total = totalLevel(skx);
   const top = topSkills(skx, 1)[0];
-  const pr = skillProgress(top.xp);
-  const pct = String(pr.pct).padStart(2);
-  const pet = s.companion ? `  ${face(generate(s.companion))}` : "";
-  return `Lvl${totalLevel(skx)} ${pct}% ${top.def.icon} ${top.def.name} ${top.level}${pet}`;
+  const tp = skillProgress(top.xp);
+  // a 99 skill earns a rainbow level — the rarest thing on the line.
+  const lvlBadge = top.level >= 99 ? rainbow(String(top.level)) : `${HC.b}${top.level}${HC.r}`;
+  const pet = s.companion ? `  ${face(generate(s.companion))}` : "";   // your adopted companion, always with you
+  return `${HC.b}${HC.mag}Lvl${total}${HC.r} ${gradientBar(tp.pct, 8)} ${HC.dim}${tp.pct}%${HC.r} ${top.def.icon} ${HC.b}${top.def.name}${HC.r} ${lvlBadge}${pet}`;
+};
+
+// Pop the oldest queued celebration frame. The status line calls this once per refresh,
+// so a big commit's level-ups / achievements parade across the HUD over several seconds.
+// Mirrors core/celebrate.ts's queue format; duplicated here to keep the bundle hermetic.
+const popCelebration = (): string | undefined => {
+  try {
+    if (!existsSync(CELEBRATIONS)) return undefined;
+    const lines = readFileSync(CELEBRATIONS, "utf8").split("\n").filter(Boolean);
+    const next = lines.shift();
+    if (next === undefined) return undefined;
+    const tmp = `${CELEBRATIONS}.tmp`;
+    writeFileSync(tmp, lines.length ? `${lines.join("\n")}\n` : "");
+    renameSync(tmp, CELEBRATIONS);
+    return next;
+  } catch { return undefined; }
 };
 const submitLocalState = async (s: LocalState, cfg: AppConfig) => {
   const apiBase = cfg.leaderboardEndpoint?.replace(/\/$/, "");
@@ -166,6 +193,7 @@ const usage = () => {
   console.log("commands:");
   console.log("  agent <provider>          count one coding-agent session (codex / claude / cursor / etc.)");
   console.log("  install-agent <target>    install first-party agent wiring (claude / codex / tmux / all)");
+  console.log("  upgrade                   update renown to the latest published version");
   console.log("  launch codex              run Codex with Renown terminal-title HUD");
   console.log("  statusline                print the local renown HUD for shells and agent footers");
   console.log("  heartbeat                 refresh local HUD and submit current state");
@@ -219,6 +247,71 @@ const currentHudLine = () => {
 const writeTerminalTitle = (title: string) => {
   if (!process.stdout.isTTY) return;
   process.stdout.write(`\x1b]0;${sanitizeTitle(title)}\x07`);
+};
+
+// ---- self-update -----------------------------------------------------------
+// renown is a global CLI, so staying current shouldn't mean re-reading install docs.
+//   renown upgrade             → update now, verbose (the easy manual path)
+//   renown self-update --quiet → throttled (once/day) background check the SessionStart
+//                                hook calls; no-ops when already on the latest version.
+// Opt out with RENOWN_NO_SELF_UPDATE=1 or { "autoUpdate": false } in ~/.renown/config.json.
+const PKG_NAME = "@absolutejs/renown";
+const UPDATE_STAMP = join(RDIR, "last-update-check");
+const SELF_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+const selfPath = () => { try { return fileURLToPath(import.meta.url); } catch { return process.argv[1] ?? ""; } };
+
+// version of the installed package — walk up from this bundle to its own package.json
+const installedVersion = (): string | undefined => {
+  let dir = dirname(selfPath());
+  for (let i = 0; i < 6; i++) {
+    try {
+      const p = join(dir, "package.json");
+      if (existsSync(p)) {
+        const pkg = JSON.parse(readFileSync(p, "utf8")) as { name?: string; version?: string };
+        if (pkg.name === PKG_NAME) return pkg.version;
+      }
+    } catch {}
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+};
+
+// numeric compare of major.minor.patch ("0.1.7" > "0.1.4"); pre-release suffix ignored
+const isNewer = (latest: string, current: string): boolean => {
+  const parse = (v: string) => v.replace(/^v/, "").split("-")[0]!.split(".").map((n) => parseInt(n, 10) || 0);
+  const a = parse(latest), b = parse(current);
+  for (let i = 0; i < 3; i++) { if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); }
+  return false;
+};
+
+// which global package manager owns this install, inferred from the binary path
+const upgradeCommand = (): string[] => {
+  const p = selfPath().replace(/\\/g, "/");
+  if (p.includes("/.bun/")) return ["bun", "add", "-g", `${PKG_NAME}@latest`];
+  if (p.includes("/pnpm")) return ["pnpm", "add", "-g", `${PKG_NAME}@latest`];
+  if (/\/\.?yarn\//.test(p)) return ["yarn", "global", "add", `${PKG_NAME}@latest`];
+  return ["npm", "install", "-g", `${PKG_NAME}@latest`];
+};
+
+const selfUpdateDisabled = (cfg: AppConfig): boolean =>
+  process.env.RENOWN_NO_SELF_UPDATE === "1" || cfg.autoUpdate === false;
+
+const latestVersion = async (): Promise<string | undefined> => {
+  try {
+    const res = await fetch(`https://registry.npmjs.org/${PKG_NAME}/latest`, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return undefined;
+    return ((await res.json()) as { version?: string }).version;
+  } catch { return undefined; }
+};
+
+const runUpgrade = async (quiet: boolean): Promise<boolean> => {
+  const cmd = upgradeCommand();
+  if (!findOnPath(cmd[0]!)) { if (!quiet) console.log(`renown upgrade: '${cmd[0]}' not found on PATH — install it or upgrade manually.`); return false; }
+  const r = await run(cmd, { inheritStdout: !quiet, inheritStderr: !quiet });
+  return r.exitCode === 0;
 };
 
 const runCodexWithTitleHud = async (args: string[]) => {
@@ -295,6 +388,7 @@ const installClaudeAgent = (dryRun: boolean) => {
   };
   const hooks = (settings.hooks && typeof settings.hooks === "object") ? settings.hooks as Record<string, unknown> : {};
   addCommandHook(hooks, "SessionStart", "renown agent claude --quiet");
+  addCommandHook(hooks, "SessionStart", "renown self-update --quiet");
   addCommandHook(hooks, "Stop", "renown heartbeat --quiet");
   settings.hooks = hooks;
   if (dryRun) {
@@ -355,13 +449,13 @@ const installCodexAgent = (dryRun: boolean) => {
   source = ensureTomlBoolean(source, "features", "hooks", true);
   source = ensureWritableRoot(source, RDIR);
   const hookBlock = `
-# Tracks Codex sessions and prints the Renown HUD after each turn. Codex's native
-# footer only supports built-in fields today; use tmux for a persistent bottom HUD.
+# Tracks Codex sessions and emits a stop-hook JSON ACK so Codex accepts the hook
+# output in newer versions. Use tmux for a persistent bottom HUD.
 [[hooks.SessionStart]]
-hooks = [{ type = "command", command = "renown agent codex --quiet" }]
+hooks = [{ type = "command", command = "renown agent codex --quiet" }, { type = "command", command = "renown self-update --quiet" }]
 
 [[hooks.Stop]]
-hooks = [{ type = "command", command = "renown heartbeat --quiet && renown statusline" }]
+hooks = [{ type = "command", command = "renown heartbeat --quiet >/dev/null 2>&1; renown statusline 1>&2; echo '{\\"continue\\":true}'" }]
 `;
   const stateIndex = source.search(/^\[hooks\.state\]/m);
   if (stateIndex >= 0) {
@@ -490,8 +584,51 @@ const main = async () => {
 
   if (cmd === "statusline" || cmd === "hud") {
     const s = loadLocalState();
+    // statusline drains one queued celebration per refresh (the parade); `hud` is a
+    // non-consuming manual peek, so it never pops the queue.
+    if (cmd === "statusline") {
+      const toast = popCelebration();
+      if (toast !== undefined) { console.log(toast); return; }
+    }
     const line = existsSync(HUD) ? readFileSync(HUD, "utf8").trim() : renderLocalHud(s);
     console.log(line);
+    return;
+  }
+
+  if (cmd === "upgrade" || cmd === "self-update") {
+    const quiet = hasFlag(rest, "quiet");
+    if (cmd === "self-update") {
+      // Background path wired into SessionStart: must return fast and never block a session.
+      if (selfUpdateDisabled(cfg)) return;
+      if (!hasFlag(rest, "run-now")) {
+        // throttle to at most once per interval, then hand the network work to a detached child
+        try {
+          const last = existsSync(UPDATE_STAMP) ? Number(readFileSync(UPDATE_STAMP, "utf8").trim()) : 0;
+          if (Number.isFinite(last) && Date.now() - last < SELF_UPDATE_INTERVAL_MS) return;
+        } catch {}
+        try { mkdirSync(RDIR, { recursive: true }); writeFileSync(UPDATE_STAMP, String(Date.now())); } catch {}
+        try {
+          const child = spawn(process.argv[0]!, [selfPath(), "self-update", "--run-now", "--quiet"], { detached: true, stdio: "ignore" });
+          child.unref();
+        } catch {}
+        return;
+      }
+      // --run-now (inside the detached child): only upgrade when npm actually has something newer
+      const current = installedVersion();
+      const latest = await latestVersion();
+      if (!latest || (current && !isNewer(latest, current))) return;
+      await runUpgrade(true);
+      return;
+    }
+    // explicit `renown upgrade` — verbose, synchronous
+    const current = installedVersion();
+    console.log(`renown ${current ?? "(unknown version)"} — checking npm for updates…`);
+    const latest = await latestVersion();
+    if (!latest) { console.log("Couldn't reach the npm registry. Try again, or upgrade manually:\n  " + upgradeCommand().join(" ")); return; }
+    if (current && !isNewer(latest, current)) { console.log(`Already on the latest version (${current}).`); return; }
+    console.log(`Updating ${current ?? "?"} → ${latest} …`);
+    const ok = await runUpgrade(false);
+    console.log(ok ? `✓ renown updated to ${latest}.` : "Upgrade failed. Run it manually:\n  " + upgradeCommand().join(" "));
     return;
   }
 

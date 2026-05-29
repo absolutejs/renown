@@ -3,7 +3,7 @@
 // line drains one-per-refresh, so a big commit sends a *parade* of toasts across your
 // HUD over the next several seconds. Tier escalates the styling (tier 4 = the rarest,
 // loudest moments — the hook phase 4 swaps for full ASCII animations).
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { C, RDIR } from "./runtime.ts";
 import { B, R, gradient, rainbow, shimmer } from "./shiny.ts";
 
@@ -47,4 +47,20 @@ export const enqueue = (cels: Celebration[]) => {
     try { existing = readFileSync(CELEBRATIONS, "utf8").split("\n").filter(Boolean); } catch {}
     writeFileSync(CELEBRATIONS, [...existing, ...frames].slice(-QUEUE_CAP).join("\n") + "\n");
   } catch {}
+};
+
+// Pop the oldest queued frame — the status line calls this once per refresh, so a big
+// commit's parade of toasts scrolls across the HUD one-by-one over the next seconds.
+// (The node bundle in cli/api.ts duplicates this; keep the two in sync.)
+export const popCelebration = (): string | undefined => {
+  try {
+    if (!existsSync(CELEBRATIONS)) return undefined;
+    const lines = readFileSync(CELEBRATIONS, "utf8").split("\n").filter(Boolean);
+    const next = lines.shift();
+    if (next === undefined) return undefined;
+    const tmp = `${CELEBRATIONS}.tmp`;
+    writeFileSync(tmp, lines.length ? `${lines.join("\n")}\n` : "");
+    renameSync(tmp, CELEBRATIONS);
+    return next;
+  } catch { return undefined; }
 };

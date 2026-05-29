@@ -233,7 +233,12 @@ switch (cmd) {
   case "tick": await runEvent("tick"); break;
   case "commit": await runEvent("commit", arg); break;
   case "heartbeat": registerCwdRepo(); await runEvent("tick"); break;
-  case "statusline":
+  case "statusline": {
+    // drain one queued celebration per refresh (the parade); fall back to the base HUD
+    const { popCelebration } = await import("../core/celebrate.ts");
+    console.log(popCelebration() ?? renderHud(loadState()));
+    break;
+  }
   case "hud": console.log(renderHud(loadState())); break;
   case "agent":
   case "claude":
