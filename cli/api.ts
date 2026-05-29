@@ -123,7 +123,11 @@ const submitLocalState = async (s: LocalState, cfg: AppConfig) => {
     projects: [],
     unlocked: Object.keys(s.achievements ?? {}),
   };
-  await fetch(`${apiBase}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(4000) }).catch(() => {});
+  // Best-effort: a healthy endpoint answers in well under a second, and the next
+  // turn resubmits, so cap aggressively. The abort rejects the promise on time, but
+  // node's fetch leaves a dead connect-attempt holding the event loop open — the
+  // quiet (hook) callers process.exit() right after this to avoid that ~10s tail.
+  await fetch(`${apiBase}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(2000) }).catch(() => {});
 };
 
 // gh auth token — used by all auth'd CLI commands. Returns empty string if gh isn't
@@ -659,8 +663,10 @@ const main = async () => {
     mkdirSync(RDIR, { recursive: true });
     writeFileSync(HUD, renderLocalHud(s));
     await submitLocalState(s, cfg);
-    if (!hasFlag(rest, "quiet")) console.log(renderLocalHud(s));
-    return;
+    if (!hasFlag(rest, "quiet")) { console.log(renderLocalHud(s)); return; }
+    // hook path (always --quiet, no stdout to flush): hard-exit so an unreachable
+    // leaderboard endpoint can't keep a dead socket alive for ~10s after the abort.
+    process.exit(0);
   }
 
   if (cmd === "agent" || ["claude", "codex", "cursor", "copilot", "aider", "gemini", "goose", "windsurf", "openhands", "devin"].includes(cmd)) {
@@ -685,8 +691,11 @@ const main = async () => {
       console.log(`${a.icon} ${a.name}: +${count} session${count === 1 ? "" : "s"} (total ${(s.agentUses[a.id] ?? 0).toLocaleString()})`);
       if (ups.length) for (const u of ups) console.log(`  ${a.name} Lv${u.to}. The agent has been fed; this was probably legal.`);
       else console.log(`  ${a.blurb} Lv${pr.level}, ${pr.pct}% to next.`);
+      return;
     }
-    return;
+    // hook path (--quiet, e.g. SessionStart): hard-exit so an unreachable endpoint
+    // can't hold the process open ~10s past submitLocalState's abort.
+    process.exit(0);
   }
 
   if (!apiBase) { console.log("No leaderboard endpoint configured. Set leaderboardEndpoint in ~/.config/renown/config.json."); return; }

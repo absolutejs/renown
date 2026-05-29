@@ -1,6 +1,6 @@
 {
   "name": "@absolutejs/renown",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "license": "BSL-1.1",
   "private": false,
   "description": "Renown — earn XP and renown for real, meritorious dev work. Editor-agnostic, with 10k achievements and competitive per-project leaderboards. By AbsoluteJS.",
