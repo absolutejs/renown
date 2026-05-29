@@ -36,8 +36,11 @@ IS the headline — not a separate dashboard.
 - ✅ 3D pets gained crests for free: `voxelize` emits crest voxels from the same
   `buildCrest`; `PetViewer` renders them as cubes. Body/eye/mouth voxels + rng
   stream order preserved → existing seeds visually unchanged except added crest.
-- ⚠️ 3D crest verified at the data level (voxelize emits crest voxels); visual
-  confirmation in the running app still pending.
+- ✅ 3D crest visually confirmed in the running production app (claude's avatar
+  antlers render as green crest cubes on the leaderboard spotlight + profile).
+  NOTE: `absolute dev` 404s `/core/*.ts` (dev module-serving quirk) so the 3D
+  pet canvas stays empty in dev — test pets against `absolute build` +
+  `absolute start` (production), per "How to verify" below.
 - Migration `db/migrate-add-pet-looks.ts` was run against the DB (column +
   table created, 60 assignment rows backfilled to legacy) and the historical
   look invariant smoke-tested (5/5 pass).
@@ -178,8 +181,8 @@ earned seeds after a change get the new active look at verify/mint time.
 [done]    Pet-looks migration run + historical-look invariant smoke-tested
 [done]    Unify pet rendering on one canonical sprite (console/2D/3D)
 [done]    OG image renders the canonical 2D sprite w/ crests + aura
+[done]    3D crests visually confirmed in production (claude's antlers)
 
-[next]    Visually confirm 3D crests in the running app
 [soon]    Tune volumetric look parity in compact views (camera/scale)
 [soon]    Leaderboard rows as proper <a> tags (cmd-click → new tab to /profile)
 [soon]    Substance backfill script (counterpart to merit backfill)
