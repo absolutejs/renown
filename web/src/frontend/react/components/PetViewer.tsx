@@ -274,6 +274,12 @@ const Pet = ({ seed, autoRotate = 0, entranceBurst = false, lookId = DEFAULT_PET
           const z = v.z + offsetZ;
           const color = css(v.color);
           if (v.kind === "eye") return <Eye key={i} pos={[x, y, z]} color={color} trait={c.traits.eyes} mythic={c.mythicAura} />;
+          if (v.kind === "crest") return (
+            <mesh key={i} position={[x, y, z]}>
+              <boxGeometry args={[0.92, 0.92, 0.92]} />
+              <meshStandardMaterial color={color} roughness={0.35} metalness={0.2} emissive={color} emissiveIntensity={0.3} />
+            </mesh>
+          );
           return (
             <mesh key={i} position={[x, y, z]}>
               <boxGeometry args={[0.55, 0.18, 0.25]} />

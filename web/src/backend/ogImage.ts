@@ -1,5 +1,6 @@
 import { Resvg } from "@resvg/resvg-js";
-import { generate, TIER_RGB, voxelize } from "../../../core/procgen.ts";
+import { generate, TIER_RGB } from "../../../core/procgen.ts";
+import { spriteToSvg } from "../../../core/petSvg.ts";
 import type { ProfileData } from "./profile";
 
 type Profile = NonNullable<ProfileData>;
@@ -34,25 +35,17 @@ const stat = (label: string, value: string, x: number, y: number) => `
 
 const petProjection = (seed: string, x: number, y: number, size: number) => {
   const creature = generate(seed);
-  const grid = voxelize(creature, 2);
-  const cell = Math.min(size / grid.w, size / grid.h);
-  const ox = x + (size - grid.w * cell) / 2;
-  const oy = y + (size - grid.h * cell) / 2;
+  // Render the canonical 2D pet sprite (same source the console + 3D pet use) into the frame.
+  const { svg, width, height } = spriteToSvg(creature, { box: size * 0.86 });
+  const ox = x + (size - width) / 2;
+  const oy = y + (size - height) / 2;
   const shadow = `<ellipse cx="${x + size / 2}" cy="${y + size - 18}" rx="${size * 0.34}" ry="24" fill="rgba(0,0,0,0.32)" />`;
-  const voxels = grid.voxels
-    .map((v) => {
-      const px = ox + v.x * cell;
-      const py = oy + v.y * cell;
-      const fill = v.kind === "mouth" ? "#14161d" : hex(v.color);
-      return `<rect x="${px.toFixed(2)}" y="${py.toFixed(2)}" width="${(cell + 1).toFixed(2)}" height="${(cell + 1).toFixed(2)}" rx="${Math.max(2, cell * 0.1).toFixed(2)}" fill="${fill}" />`;
-    })
-    .join("");
   const tierColor = rgb(TIER_RGB[creature.tier], 0.7);
   return `
     <g>
       <circle cx="${x + size / 2}" cy="${y + size / 2}" r="${size * 0.49}" fill="rgba(255,255,255,0.055)" stroke="${tierColor}" stroke-width="3" />
       ${shadow}
-      <g filter="url(#petGlow)">${voxels}</g>
+      <g filter="url(#petGlow)" transform="translate(${ox.toFixed(2)} ${oy.toFixed(2)})">${svg}</g>
       <text x="${x + size / 2}" y="${y + size + 42}" font-family="Inter, Arial, sans-serif" text-anchor="middle" font-size="21" fill="rgba(245,247,251,0.74)" font-weight="800">${esc(creature.tier)}</text>
     </g>`;
 };

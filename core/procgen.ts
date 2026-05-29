@@ -96,7 +96,19 @@ const MYTHIC_PREDICATE = 0x37;   // hidden "shiny" combo on the seed hash (~1/25
 const EYE: Record<string, string> = { dot: "•", round: "o", sleepy: "‿", fierce: ">", star: "*", void: "◦", cyclops: "O", many: "∷" };
 const MOUTH: Record<string, [string, number]> = { smile: ["‿", 1], neutral: ["—", 1], fangs: ["ᴥ", 1], agape: ["o", 1], none: ["", 0], grin: ["▿", 1], tongue: ["ᵕ", 1] };
 
-const renderCreature = (c: Creature, frame = 0): string => {
+// ──────────────────────────────────────────────────────────────────────────────
+// Canonical sprite structure — ONE source of truth for a creature's silhouette,
+// face, and crest, consumed by three rendering engines that therefore cannot drift:
+//   • the ANSI console      (renderCreature, below)
+//   • the 2D SVG / OG image (core/petSvg.ts → spriteToSvg)
+//   • the 3D voxelizer      (voxelize → in-app three.js)
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Shared body silhouette: seeded cellular-automata blob, mirrored to a symmetric body.
+// Returns the live rng (positioned right after the random fill, before any per-cell
+// rolls) so each engine can continue the EXACT same stream it always did — the console
+// for pattern speckle, the voxelizer for z-stack depth — preserving determinism.
+export const buildBody = (c: Creature) => {
   const rng = makeRng(c.seed + ":sprite");
   const { H, halfW, fillP } = dimsFor(c.sizeN);
   // 1) random half-grid
@@ -120,12 +132,95 @@ const renderCreature = (c: Creature, frame = 0): string => {
   // 3) mirror to a full symmetric body
   const W = halfW * 2;
   const body: boolean[][] = half.map((row) => [...row, ...[...row].reverse()]);
-  // 4) paint: vertical gradient body, eyes + mouth overlaid, aura sparkles, mythic = rainbow
+  return { W, H, halfW, body, rng };
+};
+
+// Where the eyes + mouth land on the body grid — shared so 2D and 3D place them identically.
+export const facePlacement = (c: Creature, W: number, H: number) => {
+  const eyeRow = Math.max(0, Math.floor(H * 0.35)), mouthRow = Math.min(H - 1, eyeRow + 1);
+  const eyeXs: [number, number] = [Math.floor(W * 0.3), Math.ceil(W * 0.7) - 1];
+  const cyclops = c.traits.eyes === "cyclops";
+  const cyclopsX = Math.floor(W / 2), mouthX = Math.floor(W / 2);
+  const hasMouth = (MOUTH[c.traits.mouth]?.[1] ?? 0) > 0;
+  return {
+    eyeRow, mouthRow, eyeXs, cyclopsX, mouthX, hasMouth,
+    isEye: (x: number, y: number) => y === eyeRow && !cyclops && (x === eyeXs[0] || x === eyeXs[1]),
+    isCyclops: (x: number, y: number) => y === eyeRow && cyclops && x === cyclopsX,
+    isMouth: (x: number, y: number) => y === mouthRow && hasMouth && x === mouthX,
+  };
+};
+
+export type SpriteCellKind = "body" | "eye" | "mouth" | "crest" | "spark";
+export type SpriteCell = { x: number; y: number; color: RGB; kind: SpriteCellKind };
+export type Sprite = { w: number; h: number; cells: SpriteCell[] };
+
+// Crest cells anchored to the actual silhouette — shoulder-mounted antlers/horns, a gold
+// crown band, light-tipped antennae, and a halo emitted as a ring of cells. Coordinates are
+// in body space; crest cells sit at NEGATIVE y (above the body) and are normalized by the
+// consumer. The 2D engine upgrades the halo ring to a clean ellipse; the console and 3D
+// engines render it blocky — same semantic crest, just optimized per medium.
+export const buildCrest = (c: Creature, W: number, H: number, body: boolean[][]): SpriteCell[] => {
+  const L = W / 2 - 1, R = W / 2;
+  const topAt = (col: number) => { if (col < 0 || col >= W) return H; for (let y = 0; y < H; y++) if (body[y][col]) return y; return H; };
+  const headTop = () => { let ht = H; for (let x = L - 2; x <= R + 2; x++) ht = Math.min(ht, topAt(x)); return ht >= H ? 0 : ht; };
+  // nearest filled column's top (search outward) — avoids the sparse center seam so crests
+  // sit on the head rather than floating above the central notch.
+  const nearestTop = (col: number) => { for (let d = 0; d <= 3; d++) { const m = Math.min(topAt(col - d), topAt(col + d)); if (m < H) return m; } return headTop(); };
+  const E = c.eyeColor, GOLD: RGB = [255, 206, 84], LIGHT: RGB = [255, 240, 170];
+  const out: SpriteCell[] = [];
+  const put = (x: number, y: number, color: RGB = E) => { if (x >= 0 && x < W) out.push({ x, y, color, kind: "crest" }); };
+  switch (c.traits.crest) {
+    case "nub": { put(L - 1, nearestTop(L - 1) - 1); put(R + 1, nearestTop(R + 1) - 1); break; }
+    case "horns": { const sL = L - 1, sR = R + 1, tl = nearestTop(sL), tr = nearestTop(sR); put(sL, tl - 1); put(sL - 1, tl - 2); put(sR, tr - 1); put(sR + 1, tr - 2); break; }
+    case "antennae": { const aL = L - 1, aR = R + 1, tl = nearestTop(aL), tr = nearestTop(aR); put(aL, tl - 1); put(aL, tl - 2, LIGHT); put(aR, tr - 1); put(aR, tr - 2, LIGHT); break; }
+    case "antlers": {
+      const sL = L - 1, sR = R + 1, tl = nearestTop(sL), tr = nearestTop(sR);
+      put(sL, tl - 1); put(sL, tl - 2); put(sL - 1, tl - 2); put(sL, tl - 3); put(sL - 2, tl - 3);
+      put(sR, tr - 1); put(sR, tr - 2); put(sR + 1, tr - 2); put(sR, tr - 3); put(sR + 2, tr - 3); break;
+    }
+    case "crown": { const ht = headTop(); for (let x = L - 2; x <= R + 2; x++) put(x, ht - 1, GOLD); [L - 2, L, R, R + 2].forEach((x) => put(x, ht - 2, GOLD)); break; }
+    case "halo": { const ht = headTop(); [L - 1, L, R, R + 1].forEach((x) => put(x, ht - 3, LIGHT)); put(L - 2, ht - 2, LIGHT); put(R + 2, ht - 2, LIGHT); break; }
+    default: break;
+  }
+  return out;
+};
+
+// Structured 2D sprite (static): body gradient + pattern speckle + eyes/mouth + crest + aura
+// sparkles, normalized to a tight grid. The 2D SVG engine renders from this.
+export const spriteCells = (c: Creature): Sprite => {
+  const { W, H, body, rng } = buildBody(c);
   const [c1, c2] = c.palette;
   const lerp = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
-  const eyeRow = Math.max(0, Math.floor(H * 0.35)), mouthRow = Math.min(H - 1, eyeRow + 1);
+  const fp = facePlacement(c, W, H);
+  const cells: SpriteCell[] = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (!body[y][x]) continue;
+    const t = H > 1 ? y / (H - 1) : 0;
+    let col: RGB = c.mythicAura ? hsvToRgb(((x / W) + (y * 0.07)) % 1, 0.9, 1) : [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
+    if ((c.traits.pattern === "spots" || c.traits.pattern === "runes") && rng() < 0.18) col = [col[0] * 0.72, col[1] * 0.72, col[2] * 0.72];
+    if (fp.isEye(x, y) || fp.isCyclops(x, y)) cells.push({ x, y, color: c.eyeColor, kind: "eye" });
+    else if (fp.isMouth(x, y)) cells.push({ x, y, color: [20, 20, 30], kind: "mouth" });
+    else cells.push({ x, y, color: col, kind: "body" });
+  }
+  cells.push(...buildCrest(c, W, H, body));
+  if (c.traits.aura === "sparkle" || c.traits.aura === "rainbow" || c.mythicAura) {
+    const minY = Math.min(...cells.map((cc) => cc.y));
+    cells.push({ x: 0, y: minY, color: [255, 240, 170], kind: "spark" }, { x: W - 1, y: H - 1, color: [255, 240, 170], kind: "spark" });
+  }
+  const xs = cells.map((cc) => cc.x), ys = cells.map((cc) => cc.y), minX = Math.min(...xs), minY = Math.min(...ys);
+  const w = Math.max(...xs) - minX + 1, h = Math.max(...ys) - minY + 1;
+  for (const cc of cells) { cc.x -= minX; cc.y -= minY; }
+  return { w, h, cells };
+};
+
+const renderCreature = (c: Creature, frame = 0): string => {
+  const { W, H, body, rng } = buildBody(c);
+  // paint: vertical gradient body, eyes + mouth overlaid, crest blocks, aura sparkles, mythic = rainbow
+  const [c1, c2] = c.palette;
+  const lerp = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
+  const fp = facePlacement(c, W, H);
   const eyeGlyph = EYE[c.traits.eyes] ?? "•", [mGlyph] = MOUTH[c.traits.mouth] ?? ["—", 1];
-  const dense = c.traits.pattern === "scales" ? "▓" : c.traits.pattern === "cosmic" ? "█" : "█";
+  const dense = c.traits.pattern === "scales" ? "▓" : "█";
   // animation: everyone blinks + breathes; legendary shimmers; mythic rainbow-cycles
   const blink = frame % 7 === 4;
   const pulse = 0.82 + 0.18 * Math.sin(frame * 0.6);
@@ -139,21 +234,23 @@ const renderCreature = (c: Creature, frame = 0): string => {
       const t = H > 1 ? y / (H - 1) : 0;
       let col: RGB = c.mythicAura ? hsvToRgb(((x / W) + (y * 0.07) + frame * 0.05) % 1, 0.9, 1) : [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
       if (!c.mythicAura) { const k = Math.abs(x - shimmerCol) <= 1 ? 1.6 : pulse; col = [Math.min(255, col[0] * k), Math.min(255, col[1] * k), Math.min(255, col[2] * k)]; }
-      // eyes: two symmetric cells on the eye row; mouth: center on the mouth row
-      const isEye = y === eyeRow && (x === Math.floor(W * 0.3) || x === Math.ceil(W * 0.7) - 1) && c.traits.eyes !== "cyclops";
-      const isCyclops = y === eyeRow && c.traits.eyes === "cyclops" && x === Math.floor(W / 2);
-      const isMouth = y === mouthRow && mGlyph && x === Math.floor(W / 2);
-      if (isEye || isCyclops) line += fg(...c.eyeColor) + (blink ? "-" : eyeGlyph);
-      else if (isMouth) line += fg(20, 20, 30) + mGlyph;
+      if (fp.isEye(x, y) || fp.isCyclops(x, y)) line += fg(...c.eyeColor) + (blink ? "-" : eyeGlyph);
+      else if (fp.isMouth(x, y)) line += fg(20, 20, 30) + mGlyph;
       else { const speckle = (c.traits.pattern === "spots" || c.traits.pattern === "runes") && rng() < 0.18; line += fg(...col) + (speckle ? "·" : dense); }
     }
     out.push(line + R);
   }
-  // crest on top + aura flourishes
-  const crest = c.traits.crest;
-  if (crest !== "none") {
-    const top = { nub: "  ╷", horns: " \\ /", antennae: " ╎╎", antlers: "Y Y", crown: "♔", halo: "◜◝" }[crest] ?? "";
-    if (top) out.unshift(fg(...c.eyeColor) + " ".repeat(Math.max(0, Math.floor((W - top.length) / 2))) + top + R);
+  // crest: rendered from the shared buildCrest cells as colored blocks (one source of truth)
+  const crest = buildCrest(c, W, H, body);
+  if (crest.length) {
+    const minCY = Math.min(...crest.map((cc) => cc.y));      // negative = rows above the body
+    for (let cy = minCY; cy < 0; cy++) {
+      const row = crest.filter((cc) => cc.y === cy);
+      if (!row.length) { out.unshift(" ".repeat(W)); continue; }
+      const cols: (string | null)[] = Array.from({ length: W }, () => null);
+      for (const cc of row) cols[cc.x] = fg(...cc.color) + "█";
+      out.unshift(cols.map((ch) => ch ?? " ").join("") + R);
+    }
   }
   if (c.traits.aura === "sparkle" || c.traits.aura === "rainbow" || c.mythicAura) {
     out[0] = `${fg(255, 240, 160)}✦${R} ` + out[0];                  // prepend (don't slice into escapes)
@@ -167,7 +264,7 @@ export const frames = (c: Creature, count = 16) => Array.from({ length: count },
 
 // Structured 3D-friendly view of the same creature: a grid of voxels (one per filled ASCII
 // cell) with rgb color + kind. Same algorithm as renderCreature, sans ANSI — for R3F.
-export type Voxel = { x: number; y: number; z: number; color: RGB; kind: "body" | "eye" | "mouth" };
+export type Voxel = { x: number; y: number; z: number; color: RGB; kind: "body" | "eye" | "mouth" | "crest" };
 export interface VoxelGrid { w: number; h: number; d: number; voxels: Voxel[]; aura: boolean; mythicAura: boolean; tier: Tier }
 const clampVoxelDepth = (lookId: PetLookId, c: Creature) => {
   if (lookId !== "volumetric") return 1;
@@ -175,30 +272,10 @@ const clampVoxelDepth = (lookId: PetLookId, c: Creature) => {
 };
 export const voxelize = (c: Creature, frame = 0, lookId: PetLookId = DEFAULT_PET_LOOK_ID): VoxelGrid => {
   const effectiveLookId = isPetLookId(lookId) ? lookId : DEFAULT_PET_LOOK_ID;
-  const rng = makeRng(c.seed + ":sprite");
-  const { H, halfW, fillP } = dimsFor(c.sizeN);
-  let half: boolean[][] = Array.from({ length: H }, () => Array.from({ length: halfW }, () => rng() < fillP));
-  const neighbors = (g: boolean[][], y: number, x: number) => {
-    let n = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      if (!dy && !dx) continue;
-      const ny = y + dy, nx = x + dx;
-      if (ny < 0 || ny >= H || nx < 0) n++;
-      else if (nx >= halfW) continue;
-      else if (g[ny][nx]) n++;
-    }
-    return n;
-  };
-  for (let pass = 0; pass < 3; pass++) {
-    half = half.map((row, y) => row.map((on, x) => { const n = neighbors(half, y, x); return n >= 5 ? true : n <= 2 ? false : on; }));
-  }
-  half.forEach((row) => { row[0] = row[0] || row[1]; });
-  const W = halfW * 2;
-  const body: boolean[][] = half.map((row) => [...row, ...[...row].reverse()]);
+  const { W, H, body, rng } = buildBody(c);
   const [c1, c2] = c.palette;
   const lerp = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
-  const eyeRow = Math.max(0, Math.floor(H * 0.35)), mouthRow = Math.min(H - 1, eyeRow + 1);
-  const hasMouth = (MOUTH[c.traits.mouth]?.[1] ?? 0) > 0;
+  const fp = facePlacement(c, W, H);
   const pulse = 0.82 + 0.18 * Math.sin(frame * 0.6);
   const shimmerCol = c.tier === "Legendary" ? frame % W : -99;
   const voxels: Voxel[] = [];
@@ -214,9 +291,6 @@ export const voxelize = (c: Creature, frame = 0, lookId: PetLookId = DEFAULT_PET
         const k = Math.abs(x - shimmerCol) <= 1 ? 1.6 : pulse;
         col = [Math.min(255, col[0] * k), Math.min(255, col[1] * k), Math.min(255, col[2] * k)];
       }
-      const isEye = y === eyeRow && (x === Math.floor(W * 0.3) || x === Math.ceil(W * 0.7) - 1) && c.traits.eyes !== "cyclops";
-      const isCyclops = y === eyeRow && c.traits.eyes === "cyclops" && x === Math.floor(W / 2);
-      const isMouth = y === mouthRow && hasMouth && x === Math.floor(W / 2);
       // Volumetric mode gives depth by stacking the body across z.
       // Keep legacy mode 100% flat so old visuals continue unchanged.
       const radialBias = 1 - Math.abs((x / (W - 1)) - 0.5) * 2;
@@ -224,9 +298,9 @@ export const voxelize = (c: Creature, frame = 0, lookId: PetLookId = DEFAULT_PET
         ? 1
         : Math.max(1, Math.min(maxDepth, Math.round(1 + radialBias * (maxDepth - 1) + (rng() - 0.5))));
       const topZ = Math.max(0, stackDepth - 1);
-      if (isEye || isCyclops) {
+      if (fp.isEye(x, y) || fp.isCyclops(x, y)) {
         voxels.push({ color: c.eyeColor, kind: "eye", x, y, z: topZ });
-      } else if (isMouth) {
+      } else if (fp.isMouth(x, y)) {
         voxels.push({ color: [20, 20, 30], kind: "mouth", x, y, z: Math.max(0, Math.floor(topZ * 0.6)) });
       } else {
         for (let z = 0; z < stackDepth; z++) {
@@ -235,6 +309,10 @@ export const voxelize = (c: Creature, frame = 0, lookId: PetLookId = DEFAULT_PET
       }
     }
   }
+  // crest voxels from the shared structure — the 3D pet finally gets crests (negative y =
+  // above the body), placed mid-depth so they read as attached to the head.
+  const crestZ = Math.max(0, Math.floor((maxDepth - 1) / 2));
+  for (const cc of buildCrest(c, W, H, body)) voxels.push({ color: cc.color, kind: "crest", x: cc.x, y: cc.y, z: crestZ });
   return { aura: c.traits.aura === "sparkle" || c.traits.aura === "rainbow", d: maxDepth, h: H, mythicAura: c.mythicAura, tier: c.tier, voxels, w: W };
 };
 // a one-line "chibi" face for compact spots (status line / lists)
