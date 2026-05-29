@@ -23,7 +23,26 @@ IS the headline — not a separate dashboard.
 
 ## What's done in this arc
 
-### Pet looks + portal (most recent — uncommitted as of 2026-05-28)
+### Pet rendering unification + OG image (2026-05-29)
+- ✅ One canonical creature structure in `core/procgen.ts` —
+  `buildBody` + `facePlacement` + `buildCrest` — feeding three engines that
+  can't drift: ANSI console (`renderCreature`), 2D SVG (`core/petSvg.ts` →
+  `spriteToSvg`), and the 3D voxelizer (`voxelize` → in-app three.js).
+- ✅ OG image (`web/src/backend/ogImage.ts`, route `/profile/:login/og.png`)
+  now renders the canonical 2D sprite (was a flat `voxelize` projection):
+  terminal-accurate cell aspect, anchored pixel-art crests (shoulder-mounted
+  antlers/horns, gold crown, light-tipped antennae, elliptical halo), eyes with
+  pupil+highlight, mouth, pattern speckle, aura sparkles.
+- ✅ 3D pets gained crests for free: `voxelize` emits crest voxels from the same
+  `buildCrest`; `PetViewer` renders them as cubes. Body/eye/mouth voxels + rng
+  stream order preserved → existing seeds visually unchanged except added crest.
+- ⚠️ 3D crest verified at the data level (voxelize emits crest voxels); visual
+  confirmation in the running app still pending.
+- Migration `db/migrate-add-pet-looks.ts` was run against the DB (column +
+  table created, 60 assignment rows backfilled to legacy) and the historical
+  look invariant smoke-tested (5/5 pass).
+
+### Pet looks + portal (committed 2026-05-29, see `a4bbd9b`)
 - ✅ Type-safe pet look registry in `core/petLooks.ts`:
   - `PetLookId` union: `"legacy" | "volumetric"`
   - `PET_LOOKS` catalog + `resolvePetLookId` helper; default is `legacy`
@@ -156,9 +175,11 @@ earned seeds after a change get the new active look at verify/mint time.
 [done]    Standalone /profile/:login page + OG metadata + share row
 [done]    @absolutejs/absolute beta 1053 released (CJS wrapper fix)
 [done]    Pet look registry + portal + historical per-pet assignments (code)
+[done]    Pet-looks migration run + historical-look invariant smoke-tested
+[done]    Unify pet rendering on one canonical sprite (console/2D/3D)
+[done]    OG image renders the canonical 2D sprite w/ crests + aura
 
-[next]    Run pet-looks migration against DB + smoke-test the flow
-[next]    OG image generator at /profile/:login/og.png
+[next]    Visually confirm 3D crests in the running app
 [soon]    Tune volumetric look parity in compact views (camera/scale)
 [soon]    Leaderboard rows as proper <a> tags (cmd-click → new tab to /profile)
 [soon]    Substance backfill script (counterpart to merit backfill)
