@@ -269,8 +269,9 @@ a:hover { text-decoration: underline; }
    Same dim/glow tier vocabulary as the AI badge so the visual matches everywhere AI
    appears. */
 .attestFeed { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
-.attestRow { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: rgba(180,120,255,.06); border: 1px solid rgba(180,120,255,.25); border-radius: 10px; cursor: pointer; font: inherit; color: var(--text); text-align: left; transition: background .12s, border-color .12s; }
+.attestRow { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: rgba(180,120,255,.06); border: 1px solid rgba(180,120,255,.25); border-radius: 10px; font: inherit; color: var(--text); text-align: left; transition: background .12s, border-color .12s; }
 .attestRow:hover { background: rgba(180,120,255,.15); border-color: rgba(180,120,255,.50); }
+.attestRowLink { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; color: inherit; text-decoration: none; cursor: pointer; }
 .attestWho { font-weight: 700; }
 .attestWhen { font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
 .attestEvidence { color: var(--accent); font-size: 12px; text-decoration: underline; text-decoration-color: rgba(96,192,255,.4); text-underline-offset: 2px; }

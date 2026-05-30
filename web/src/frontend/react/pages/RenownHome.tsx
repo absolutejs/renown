@@ -1443,14 +1443,27 @@ const AttestationFeed = ({ openProfile }: { openProfile: (login: string) => void
         {rows.map((r) => {
           if (!r.login || !r.attestation) return null;
           return (
-            <button key={r.login} className="attestRow" onClick={() => openProfile(r.login!)}>
-              <span className="attestWho">@{r.login}</span>
-              <AiBadge isAi attestation={r.attestation} compact={false} />
-              <span className="muted attestWhen">{when(r.attestation.claimedAt)}</span>
+            // Row is a plain container so the profile link and the evidence link can be
+            // sibling <a>s (nesting anchors is invalid HTML). Plain left-click opens the
+            // modal; middle / cmd-click follows the href to the public profile in a new tab.
+            <div key={r.login} className="attestRow">
+              <a
+                className="attestRowLink"
+                href={profileHref(r.login)}
+                onClick={(ev) => {
+                  if (!isPlainPrimaryClick(ev)) return;
+                  ev.preventDefault();
+                  openProfile(r.login!);
+                }}
+              >
+                <span className="attestWho">@{r.login}</span>
+                <AiBadge isAi attestation={r.attestation} compact={false} />
+                <span className="muted attestWhen">{when(r.attestation.claimedAt)}</span>
+              </a>
               {r.attestation.evidenceUrl && (
-                <a className="attestEvidence" href={r.attestation.evidenceUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>evidence ↗</a>
+                <a className="attestEvidence" href={r.attestation.evidenceUrl} target="_blank" rel="noreferrer">evidence ↗</a>
               )}
-            </button>
+            </div>
           );
         })}
       </div>
