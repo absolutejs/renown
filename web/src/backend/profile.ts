@@ -9,14 +9,15 @@ import { and, desc, eq } from "drizzle-orm";
 import { achievements, aiAttestationEvents, playerAchievements, players } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
 import { getPlayerPetLookAssignments, type PetLookAssignments } from "./petLooks.ts";
+import { resolvePlayerByGithubLogin } from "./resolvePlayer.ts";
 import { gameDb } from "./sync.ts";
 
 export type ProfileData = Awaited<ReturnType<typeof loadProfile>>;
 
 export const loadProfile = async (login: string) => {
-  const rows = await gameDb.select().from(players).where(and(eq(players.githubLogin, login), eq(players.githubVerified, true)));
-  const p = rows[0];
-  if (!p) return null;
+  // Resolve across all of a user's linked githubs (any of them → the one aggregate player).
+  const p = await resolvePlayerByGithubLogin(login);
+  if (!p || !p.githubVerified) return null;
 
   const ach = await gameDb
     .select({ id: achievements.id, name: achievements.name, description: achievements.description, tier: achievements.tier, category: achievements.category, unlockCount: achievements.unlockCount })

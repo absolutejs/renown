@@ -150,12 +150,14 @@ export const sparkleLine = () => SPARKLE;
 // ---- the animator ----
 type PlayOptions = { delay?: number; clear?: boolean };
 const HIDE = "\x1b[?25l", SHOW = "\x1b[?25h", CLEAR = "\x1b[2J\x1b[H";
+// Portable sleep — works under Bun AND the Node-built CLI bundle (no Bun.sleep dependency).
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 export const play = async (frames: string[], { delay = 90, clear = true }: PlayOptions = {}) => {
   process.stdout.write(HIDE);
   for (const frame of frames) {
     if (clear) process.stdout.write(CLEAR);
     process.stdout.write("\n" + frame + "\n");
-    await Bun.sleep(delay);
+    await sleep(delay);
   }
   process.stdout.write(SHOW);
 };

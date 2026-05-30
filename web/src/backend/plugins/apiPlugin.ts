@@ -2,11 +2,13 @@
 // through the write-behind cache + reactive hub in ../sync.ts so we never hammer Neon
 // on the per-tick hot path. Skill levels are computed from the shared core/skills.ts.
 import { createNeonAccessTokenStore, hasScopes, resolveApiPrincipal } from "@absolutejs/auth";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { generate } from "../../../../core/procgen.ts";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
-import { achievements, aiAttestationEvents, playerAchievements, playerAttributionSnapshots, playerProjects, players } from "../../../../db/schema.ts";
+import { achievements, aiAttestationEvents, playerAccounts, playerAchievements, playerAttributionSnapshots, playerProjects, players, wildSeedSources } from "../../../../db/schema.ts";
+import { resolvePlayerByGithubLogin } from "../resolvePlayer.ts";
+import { authIdentities, users } from "../../../db/schema.ts";
 import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { computeMeritScore, fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
@@ -190,7 +192,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     .post("/verify", async ({ body }) => {
       const login = String((body as { login?: string })?.login ?? "");
       if (!login) return { error: "login required" };
-      const row = (await gameDb.select().from(players).where(eq(players.githubLogin, login)))[0];
+      const row = await resolvePlayerByGithubLogin(login);
       if (!row?.githubVerified) return { error: "login ownership not verified (OAuth required)" };
       // Refresh cooldown by tier (cost meter — never changes the score, only how often it refreshes).
       const cooldown = REVERIFY_COOLDOWN_MS[normalizeTier(row.tier)];
@@ -298,19 +300,59 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       if (!playerId || !token) return { error: "playerId + token required" };
       const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) }).catch(() => null);
       if (!r?.ok) return { error: "invalid or expired github token" };
-      const login = (await r.json() as { login?: string }).login;
+      const gh = await r.json() as { login?: string; id?: number };
+      const login = gh.login;
       if (!login) return { error: "could not read github login" };
+      const subject = gh.id != null ? String(gh.id) : login;   // github numeric id (matches web OAuth); fallback to login
       const handle = login.slice(0, 40);
-      await gameDb.insert(players).values({ id: playerId, handle, githubLogin: login, githubVerified: true, attributionQuery: `author:${login}` })
-        .onConflictDoUpdate({ target: players.id, set: { githubLogin: login, githubVerified: true } });
-      await gameDb.delete(players).where(and(eq(players.githubLogin, login), ne(players.id, playerId)));  // one verified row per login
-      // Backfill default query for an existing pre-attribution row. AI rows are skipped —
-      // their query points at a co-author trailer search, not author:<login>, set by
-      // migration/admin/attestation rather than the default path here.
-      await gameDb.execute(sql`UPDATE players SET attribution_query = ${`author:${login}`} WHERE id = ${playerId} AND attribution_query IS NULL AND is_ai = false`);
+      const attributionQuery = `author:${login}`;
+
+      // Does this github already map to a player? And what player does this install anchor to?
+      const existing = await resolvePlayerByGithubLogin(login);
+      const anchor = (await gameDb.select().from(players).where(eq(players.id, playerId)).limit(1))[0] ?? null;
+
+      // If this github already belongs to a DIFFERENT, populated player → don't steal it; the
+      // human confirms a merge from the web (stage 4 / auth merge-request flow).
+      if (existing && existing.id !== playerId && (Number(existing.verifiedScore) > 0 || (Array.isArray(existing.wild) && existing.wild.length > 0))) {
+        return { needsMerge: true, login, otherPlayerId: existing.id, message: "this GitHub is already on another renown account — confirm a merge from the web settings page" };
+      }
+
+      // Canonical player = the one this github already maps to, else the local-anchored player,
+      // else a fresh row keyed by the local playerId (first-ever link for this install).
+      const canonical = existing ?? anchor;
+      if (!canonical) {
+        await gameDb.insert(players).values({ id: playerId, handle, githubLogin: login, githubVerified: true, attributionQuery })
+          .onConflictDoUpdate({ target: players.id, set: { githubLogin: login, githubVerified: true } });
+      } else {
+        // Don't clobber the primary github_login of an existing player — a 2nd github is secondary.
+        await gameDb.update(players).set(canonical.githubLogin ? { githubVerified: true } : { githubVerified: true, githubLogin: login }).where(eq(players.id, canonical.id));
+      }
+      const playerRow = (await gameDb.select().from(players).where(eq(players.id, canonical?.id ?? playerId)).limit(1))[0]!;
+      const isPrimary = !playerRow.githubLogin || playerRow.githubLogin.toLowerCase() === login.toLowerCase();
+
+      // Auth scaffolding so a SECOND github can later attach to the same user. Create the auth
+      // user on first link; then every `renown link` from a new github adds its identity here.
+      let userSub = playerRow.userSub ?? null;
+      if (!userSub) {
+        userSub = crypto.randomUUID();
+        await gameDb.insert(users).values({ sub: userSub }).onConflictDoNothing();
+        await gameDb.update(players).set({ userSub }).where(eq(players.id, playerRow.id));
+      }
+      await gameDb.insert(authIdentities).values({ id: `github:${subject}`, auth_provider: "github", provider_subject: subject, user_sub: userSub, metadata: { login } }).onConflictDoNothing();
+
+      // Provenance ledger row for this github (per-account scoring lives here; stage 3 rolls up).
+      await gameDb.insert(playerAccounts).values({ playerId: playerRow.id, githubLogin: login, attributionQuery, githubVerified: true })
+        .onConflictDoUpdate({ target: [playerAccounts.playerId, playerAccounts.githubLogin], set: { githubVerified: true, attributionQuery } });
+      if (isPrimary) await gameDb.execute(sql`UPDATE players SET attribution_query = ${attributionQuery} WHERE id = ${playerRow.id} AND attribution_query IS NULL AND is_ai = false`);
+
+      // Verify this github's base score → its per-account row. Only mirror to the player's
+      // headline verified_score for the PRIMARY github (cross-github aggregation is stage 3).
       const v = await verifyGithub(login);
-      if (v) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, playerId));
-      return { ok: true, login, verifiedScore: v?.score ?? 0 };
+      if (v) {
+        await gameDb.update(playerAccounts).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(and(eq(playerAccounts.playerId, playerRow.id), eq(playerAccounts.githubLogin, login)));
+        if (isPrimary) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, playerRow.id));
+      }
+      return { ok: true, login, primary: isPrimary, verifiedScore: v?.score ?? 0, playerId: playerRow.id };
     })
     // Generic easter-egg quirk bumper. POST { token, name, count? } increments
     // players.quirks[name] by count, then auto-grants any newly-crossed threshold
@@ -331,9 +373,11 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const inc = Math.max(1, Math.min(200, Number(b.count ?? 1)));
       // Atomic increment of the jsonb path. coalesce handles the first-bump case
       // where the key isn't present yet (default to 0 then add).
+      const target = await resolvePlayerByGithubLogin(login);
+      if (!target) return { error: "player not found — link first via /api/cli/link" };
       const rows = await gameDb.update(players)
         .set({ quirks: sql`jsonb_set(${players.quirks}, ${`{${name}}`}, to_jsonb(coalesce((${players.quirks} ->> ${name})::int, 0) + ${inc}))` })
-        .where(eq(players.githubLogin, login))
+        .where(eq(players.id, target.id))
         .returning({ id: players.id, quirks: players.quirks });
       const row = rows[0];
       if (!row) return { error: "player not found — link first via /api/cli/link" };
@@ -359,8 +403,9 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const login = (await r.json() as { login?: string }).login;
       if (!login) return { error: "could not read github login" };
       const inc = Math.max(1, Math.min(1000, Number(b.count ?? 1)));
-      // Single UPDATE returns the new total — no read-modify-write race.
-      const rows = await gameDb.update(players).set({ rateLimitCount: sql`${players.rateLimitCount} + ${inc}` }).where(eq(players.githubLogin, login)).returning({ count: players.rateLimitCount, id: players.id });
+      const target = await resolvePlayerByGithubLogin(login);
+      if (!target) return { error: "player not found — link first via /api/cli/link" };
+      const rows = await gameDb.update(players).set({ rateLimitCount: sql`${players.rateLimitCount} + ${inc}` }).where(eq(players.id, target.id)).returning({ count: players.rateLimitCount, id: players.id });
       const row = rows[0];
       if (!row) return { error: "player not found — link first via /api/cli/link" };
       const total = Number(row.count);
@@ -377,6 +422,45 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // (when sound is on + we're feeling generous) prints a little toast.
       hub.publish("rate-limited", { login, total, granted });
       return { ok: true, total, granted };
+    })
+    // CLI pets — return the caller's owned pet seeds plus which one is the avatar and which
+    // is the rarest, so `renown pet` / `rarest` / `switch` can render and pick locally
+    // (tier/score/name are re-derived from the seed by the deterministic generator).
+    .post("/cli/pets", async ({ body }) => {
+      const token = String((body as { token?: string } | undefined)?.token ?? "");
+      if (!token) return { error: "token required" };
+      const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+      if (!r?.ok) return { error: "invalid or expired github token" };
+      const login = (await r.json() as { login?: string }).login;
+      if (!login) return { error: "could not read github login" };
+      const row = await resolvePlayerByGithubLogin(login);   // resolves across all the user's linked githubs
+      if (!row) return { error: "player not found — link first via `renown link`" };
+      const wild = Array.isArray(row.wild) ? (row.wild as string[]) : [];
+      // Provenance: which linked github earned each seed (for "from @login" in the CLI listing).
+      const srcRows = await gameDb.select({ petSeed: wildSeedSources.petSeed, githubLogin: wildSeedSources.githubLogin }).from(wildSeedSources).where(eq(wildSeedSources.playerId, row.id));
+      const sources: Record<string, string> = {};
+      for (const s of srcRows) sources[s.petSeed] = s.githubLogin;
+      return { ok: true, login, wild, avatarSeed: row.avatarSeed, rarestPetSeed: row.rarestPetSeed, petsCount: row.petsCount, sources };
+    })
+    // CLI avatar — set the caller's avatar (the pet shown on their profile + in `renown pet`)
+    // to a seed they own. Mirrors the session-authed /api/account/avatar route. Idempotent.
+    .post("/cli/avatar", async ({ body }) => {
+      const b = (body ?? {}) as { token?: string; seed?: string };
+      const token = String(b.token ?? "");
+      const seed = String(b.seed ?? "");
+      if (!token) return { error: "token required" };
+      if (!seed) return { error: "seed required" };
+      const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "renown", accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+      if (!r?.ok) return { error: "invalid or expired github token" };
+      const login = (await r.json() as { login?: string }).login;
+      if (!login) return { error: "could not read github login" };
+      const row = await resolvePlayerByGithubLogin(login);
+      if (!row) return { error: "player not found — link first via `renown link`" };
+      const wild = Array.isArray(row.wild) ? (row.wild as string[]) : [];
+      if (!wild.includes(seed)) return { error: "you don't own that pet" };
+      await gameDb.update(players).set({ avatarSeed: seed }).where(eq(players.id, row.id));
+      // (login→avatarSeed) cache lives in authApiPlugin with a 30s TTL — it refreshes on its own.
+      return { ok: true, avatarSeed: seed };
     })
     // CLI merit-sync — refreshes all 4 GitHub-native merit signals for the calling
     // login in one shot (PR reviews, cross-repo merged PRs, authored+merged for
@@ -403,10 +487,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // Read current substance_score before recomputing so we don't zero it out
       // on every merit refresh (substance is owned by a separate, slower path —
       // the commit ingestion cron).
-      const before = await gameDb.select({
-        id: players.id, substanceScore: players.substanceScore, substanceSampleSize: players.substanceSampleSize,
-      }).from(players).where(eq(players.githubLogin, login)).limit(1);
-      const cur = before[0];
+      const cur = await resolvePlayerByGithubLogin(login);
       if (!cur) return { error: "player not found — link first via /api/cli/link" };
       const meritScore = computeMeritScore({
         prReviewsCount: reviews, crossRepoPrsCount: crossRepo,
@@ -447,8 +528,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       if (!r?.ok) return { error: "invalid or expired github token" };
       const login = (await r.json() as { login?: string }).login;
       if (!login) return { error: "could not read github login" };
-      const cur = await gameDb.select().from(players).where(eq(players.githubLogin, login)).limit(1);
-      const row = cur[0];
+      const row = await resolvePlayerByGithubLogin(login);
       if (!row) return { error: "player not found — link first via /api/cli/link" };
       if (!row.attributionQuery) return { error: "no attribution query set — run /api/cli/link first, or set one explicitly" };
       const commits = await fetchRecentCommits(row.attributionQuery, limit, token);
@@ -485,18 +565,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     .get("/merit/:login", async ({ params }) => {
       const login = String(params.login ?? "").toLowerCase();
       if (!login) return { error: "login required" };
-      const rows = await gameDb.select({
-        meritScore: players.meritScore,
-        prReviewsCount: players.prReviewsCount,
-        crossRepoPrsCount: players.crossRepoPrsCount,
-        prsAuthoredCount: players.prsAuthoredCount,
-        prsMergedCount: players.prsMergedCount,
-        packageDownloads: players.packageDownloads,
-        substanceScore: players.substanceScore,
-        substanceSampleSize: players.substanceSampleSize,
-        lastMeritSyncAt: players.lastMeritSyncAt,
-      }).from(players).where(eq(players.githubLogin, login)).limit(1);
-      const row = rows[0];
+      const row = await resolvePlayerByGithubLogin(login);
       if (!row) return { error: "no merit row yet — run `renown merit-sync` once" };
       // Project each MERIT ladder onto the current value so the UI can render
       // "current / next-threshold / tier" without re-importing the registry.
@@ -823,8 +892,7 @@ ${items}
       const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
       const cutoffDate = new Date(cutoffMs).toISOString().slice(0, 10);
       const cutoff = new Date(cutoffMs);
-      const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, params.login));
-      const p = playerRows[0];
+      const p = await resolvePlayerByGithubLogin(params.login);
       if (!p) return { error: "not found" };
       // Earliest snapshot in window (baseline) — current row is the comparand. If the
       // player has no snapshots in the window (brand new account / quiet week), baseline
@@ -859,8 +927,7 @@ ${items}
     .get("/growth/:login", async ({ params, query }) => {
       const days = Math.max(1, Math.min(90, Number(query.days ?? 7)));
       const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, params.login));
-      const p = playerRows[0];
+      const p = await resolvePlayerByGithubLogin(params.login);
       if (!p) return { error: "not found" };
       const snaps = await gameDb.select().from(playerAttributionSnapshots)
         .where(and(eq(playerAttributionSnapshots.playerId, p.id), sql`${playerAttributionSnapshots.snapshotDate} >= ${cutoff}`))
@@ -919,7 +986,7 @@ ${items}
       }
       const login = String((body as { login?: string })?.login ?? "");
       if (!login) return { error: "login required" };
-      const row = (await gameDb.select().from(players).where(eq(players.githubLogin, login)))[0];
+      const row = await resolvePlayerByGithubLogin(login);
       if (!row?.githubVerified) return { error: "login not github-verified" };
       const v = await verifyGithub(login);
       if (!v) return { error: "github verification failed" };

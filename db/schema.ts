@@ -7,7 +7,12 @@ import { bigint, boolean, integer, jsonb, pgTable, primaryKey, real, text, times
 export const players = pgTable("players", {
   id: text("id").primaryKey(),                                  // client-generated player id
   handle: text("handle").notNull(),
-  githubLogin: text("github_login"),
+  githubLogin: text("github_login"),                            // PRIMARY/display github login (one of possibly many)
+  // The auth user this player belongs to (auth `users.sub`). A user can link multiple GitHub
+  // accounts (auth_identities); they all resolve to this one aggregate player. Nullable for
+  // legacy / CLI-only players with no auth user yet (resolved via github_login fallback). See
+  // web/src/backend/resolvePlayer.ts and the player_accounts provenance ledger below.
+  userSub: text("user_sub"),
   level: integer("level").notNull().default(1),
   xp: bigint("xp", { mode: "number" }).notNull().default(0),    // lifetime
   streak: integer("streak").notNull().default(0),
@@ -101,6 +106,40 @@ export const players = pgTable("players", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// Provenance ledger for multi-GitHub players. One row per (player, github_login) the player owns.
+// The per-account columns mirror the per-github scoring on `players`; the `players` headline
+// columns (verified_score, attribution_score, the merit signals, substance) become SUM/MAX
+// rollups across these rows (see rollupPlayerFromAccounts). Lets a player aggregate across a
+// user's GitHubs while keeping it auditable + cleanly un-linkable. A github belongs to exactly
+// one player (unique index on github_login, added in db/migrate-add-user-sub.ts).
+export const playerAccounts = pgTable("player_accounts", {
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  githubLogin: text("github_login").notNull(),
+  attributionQuery: text("attribution_query"),                  // per-github commit search, e.g. author:<login>
+  lastAttributionSyncAt: timestamp("last_attribution_sync_at"),
+  verifiedScore: bigint("verified_score", { mode: "number" }).notNull().default(0),
+  attributionScore: bigint("attribution_score", { mode: "number" }).notNull().default(0),
+  verifiedAt: timestamp("verified_at"),
+  prReviewsCount: integer("pr_reviews_count").notNull().default(0),
+  crossRepoPrsCount: integer("cross_repo_prs_count").notNull().default(0),
+  prsAuthoredCount: integer("prs_authored_count").notNull().default(0),
+  prsMergedCount: integer("prs_merged_count").notNull().default(0),
+  packageDownloads: bigint("package_downloads", { mode: "number" }).notNull().default(0),
+  substanceScore: real("substance_score").notNull().default(0),
+  substanceSampleSize: integer("substance_sample_size").notNull().default(0),
+  lastMeritSyncAt: timestamp("last_merit_sync_at"),
+  githubVerified: boolean("github_verified").notNull().default(false),   // OAuth/CLI-token proved this github
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.githubLogin] }) }));
+
+// Which linked github earned each wild pet seed (commit SHA). `players.wild` stays the flat,
+// rarest-100-capped union across accounts; this side map only adds provenance for display.
+export const wildSeedSources = pgTable("wild_seed_sources", {
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  petSeed: text("pet_seed").notNull(),
+  githubLogin: text("github_login").notNull(),
+}, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.petSeed] }) }));
 
 // the achievement catalog (curated + the 10k generated). unlockCount powers rarity %.
 export const achievements = pgTable("achievements", {

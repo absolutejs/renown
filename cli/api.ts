@@ -30,7 +30,9 @@ import { spawn } from "node:child_process";
 import { run, runSync } from "./proc.ts";
 import { agentById, agentFromEnv, normalizeAgentId } from "../core/agents.ts";
 import { applyGains, skillProgress, topSkills, totalLevel } from "../core/skills.ts";
-import { face, generate } from "../core/procgen.ts";
+import { createInterface } from "node:readline";
+import { face, frames, generate, renderCard } from "../core/procgen.ts";
+import { play } from "../core/ascii.ts";
 import { gradientBar, rainbow } from "../core/shiny.ts";
 
 type AppConfig = { leaderboardEndpoint?: string; playerId?: string; clientId?: string; clientSecret?: string; autoUpdate?: boolean };
@@ -199,6 +201,9 @@ const usage = () => {
   console.log("  install-agent <target>    install first-party agent wiring (claude / codex / tmux / all)");
   console.log("  upgrade                   update renown to the latest published version");
   console.log("  launch codex              run Codex with Renown terminal-title HUD");
+  console.log("  pet                       show your avatar pet, animated, in the terminal");
+  console.log("  rarest                    show your rarest pet");
+  console.log("  switch [number]           switch your avatar to another pet you own (lists them; pick by number)");
   console.log("  statusline                print the local renown HUD for shells and agent footers");
   console.log("  heartbeat                 refresh local HUD and submit current state");
   console.log("  link                     link this install to GitHub (browserless, via gh auth token)");
@@ -706,7 +711,8 @@ const main = async () => {
     if (!token) { console.log("No GitHub token — run `gh auth login` first."); return; }
     const res = await fetch(`${apiBase}/cli/link`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ playerId: cfg.playerId, token }) }).catch(() => null);
     const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
-    if (j.ok) console.log(`✓ Linked to GitHub @${j.login} — verified score ${j.verifiedScore}.`);
+    if (j.needsMerge) console.log(`⚠ ${j.message ?? `@${j.login} is already on another renown account — confirm a merge from the web settings page.`}`);
+    else if (j.ok) console.log(`✓ Linked GitHub @${j.login}${j.primary === false ? " (secondary account — your pets/score now span both)" : ""} — verified score ${j.verifiedScore}. \`renown pet\` to see your pet.`);
     else console.log("link failed:", j.error);
     return;
   }
@@ -741,6 +747,83 @@ const main = async () => {
     if (j.error) { console.log("ai-attest failed:", j.error); return; }
     if (j.cleared) console.log("✓ Attestation cleared.");
     else console.log(`✓ Attested as ${j.provider}${j.verified ? " ✓" : ""}${j.resolvedKnownProvider ? "" : " (unknown provider)"}`);
+    return;
+  }
+
+  // ── pets: see your pet / show your rarest / switch your avatar ──────────────
+  if (cmd === "pet" || cmd === "rarest" || cmd === "switch") {
+    if (!apiBase) { console.log("No leaderboard endpoint configured. Set leaderboardEndpoint in your renown config, then `renown link`."); return; }
+    const token = ghToken();
+    if (!token) { console.log("No GitHub token — run `gh auth login` first, then `renown link`."); return; }
+    const res = await fetch(`${apiBase}/cli/pets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).catch(() => null);
+    const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+    if (j.error) { console.log(`${cmd} failed:`, j.error); return; }
+    const wild: string[] = Array.isArray(j.wild) ? j.wild : [];
+    if (wild.length === 0) { console.log("No pets yet — they drop from real commits. Keep committing and they'll appear on your profile."); return; }
+    // Owned pets, rarest first — tier/score/name re-derived from each seed by the generator.
+    const owned = wild.map((s) => ({ seed: s, c: generate(s) })).sort((a, b) => b.c.score - a.c.score);
+    const indexOf = (seed: string) => owned.findIndex((o) => o.seed === seed) + 1;
+    // Animate only on a TTY; piped/non-interactive output just gets the static card.
+    const renderPet = async (seed: string) => {
+      const cr = generate(seed);
+      if (process.stdout.isTTY) await play(frames(cr, 18), { delay: 120 });
+      console.log(renderCard(cr));
+    };
+
+    if (cmd === "pet") {
+      const seed = j.avatarSeed && wild.includes(j.avatarSeed) ? j.avatarSeed : owned[0].seed;
+      await renderPet(seed);
+      console.log(`\n  ✦ your avatar (#${indexOf(seed)} of ${owned.length}) — \`renown switch\` to change it`);
+      return;
+    }
+    if (cmd === "rarest") {
+      const seed = j.rarestPetSeed && wild.includes(j.rarestPetSeed) ? j.rarestPetSeed : owned[0].seed;
+      await renderPet(seed);
+      const isAvatar = seed === j.avatarSeed;
+      console.log(`\n  ✦ your rarest of ${owned.length} pets${isAvatar ? " (also your avatar)" : ` — \`renown switch ${indexOf(seed)}\` to make it your avatar`}`);
+      return;
+    }
+
+    // switch — set the avatar to an owned pet, by number or seed prefix; no arg → pick.
+    const setAvatar = async (seed: string): Promise<boolean> => {
+      const r2 = await fetch(`${apiBase}/cli/avatar`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, seed }) }).catch(() => null);
+      const j2 = r2 ? await r2.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+      if (j2.error) { console.log("switch failed:", j2.error); return false; }
+      return true;
+    };
+    const resolvePick = (raw: string) => {
+      if (/^\d+$/.test(raw)) return owned[Number(raw) - 1]?.seed;
+      return owned.find((o) => o.seed === raw || o.seed.startsWith(raw))?.seed;
+    };
+    const petSources: Record<string, string> = j.sources ?? {};
+    const multiSource = new Set(Object.values(petSources)).size > 1;   // only show provenance once 2+ githubs contribute
+    const listPets = () => {
+      console.log(`\n  your pets — rarest first (${owned.length}):\n`);
+      owned.forEach((o, i) => {
+        const src = multiSource && petSources[o.seed] ? `  · from @${petSources[o.seed]}` : "";
+        console.log(`   ${String(i + 1).padStart(2)}.  ${o.c.tier.padEnd(10)} ${o.c.name}${o.seed === j.avatarSeed ? "   ← current avatar" : ""}${src}`);
+      });
+    };
+
+    const pick = rest.find((a) => !a.startsWith("-"));
+    if (pick) {
+      const seed = resolvePick(pick);
+      if (!seed) { console.log(`No pet matches "${pick}".`); listPets(); return; }
+      if (await setAvatar(seed)) { await renderPet(seed); const cr = generate(seed); console.log(`\n  ✦ avatar switched to ${cr.name} (${cr.tier}).`); }
+      return;
+    }
+    listPets();
+    if (process.stdin.isTTY) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const ans = (await new Promise<string>((r) => rl.question(`\n  pick a number to set your avatar (enter to cancel): `, r))).trim();
+      rl.close();
+      if (!ans) { console.log("  (no change)"); return; }
+      const seed = resolvePick(ans);
+      if (!seed) { console.log(`  No pet #${ans}.`); return; }
+      if (await setAvatar(seed)) { const cr = generate(seed); console.log(`\n  ✦ avatar switched to ${cr.name} (${cr.tier}). \`renown pet\` to see it.`); }
+    } else {
+      console.log(`\n  run \`renown switch <number>\` to set your avatar.`);
+    }
     return;
   }
 
