@@ -33,7 +33,7 @@ import { applyGains, skillProgress, topSkills, totalLevel } from "../core/skills
 import { createInterface } from "node:readline";
 import { face, frames, generate, renderCard } from "../core/procgen.ts";
 import { play } from "../core/ascii.ts";
-import { gradientBar, rainbow } from "../core/shiny.ts";
+import { B, R, gradientBar, gradient, rainbow, shimmer } from "../core/shiny.ts";
 
 type AppConfig = { leaderboardEndpoint?: string; playerId?: string; clientId?: string; clientSecret?: string; autoUpdate?: boolean };
 
@@ -108,6 +108,36 @@ const popCelebration = (): string | undefined => {
     return next;
   } catch { return undefined; }
 };
+
+// ── celebration PUSH side — mirrors core/celebrate.ts; keep the two in sync. The published
+// CLI must FILL this queue (level-ups, total-level milestones) or the draining status line
+// has nothing to show. (core/celebrate.ts can't be imported here: it pulls in Bun-coupled
+// core/runtime.ts, which is why the queue logic is duplicated in this hermetic node bundle.)
+type Celebration = { tier: number; text: string };
+const CEL_QUEUE_CAP = 60, CEL_RAINBOW = 7, CEL_SHIMMER = 3;
+const celFramesFor = (c: Celebration): string[] => {
+  if (c.tier >= 4) { const t = `✦ ${c.text} ✦`; return Array.from({ length: CEL_RAINBOW }, (_, i) => B + rainbow(t, i / CEL_RAINBOW)); }
+  if (c.tier === 3) { const t = `★ ${c.text} ★`, len = [...t].length; return Array.from({ length: CEL_SHIMMER }, (_, i) => B + shimmer(t, Math.round((i / (CEL_SHIMMER - 1)) * (len - 1)))); }
+  if (c.tier === 2) return [gradient(`✧ ${c.text}`, [120, 220, 255], [130, 140, 255])];
+  return [`\x1b[32m⬆ ${c.text}${R}`];
+};
+const enqueueCelebrations = (cels: Celebration[]) => {
+  const frames = cels.flatMap(celFramesFor);
+  if (!frames.length) return;
+  try {
+    mkdirSync(RDIR, { recursive: true });
+    let existing: string[] = [];
+    try { existing = readFileSync(CELEBRATIONS, "utf8").split("\n").filter(Boolean); } catch {}
+    writeFileSync(CELEBRATIONS, [...existing, ...frames].slice(-CEL_QUEUE_CAP).join("\n") + "\n");
+  } catch {}
+};
+const skillUpCel = (icon: string, name: string, level: number): Celebration => ({
+  tier: level >= 99 ? 4 : level >= 50 ? 3 : level % 10 === 0 ? 2 : 1,
+  text: level >= 99 ? `MASTERY — ${icon} ${name} 99` : `${icon} ${name} Lv${level}`,
+});
+const totalUpCel = (total: number): Celebration => ({ tier: total % 100 === 0 ? 4 : total % 50 === 0 ? 3 : 2, text: `Total Level ${total}` });
+const HEARTBEAT_XP = 25;   // small per-turn activity nudge (vs a full `agent` SESSION = 250)
+
 const submitLocalState = async (s: LocalState, cfg: AppConfig) => {
   const apiBase = cfg.leaderboardEndpoint?.replace(/\/$/, "");
   if (!apiBase) return;
@@ -665,6 +695,18 @@ const main = async () => {
 
   if (cmd === "heartbeat") {
     const s = loadLocalState();
+    s.skillXp ??= {};
+    const totalBefore = totalLevel(s.skillXp);
+    const cels: Celebration[] = [];
+    // Small per-turn activity XP to the CURRENT agent's skill so the status line visibly moves
+    // each turn. Distinct from `agent` (a whole SESSION, +250, fired once at SessionStart) — this
+    // doesn't bump the sessions counter, just XP. Level-ups + total milestones become toasts.
+    const a = agentById(agentFromEnv());
+    if (a) for (const u of applyGains(s.skillXp, { [a.skillId]: HEARTBEAT_XP })) cels.push(skillUpCel(a.icon, a.name, u.to));
+    const totalAfter = totalLevel(s.skillXp);
+    for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUpCel(m));
+    enqueueCelebrations(cels);
+    saveLocalState(s);
     mkdirSync(RDIR, { recursive: true });
     writeFileSync(HUD, renderLocalHud(s));
     await submitLocalState(s, cfg);
@@ -687,7 +729,14 @@ const main = async () => {
     s.agentLastUsedAt ??= {};
     s.agentUses[a.id] = (s.agentUses[a.id] ?? 0) + count;
     s.agentLastUsedAt[a.id] = Date.now();
+    const totalBefore = totalLevel(s.skillXp);
     const ups = applyGains(s.skillXp, { [a.skillId]: count * 250 });
+    const totalAfter = totalLevel(s.skillXp);
+    // Queue level-up + total-level toasts so they show in the status-line parade even under the
+    // --quiet SessionStart hook (previously only printed in interactive mode → silently dropped).
+    const cels: Celebration[] = ups.map((u) => skillUpCel(a.icon, a.name, u.to));
+    for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUpCel(m));
+    enqueueCelebrations(cels);
     saveLocalState(s);
     writeFileSync(HUD, renderLocalHud(s));
     await submitLocalState(s, cfg);
