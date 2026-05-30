@@ -219,8 +219,10 @@ earned seeds after a change get the new active look at verify/mint time.
 [medium]  SPA-style profile-to-profile navigation (no full reload)
 [medium]  Push notifications on tier unlocks (push infra already exists)
 
-[ship]    Make publishable: flip private:false, publish 0.1.0 to npm
-[ship]    Public deployment of renown.app
+[done]    Published @absolutejs/renown@0.2.0 to npm (latest) — BSL-1.1 w/ named
+          carveout; ships the pet/rarest/switch + multi-github `renown link` CLI.
+          `renown upgrade` / `npm i -g @absolutejs/renown` pulls it.
+[ship]    Public deployment of renown.app (server is NOT on npm — needs a Bun host)
 [ship]    README/marketing — turn the docs+INSTALL.md into a landing
 ```
 
