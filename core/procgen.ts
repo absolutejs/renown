@@ -266,7 +266,10 @@ export const frames = (c: Creature, count = 16) => Array.from({ length: count },
 // cell) with rgb color + kind. Same algorithm as renderCreature, sans ANSI — for R3F.
 export type Voxel = { x: number; y: number; z: number; color: RGB; kind: "body" | "eye" | "mouth" | "crest" };
 export interface VoxelGrid { w: number; h: number; d: number; voxels: Voxel[]; aura: boolean; mythicAura: boolean; tier: Tier }
-const clampVoxelDepth = (lookId: PetLookId, c: Creature) => {
+// Voxel depth (z-thickness) for a creature under a given look. legacy = 1 (flat);
+// volumetric stacks 2–4 deep by size. Exported so the 3D viewer can keep camera framing
+// consistent across looks (a deeper pet's front face sits closer to the camera).
+export const clampVoxelDepth = (lookId: PetLookId, c: Creature) => {
   if (lookId !== "volumetric") return 1;
   return Math.max(2, Math.min(4, Math.round(1 + c.sizeN / 26)));
 };

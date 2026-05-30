@@ -12,13 +12,19 @@ import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } f
 import { BoxGeometry, BufferAttribute, type BufferGeometry, ExtrudeGeometry, Float32BufferAttribute, type Group, type PerspectiveCamera as ThreePerspectiveCamera, Shape, Vector2 } from "three";
 import * as CANNON from "cannon-es";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { type Creature, generate, voxelize } from "../../../../../core/procgen";
+import { clampVoxelDepth, type Creature, generate, voxelize } from "../../../../../core/procgen";
 import type { RGB } from "../../../../../core/shiny.ts";
 import { DEFAULT_PET_LOOK_ID, PET_LOOKS, isPetLookId, type PetLookId } from "../../../../../core/petLooks.ts";
 import { chimeVoiceFor, playChime } from "../../audio";
 import { ProceduralMat } from "./petMaterials";
 
 const resolveLookId = (value: string | undefined | null): PetLookId => isPetLookId(value) ? value : DEFAULT_PET_LOOK_ID;
+
+// Camera pushback so a pet's FRONT face sits at a consistent apparent distance across looks.
+// A volumetric pet is stacked toward the camera by (depth-1)/2 voxels; pushing the camera
+// back by the same amount keeps it the same on-screen size as the flat legacy look. Exactly
+// 0 for legacy (depth 1), so legacy framing is unchanged.
+const lookDepthPush = (c: Creature, lookId: PetLookId) => (clampVoxelDepth(resolveLookId(lookId), c) - 1) / 2;
 const PET_LOOK_OPTIONS = Object.values(PET_LOOKS);
 type PetLookMap = Record<string, PetLookId>;
 export type SummonPet = { seed: string; lookId: PetLookId };
@@ -371,7 +377,11 @@ const CameraSpringDolly = ({ camRef, camZ }: { camRef: React.RefObject<ThreePers
 
 // Camera distance derived from creature size — bigger pets need to be further back to
 // stay in frame. Shared by the spotlight's initial position and its swap-target spring.
-const spotlightZFor = (seed: string | null) => seed ? Math.max(10, 7 + generate(seed).sizeN * 0.10) : 12;
+const spotlightZFor = (seed: string | null, lookId: PetLookId = DEFAULT_PET_LOOK_ID) => {
+  if (!seed) return 12;
+  const c = generate(seed);
+  return Math.max(10, 7 + c.sizeN * 0.10) + lookDepthPush(c, lookId);
+};
 
 // Big shared View for the leaderboard hover spotlight (one mount per page, fed by whichever
 // row is currently hovered/selected). Uses the same shared MenagerieCanvas, so it costs one
@@ -388,7 +398,7 @@ export const SpotlightView = ({ seed, lookId = DEFAULT_PET_LOOK_ID }: { seed: st
   // dolly-out leg of the transition; updated mid-chain so the new pet renders only after
   // the outgoing one has scaled away).
   const [displaySeed, setDisplaySeed] = useState<string | null>(seed);
-  const [springs, api] = useSpring(() => ({ scale: 1, camZ: spotlightZFor(seed) }));
+  const [springs, api] = useSpring(() => ({ scale: 1, camZ: spotlightZFor(seed, lookId) }));
   const cameraRef = useRef<ThreePerspectiveCamera>(null);
 
   // Prop-change detector. The chain runs imperatively inside api.start — useEffect here
@@ -401,10 +411,10 @@ export const SpotlightView = ({ seed, lookId = DEFAULT_PET_LOOK_ID }: { seed: st
       to: async (next) => {
         // Leg 1: outgoing pet shrinks while camera pulls back, so the swap reads as a
         // depth dolly, not a snap.
-        await next({ scale: 0, camZ: spotlightZFor(displaySeed) + 6, config: { tension: 260, friction: 22 } });
+        await next({ scale: 0, camZ: spotlightZFor(displaySeed, lookId) + 6, config: { tension: 260, friction: 22 } });
         setDisplaySeed(seed);
         // Leg 2: dolly back in to the new pet's natural distance while it scales up.
-        await next({ scale: 1, camZ: spotlightZFor(seed), config: { tension: 180, friction: 22 } });
+        await next({ scale: 1, camZ: spotlightZFor(seed, lookId), config: { tension: 180, friction: 22 } });
       },
     });
   }, [seed, displaySeed, api]);
@@ -415,7 +425,7 @@ export const SpotlightView = ({ seed, lookId = DEFAULT_PET_LOOK_ID }: { seed: st
   const dramatic = c.tier === "Mythic" || c.tier === "Legendary" || c.oneOfOne;
   return (
     <View className="rankSpotlight">
-      <PerspectiveCamera makeDefault ref={cameraRef} position={[0, 0, spotlightZFor(displaySeed)]} fov={34} />
+      <PerspectiveCamera makeDefault ref={cameraRef} position={[0, 0, spotlightZFor(displaySeed, lookId)]} fov={34} />
       <CameraSpringDolly camRef={cameraRef} camZ={springs.camZ} />
       <color attach="background" args={[dramatic ? "#0a0a14" : "#0a0a0a"]} />
       <ambientLight intensity={0.7} />
@@ -441,7 +451,7 @@ export const SpotlightView = ({ seed, lookId = DEFAULT_PET_LOOK_ID }: { seed: st
 // The shared MenagerieCanvas picks up the View through tunnel-rat and scissor-renders the
 // scene at this div's rect.
 const PetCardView = ({ seed, creature, entranceBurst = false, lookId = DEFAULT_PET_LOOK_ID }: { seed: string; creature: Creature; entranceBurst?: boolean; lookId?: PetLookId }) => {
-  const z = Math.max(8, 6 + creature.sizeN * 0.10);
+  const z = Math.max(8, 6 + creature.sizeN * 0.10) + lookDepthPush(creature, lookId);
   const dramatic = creature.tier === "Mythic" || creature.tier === "Legendary" || creature.oneOfOne;
   const rate = creature.tier === "Mythic" ? 0.5 : creature.tier === "Legendary" ? 0.3 : 0.18;   // rad/sec
   return (
@@ -488,7 +498,7 @@ const OrbitingTrail = ({ color, radius, speed, phase, height }: { color: string;
 // aberration on the rarest pets + denser stars + a slightly slower auto-rotate so it
 // reads as a presentation piece, not a thumbnail.
 export const HeroCanvas = ({ seed, creature, lookId = DEFAULT_PET_LOOK_ID }: { seed: string; creature: Creature; lookId?: PetLookId }) => {
-  const z = Math.max(8, 6 + creature.sizeN * 0.10);
+  const z = Math.max(8, 6 + creature.sizeN * 0.10) + lookDepthPush(creature, lookId);
   const cam = { fov: 32, position: [0, 0, z] as [number, number, number] };
   const wild = creature.oneOfOne || creature.mythicAura;
   const dramatic = wild || creature.tier === "Legendary";
@@ -625,7 +635,7 @@ export const GhostAvatar = ({ seed, lookId = DEFAULT_PET_LOOK_ID }: { seed: stri
   useEffect(() => setMounted(true), []);
   const c = useMemo(() => generate(seed), [seed]);
   if (!mounted) return <span className="ghostAvatar" />;
-  const z = Math.max(8, 6 + c.sizeN * 0.10);
+  const z = Math.max(8, 6 + c.sizeN * 0.10) + lookDepthPush(c, lookId);
   return (
     <View className="ghostAvatar">
       <PerspectiveCamera makeDefault position={[0, 0, z]} fov={36} />
