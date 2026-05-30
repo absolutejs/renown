@@ -208,11 +208,13 @@ earned seeds after a change get the new active look at verify/mint time.
           sum scores, delete source) called by mergeUserAccounts. Verified 7/7.
           (CLI collision still routes the human to the web confirm UI — v1.)
 
-[next]    Route the DEFERRED lookups through the resolver (operator/edge paths still
-          resolve via primary github only): attestation.ts, stripePlugin,
-          adminAuthPlugin tier writes, db/backfill-merit.ts + db/backfill-substance.ts
+[done]    Deferred lookups routed through the resolver: attestation.ts, stripe +
+          admin tier writes (by user_sub), and db/backfill-merit + backfill-substance
+          (now per-account + rollup). EVERY github→player lookup uses the resolver.
+
 [next]    (optional) queue the merge request from the CLI collision branch too, so
           `renown link` of an already-owned github surfaces a confirmable merge
+          (today it returns needsMerge + points the human to the web confirm UI)
 
 [medium]  SPA-style profile-to-profile navigation (no full reload)
 [medium]  Push notifications on tier unlocks (push infra already exists)
