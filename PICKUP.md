@@ -203,11 +203,16 @@ earned seeds after a change get the new active look at verify/mint time.
           /cli/* + crons write per-account then roll up. Verified: alexkahndev +
           absolutejs combine to 8244 verified (11505 w/ merit), no clobber on resync.
 
-[next]    Multi-github STAGE 4 — merge-request prompt+confirm for a populated 2nd
-          github (extend mergeUserAccounts to fold players/accounts/wild)
-[next]    Route the DEFERRED lookups through the resolver too (operator/edge paths
-          still resolve via primary github): attestation.ts, stripePlugin,
+[done]    Multi-github STAGE 4 — merge confirm folds the game player too:
+          playerAccounts.foldPlayersForMerge (union wild/accounts/achievements,
+          sum scores, delete source) called by mergeUserAccounts. Verified 7/7.
+          (CLI collision still routes the human to the web confirm UI — v1.)
+
+[next]    Route the DEFERRED lookups through the resolver (operator/edge paths still
+          resolve via primary github only): attestation.ts, stripePlugin,
           adminAuthPlugin tier writes, db/backfill-merit.ts + db/backfill-substance.ts
+[next]    (optional) queue the merge request from the CLI collision branch too, so
+          `renown link` of an already-owned github surfaces a confirmable merge
 
 [medium]  SPA-style profile-to-profile navigation (no full reload)
 [medium]  Push notifications on tier unlocks (push infra already exists)
