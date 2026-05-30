@@ -183,8 +183,9 @@ earned seeds after a change get the new active look at verify/mint time.
 [done]    OG image renders the canonical 2D sprite w/ crests + aura
 [done]    3D crests visually confirmed in production (claude's antlers)
 
+[done]    Leaderboard + feeds rows as <a> tags (cmd-click → /profile new tab)
+
 [soon]    Tune volumetric look parity in compact views (camera/scale)
-[soon]    Leaderboard rows as proper <a> tags (cmd-click → new tab to /profile)
 [soon]    Substance backfill script (counterpart to merit backfill)
 
 [medium]  SPA-style profile-to-profile navigation (no full reload)
