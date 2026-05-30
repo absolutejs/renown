@@ -14,5 +14,6 @@
       "drizzle-orm": ["./node_modules/drizzle-orm"],
       "drizzle-orm/*": ["./node_modules/drizzle-orm/*"]
     }
-  }
+  },
+  "exclude": ["build", "dist", "node_modules"]
 }
