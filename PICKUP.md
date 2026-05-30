@@ -187,7 +187,8 @@ earned seeds after a change get the new active look at verify/mint time.
 [done]    Substance backfill script (db/backfill-substance.ts) — run for @claude
           (substance 66%, n=30, +3 tiers); idempotent skip-if-classified verified
 
-[soon]    Tune volumetric look parity in compact views (camera/scale)
+[done]    Volumetric look parity — camera now depth-aware (front face framed
+          like legacy); legacy pixel-identical (depth-push is 0 for depth 1)
 
 [medium]  SPA-style profile-to-profile navigation (no full reload)
 [medium]  Push notifications on tier unlocks (push infra already exists)
