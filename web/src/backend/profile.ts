@@ -77,7 +77,7 @@ export const loadProfile = async (login: string) => {
       downloads: Number(p.packageDownloads),
       substanceScore: p.substanceScore,
       substanceSampleSize: p.substanceSampleSize,
-      lastSyncAt: p.lastMeritSyncAt,
+      lastSyncAt: p.lastMeritSyncAt ? p.lastMeritSyncAt.toISOString() : null,
     },
     achievements: ach,
     attestationEvents,

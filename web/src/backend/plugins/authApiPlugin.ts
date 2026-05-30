@@ -8,11 +8,12 @@ import { and, desc, eq } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
 import { achievements as achievementsTable, playerAchievements, players, pushSubscriptions, webauthnCredentials } from "../../../../db/schema.ts";
-import { authIdentities, SchemaType, User } from "../../../db/schema";
+import { authIdentities } from "../../../db/schema";
+import type { SchemaType, User } from "../../../db/schema";
 import { SignJWT } from "jose";
 import { applyAttestation } from "../attestation.ts";
 import { gameDb, hub } from "../sync.ts";
-import { isPetLookId, resolvePetLookId } from "../../../../core/petLooks.ts";
+import { isPetLookId, type PetLookId, resolvePetLookId } from "../../../../core/petLooks.ts";
 import { buildAuthenticationOptions, buildRegistrationOptions, verifyAuthentication, verifyRegistration } from "../webauthn.ts";
 import {
   deleteDBAuthIdentityMergeRequest,
@@ -511,7 +512,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const seed = String(params.seed ?? "").trim();
         const wild = Array.isArray(p.wild) ? (p.wild as string[]) : [];
         if (!wild.includes(seed)) return status("Bad Request", "you don't own that pet");
-        await setPetLookAssignment(p.id, seed, b.lookId as string);
+        await setPetLookAssignment(p.id, seed, b.lookId as PetLookId);
         playerInfoCache.delete(ghLogin);
         return { ok: true, ...(await accountPayload(db, user.sub)) };
       }),

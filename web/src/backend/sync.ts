@@ -29,9 +29,9 @@ const MAX_UNLOCKS = 12000;
 // the real Neon write — runs in the background, coalesced to once per player per window
 const persistPlayer = async (id: string, e: PlayerSnapshot) => {
   await gameDb.insert(players).values({
-    id, handle: String(e.name || "anon").slice(0, MAX_HANDLE), level: e.level | 0, xp: e.xp | 0,
-    streak: e.streak | 0, activeSec: e.active | 0, achievements: e.ach | 0, ossCommits: e.oss | 0,
-    totalLevel: e.totalLevel | 0, skillXp: e.skillXp ?? {}, updatedAt: new Date()
+    id, handle: String(e.name || "anon").slice(0, MAX_HANDLE), level: (e.level ?? 0) | 0, xp: (e.xp ?? 0) | 0,
+    streak: (e.streak ?? 0) | 0, activeSec: (e.active ?? 0) | 0, achievements: (e.ach ?? 0) | 0, ossCommits: (e.oss ?? 0) | 0,
+    totalLevel: (e.totalLevel ?? 0) | 0, skillXp: e.skillXp ?? {}, updatedAt: new Date()
   }).onConflictDoUpdate({
     target: players.id,
     set: {
@@ -42,9 +42,9 @@ const persistPlayer = async (id: string, e: PlayerSnapshot) => {
   });
   for (const p of Array.isArray(e.projects) ? e.projects : []) {
     if (!p?.key) continue;
-    await gameDb.insert(projects).values({ key: p.key, name: p.name || p.key, stars: p.stars | 0, oss: !!p.oss })
+    await gameDb.insert(projects).values({ key: p.key, name: p.name || p.key, stars: (p.stars ?? 0) | 0, oss: !!p.oss })
       .onConflictDoUpdate({ target: projects.key, set: { name: sql`excluded.name`, stars: sql`excluded.stars`, oss: sql`excluded.oss` } });
-    await gameDb.insert(playerProjects).values({ playerId: id, projectKey: p.key, xp: p.xp | 0, commits: p.commits | 0, lines: p.lines | 0, updatedAt: new Date() })
+    await gameDb.insert(playerProjects).values({ playerId: id, projectKey: p.key, xp: (p.xp ?? 0) | 0, commits: (p.commits ?? 0) | 0, lines: (p.lines ?? 0) | 0, updatedAt: new Date() })
       .onConflictDoUpdate({ target: [playerProjects.playerId, playerProjects.projectKey], set: { xp: sql`greatest(${playerProjects.xp}, excluded.xp)`, commits: sql`excluded.commits`, lines: sql`excluded.lines`, updatedAt: sql`now()` } });
   }
   const unlocked = (Array.isArray(e.unlocked) ? e.unlocked : []).filter((x): x is string => typeof x === "string").slice(0, MAX_UNLOCKS);

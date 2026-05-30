@@ -862,7 +862,7 @@ const main = async () => {
     if (j.error) { console.log(`board: ${key} isn't on renown yet (${j.error}). Be the first — \`renown link\` and commit.`); return; }
     const me = (cfg.playerName ?? ghLogin()).toLowerCase();
     const t = j.totals ?? { devs: 0, xp: 0, commits: 0 };
-    const by = (j.sort === "commits" || j.sort === "lines") ? j.sort : "xp";   // active metric (server echoes it)
+    const by: "xp" | "commits" | "lines" = (j.sort === "commits" || j.sort === "lines") ? j.sort : "xp";   // active metric (server echoes it)
     const label = { xp: "XP", commits: "commits", lines: "lines" }[by];
     console.log(`\n  ${B}${j.key}${R}  ${HC.dim}${j.stars ? `★ ${j.stars} · ` : ""}${j.oss ? "OSS · " : ""}${t.devs} dev${t.devs === 1 ? "" : "s"} · ${Number(t.xp).toLocaleString()} XP${by === "xp" ? "" : ` · by ${label}`}${R}`);
     const rows: { login: string; avatarSeed: string | null; xp: number; commits: number; lines: number }[] = j.contributors ?? [];

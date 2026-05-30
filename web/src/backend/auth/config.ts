@@ -18,7 +18,8 @@ import {
 } from "@absolutejs/auth";
 import { and, eq, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { SchemaType, User, authIdentities } from "../../../db/schema";
+import { authIdentities } from "../../../db/schema";
+import type { SchemaType, User } from "../../../db/schema";
 import { players, playerAccounts } from "../../../../db/schema.ts";
 import { gameDb } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";

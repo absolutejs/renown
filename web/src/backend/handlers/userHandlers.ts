@@ -6,15 +6,15 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { AuthIdentityConflictError } from "@absolutejs/auth";
-import {
+import { schema } from "../../../db/schema";
+import type {
   AuthIdentity,
   NewAuthIdentity,
   NewAuthIdentityMergeRequest,
   NewUser,
-  schema,
   SchemaType,
 } from "../../../db/schema";
-import { LinkUserIdentityProps, UserFunctionProps } from "../auth/types";
+import type { LinkUserIdentityProps, UserFunctionProps } from "../auth/types";
 import { foldPlayersForMerge } from "../playerAccounts.ts";
 
 type GetDBUserProps = {

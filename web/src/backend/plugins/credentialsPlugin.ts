@@ -10,7 +10,8 @@ import { type AuthSessionStore, credentialRoutes, createNeonCredentialStore } fr
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { schema, SchemaType, User } from "../../../db/schema";
+import { schema } from "../../../db/schema";
+import type { SchemaType, User } from "../../../db/schema";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 

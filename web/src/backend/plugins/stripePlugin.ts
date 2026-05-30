@@ -12,14 +12,15 @@ import { Stripe } from "stripe";
 import { players } from "../../../../db/schema.ts";
 import { gameDb } from "../sync.ts";
 import { resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
-import { schema, SchemaType, User } from "../../../db/schema";
+import { schema } from "../../../db/schema";
+import type { SchemaType, User } from "../../../db/schema";
 import { isTier, normalizeTier, priceToTier, type Tier, tierToPrice, TIER_INFO } from "../billing/tiers";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 
 const SECRET = process.env.STRIPE_SECRET_KEY;
 const PUBLISHABLE = process.env.STRIPE_PUBLISHABLE_KEY ?? null;
-const stripe = SECRET ? new Stripe(SECRET, { apiVersion: "2025-12-15.clover" }) : null;
+const stripe = SECRET ? new Stripe(SECRET, { apiVersion: "2026-02-25.clover" }) : null;
 
 // The user's GitHub login (so we can mirror their tier onto their public player row for the badge).
 const githubLoginFor = async (db: NeonHttpDatabase<SchemaType>, userSub: string) => {
@@ -43,11 +44,12 @@ const applyTier = async (db: NeonHttpDatabase<SchemaType>, opts: { userSub: stri
 
 // Real price amounts, fetched once from Stripe and cached for the process (so the pricing UI
 // shows live dollars instead of hardcoded labels — edit the price in the dashboard, it follows).
-let amountCache: Record<string, { amount: number | null; currency: string; interval?: string }> | null = null;
-const loadAmounts = async () => {
+type PriceAmounts = Record<string, { amount: number | null; currency: string; interval?: string }>;
+let amountCache: PriceAmounts | null = null;
+const loadAmounts = async (): Promise<PriceAmounts> => {
   if (!stripe) return {};
   if (amountCache) return amountCache;
-  const out: NonNullable<typeof amountCache> = {};
+  const out: PriceAmounts = {};
   for (const [tier, id] of [["supporter", process.env.STRIPE_PRICE_SUPPORTER], ["pro", process.env.STRIPE_PRICE_PRO]] as const) {
     if (!id) continue;
     try {
@@ -74,7 +76,7 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
     .post("/billing/checkout", ({ body, protectRoute, request, status }) =>
       protectRoute(async (user) => {
         if (!stripe) return status("Service Unavailable", "billing not configured");
-        const tier = normalizeTier(body.tier);
+        const tier = normalizeTier(((body ?? {}) as { tier?: string }).tier);
         const price = tierToPrice(tier);
         if (tier === "free" || !price) return status("Bad Request", "no purchasable price for that tier");
         // Reuse or create the Stripe customer, stamped with the renown account sub.
@@ -143,7 +145,9 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
             tier: active ? tier : "free",
             status: sub.status,
             subscriptionId: sub.id,
-            periodEnd: sub.current_period_end ? new Date(sub.current_period_end * 1000) : null,
+            // current_period_end moved from the Subscription to its items in the 2026 API; for a
+            // single-price subscription the first item carries the billing period we surface.
+            periodEnd: sub.items.data[0]?.current_period_end ? new Date(sub.items.data[0].current_period_end * 1000) : null,
           });
           break;
         }

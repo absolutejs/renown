@@ -114,7 +114,7 @@ function render(clear = true) {
 export async function runTui() {
   if (!process.stdin.isTTY || ONESHOT) { refresh(); s = loadState(); if (tab === 4) await loadBoard(); if (tab === 2) await loadRarity(); render(false); return; }
   const quit = () => { try { process.stdin.setRawMode(false); } catch {} process.stdout.write("\x1b[?25h\x1b[?1049l"); process.exit(0); };
-  refresh(); s = loadState(); loadBoard().then(render); loadRarity().then(render);
+  refresh(); s = loadState(); loadBoard().then(() => render()); loadRarity().then(() => render());
   process.stdout.write("\x1b[?1049h\x1b[?25l"); render();
   process.stdin.setRawMode(true); process.stdin.resume();
   process.stdin.on("data", (b: Buffer) => {
@@ -123,10 +123,10 @@ export async function runTui() {
     if (key >= "1" && key <= "6") tab = +key - 1;
     else if (key === "\x1b[C" || key === "l") tab = (tab + 1) % N;
     else if (key === "\x1b[D" || key === "h") tab = (tab + (N - 1)) % N;
-    else if (key === "p" && tab === 4) { lbSel = (lbSel + 1) % (topProjects(s, 6).length + 1); loadProj().then(render); }
-    else if (key === "r") { refresh(); s = loadState(); loadBoard().then(render); loadRarity().then(render); }
-    if (tab === 4 && lbSel === 0 && !board.entries.length) loadBoard().then(render);
-    if (tab === 2 && !rarity.players) loadRarity().then(render);
+    else if (key === "p" && tab === 4) { lbSel = (lbSel + 1) % (topProjects(s, 6).length + 1); loadProj().then(() => render()); }
+    else if (key === "r") { refresh(); s = loadState(); loadBoard().then(() => render()); loadRarity().then(() => render()); }
+    if (tab === 4 && lbSel === 0 && !board.entries.length) loadBoard().then(() => render());
+    if (tab === 2 && !rarity.players) loadRarity().then(() => render());
     render();
   });
   setInterval(() => { s = loadState(); render(); }, 1000);
