@@ -3,9 +3,10 @@
 // achievements are badges (the 10k catalog) recorded with their unlock date.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { type Boss, type Quest, type State, type Stats, levelInfo } from "./state.ts";
-import { MAX_TOTAL_LEVEL, SKILLS, displayLevelForSkill, fmtBig, isAgentSkill, maxedCount, skillProgress, topSkills, totalLevel } from "./skills.ts";
+import { MAX_TOTAL_LEVEL, SKILLS, displayLevelForSkill, fmtBig, isAgentSkill, maxedCount, skillById, skillProgress, topSkills, totalLevel } from "./skills.ts";
 import { gradientBar, rainbow } from "./shiny.ts";
 import { face, generate } from "./procgen.ts";
+import { agentById, agentFromEnv } from "./agents.ts";
 
 export const HOME = process.env.HOME ?? "/home/alexkahn";
 export const RDIR = `${HOME}/.renown`;
@@ -128,16 +129,25 @@ export function award(s: State, xp: number, why: string): string[] {
   s.best.level = Math.max(s.best.level, levelInfo(s.xp).level);
   return [`${C.yel}⚡ +${xp} XP${C.r} ${C.dim}(${why})${C.r}`];
 }
+// The skill the live HUD features: the one you're ACTIVELY using (current agent, from env),
+// which the per-turn heartbeat feeds so its bar advances each turn; falls back to your top skill
+// when no agent is detected. (All-time top strength still shows in renderGreet.) MUST stay
+// identical to renderLocalHud() in cli/api.ts — both write the same ~/.renown/hud.txt.
+function featuredSkill(skx: Record<string, number>) {
+  const fid = agentById(agentFromEnv())?.skillId;
+  const def = (fid ? skillById(fid) : undefined) ?? topSkills(skx, 1)[0].def;
+  const xp = skx[def.id] ?? 0;
+  return { def, xp, pct: skillProgress(xp).pct, level: displayLevelForSkill(def.id, xp) };
+}
 export function renderHud(s: State): string {
   const skx = s.skillXp ?? {};
   const total = totalLevel(skx);
-  const top = topSkills(skx, 1)[0];
-  const tp = skillProgress(top.xp);
+  const f = featuredSkill(skx);
   // base HUD only; celebrations are drained separately by the status line (see celebrate.ts).
   // a 99 skill earns a rainbow level — the rarest thing on the line.
-  const lvlBadge = top.level >= 99 ? rainbow(String(top.level)) : `${C.b}${top.level}${C.r}`;
+  const lvlBadge = f.level >= 99 ? rainbow(String(f.level)) : `${C.b}${f.level}${C.r}`;
   const pet = s.companion ? `  ${face(generate(s.companion))}` : "";   // your adopted companion, always with you
-  return `${C.b}${C.mag}Lvl${total}${C.r} ${gradientBar(tp.pct, 8)} ${C.dim}${tp.pct}%${C.r} ${top.def.icon} ${C.b}${top.def.name}${C.r} ${lvlBadge}${pet}`;
+  return `${C.b}${C.mag}Lvl${total}${C.r} ${gradientBar(f.pct, 8)} ${C.dim}${f.pct}%${C.r} ${f.def.icon} ${C.b}${f.def.name}${C.r} ${lvlBadge}${pet}`;
 }
 
 // A one-line "welcome back" for session start (streak lives here now, not the status line).

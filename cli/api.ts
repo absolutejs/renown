@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { run, runSync } from "./proc.ts";
 import { agentById, agentFromEnv, normalizeAgentId } from "../core/agents.ts";
-import { applyGains, skillProgress, topSkills, totalLevel } from "../core/skills.ts";
+import { applyGains, displayLevelForSkill, skillById, skillProgress, topSkills, totalLevel } from "../core/skills.ts";
 import { createInterface } from "node:readline";
 import { face, frames, generate, renderCard } from "../core/procgen.ts";
 import { play } from "../core/ascii.ts";
@@ -83,15 +83,21 @@ const HC = { r: "\x1b[0m", b: "\x1b[1m", dim: "\x1b[2m", mag: "\x1b[95m" };
 
 // Must render IDENTICALLY to renderHud() in core/runtime.ts — both write the same
 // ~/.renown/hud.txt and feed the same status line. If you change one, change both.
+// Features the skill you're ACTIVELY using (current agent, from env) — fed per turn by heartbeat
+// so its bar advances each turn; falls back to your top skill when no agent is detected. MUST
+// stay identical to renderHud() in core/runtime.ts — both write the same ~/.renown/hud.txt.
 const renderLocalHud = (s: LocalState) => {
   const skx = s.skillXp ?? {};
   const total = totalLevel(skx);
-  const top = topSkills(skx, 1)[0];
-  const tp = skillProgress(top.xp);
+  const fid = agentById(agentFromEnv())?.skillId;
+  const fdef = (fid ? skillById(fid) : undefined) ?? topSkills(skx, 1)[0].def;
+  const fxp = skx[fdef.id] ?? 0;
+  const fpct = skillProgress(fxp).pct;
+  const flevel = displayLevelForSkill(fdef.id, fxp);
   // a 99 skill earns a rainbow level — the rarest thing on the line.
-  const lvlBadge = top.level >= 99 ? rainbow(String(top.level)) : `${HC.b}${top.level}${HC.r}`;
+  const lvlBadge = flevel >= 99 ? rainbow(String(flevel)) : `${HC.b}${flevel}${HC.r}`;
   const pet = s.companion ? `  ${face(generate(s.companion))}` : "";   // your adopted companion, always with you
-  return `${HC.b}${HC.mag}Lvl${total}${HC.r} ${gradientBar(tp.pct, 8)} ${HC.dim}${tp.pct}%${HC.r} ${top.def.icon} ${HC.b}${top.def.name}${HC.r} ${lvlBadge}${pet}`;
+  return `${HC.b}${HC.mag}Lvl${total}${HC.r} ${gradientBar(fpct, 8)} ${HC.dim}${fpct}%${HC.r} ${fdef.icon} ${HC.b}${fdef.name}${HC.r} ${lvlBadge}${pet}`;
 };
 
 // Pop the oldest queued celebration frame. The status line calls this once per refresh,
