@@ -10,6 +10,7 @@ import { aiAttestationEvents, players, webhookDeliveries } from "../../../../db/
 import { schema, SchemaType } from "../../../db/schema";
 import { applyAttestation, buildStaleAttestationDigest, deliverWebhook } from "../attestation.ts";
 import { gameDb } from "../sync.ts";
+import { resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { adminCookieAttrs, adminCookieName, issueAdminToken, verifyAdminToken } from "../admin/adminCookie";
 import { isTier, normalizeTier, type Tier } from "../billing/tiers";
 
@@ -94,10 +95,9 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       const tier = body.tier as Tier;
       await db.update(schema.users).set({ tier, subscription_status: tier === "free" ? null : "admin_granted" })
         .where(eq(schema.users.sub, target.sub));
-      // Mirror onto the player row by github login (if linked) so the leaderboard badge follows.
-      const gh = (await db.select().from(schema.authIdentities).where(and(eq(schema.authIdentities.user_sub, target.sub), eq(schema.authIdentities.auth_provider, "github"))))[0];
-      const login = (gh?.metadata as { login?: string } | undefined)?.login;
-      if (login) await gameDb.update(players).set({ tier }).where(eq(players.githubLogin, login));
+      // Mirror onto the user's canonical player so the leaderboard badge follows.
+      const pl = await resolvePlayerByUserSub(target.sub);
+      if (pl) await gameDb.update(players).set({ tier }).where(eq(players.id, pl.id));
       console.log(`[renown:admin] ${admin.email} → set tier=${tier} for user ${target.email ?? target.sub}`);
       return { ok: true, sub: target.sub, tier };
     }, { body: t.Object({ tier: t.String() }) })

@@ -10,6 +10,7 @@ import { aiAttestationEvents, players, webhookDeliveries } from "../../../db/sch
 import { defaultAuthorQuery, resolveProvider } from "./aiProviders.ts";
 import { sendPushToAll } from "./push.ts";
 import { gameDb, grantAchievements, hub } from "./sync.ts";
+import { resolvePlayerByGithubLogin } from "./resolvePlayer.ts";
 
 // Tracer — no-op when no SDK is registered, so this file is safe to import in
 // environments that haven't wired @opentelemetry/sdk-node. Operators who want traces
@@ -69,11 +70,10 @@ export const applyAttestation = async (githubLogin: string, input: AttestationIn
 const applyAttestationInner = async (githubLogin: string, input: AttestationInput, actor: AttestationActor): Promise<AttestationResult> => {
   const actorKind = actor.kind;
   const actorSub = actor.kind === "user" || actor.kind === "admin" ? actor.sub : null;
-  const playerRows = await tracer.startActiveSpan("attestation.player_lookup", async (s) => {
-    try { return await gameDb.select().from(players).where(eq(players.githubLogin, githubLogin)); }
+  const player = await tracer.startActiveSpan("attestation.player_lookup", async (s) => {
+    try { return await resolvePlayerByGithubLogin(githubLogin); }   // resolves across the user's githubs
     finally { s.end(); }
   });
-  const player = playerRows[0];
   if (!player) return { ok: false, error: "player not found" };
 
   if (input.kind === "clear") {

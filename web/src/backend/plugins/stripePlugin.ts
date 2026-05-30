@@ -11,6 +11,7 @@ import { Elysia, t } from "elysia";
 import { Stripe } from "stripe";
 import { players } from "../../../../db/schema.ts";
 import { gameDb } from "../sync.ts";
+import { resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { schema, SchemaType, User } from "../../../db/schema";
 import { isTier, normalizeTier, priceToTier, type Tier, tierToPrice, TIER_INFO } from "../billing/tiers";
 
@@ -35,8 +36,9 @@ const applyTier = async (db: NeonHttpDatabase<SchemaType>, opts: { userSub: stri
     subscription_status: opts.status ?? null,
     tier: opts.tier,
   }).where(eq(schema.users.sub, opts.userSub));
-  const login = await githubLoginFor(db, opts.userSub);
-  if (login) await gameDb.update(players).set({ tier: opts.tier }).where(eq(players.githubLogin, login));
+  // Denormalize tier onto the user's ONE canonical player (resolve by user_sub; legacy fallback by login).
+  const player = (await resolvePlayerByUserSub(opts.userSub)) ?? await (async () => { const l = await githubLoginFor(db, opts.userSub); return l ? resolvePlayerByGithubLogin(l) : null; })();
+  if (player) await gameDb.update(players).set({ tier: opts.tier }).where(eq(players.id, player.id));
 };
 
 // Real price amounts, fetched once from Stripe and cached for the process (so the pricing UI
