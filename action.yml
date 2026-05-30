@@ -1,0 +1,28 @@
+name: "Renown"
+description: "Earn renown for your repo's contributors automatically — on every push it refreshes each contributor's score, Co-Authored-By attribution, and 1/1 pets. No personal tokens or secrets in the workflow."
+author: "AbsoluteJS"
+branding:
+  icon: "award"
+  color: "purple"
+
+inputs:
+  endpoint:
+    description: "Your renown server's API base URL, e.g. https://renown.example.com/api"
+    required: true
+  version:
+    description: "Which @absolutejs/renown release to run (npm dist-tag or exact version)."
+    required: false
+    default: "latest"
+
+runs:
+  using: "composite"
+  steps:
+    # Reads GitHub's own context (GITHUB_ACTOR, the push/PR event payload) to find the
+    # contributors, then asks the renown server to recompute each linked contributor's renown
+    # from the GitHub API. The server uses its OWN token, so nothing secret is needed here;
+    # contributors who aren't on renown simply no-op, and the step never fails the build.
+    - name: Refresh contributors' renown
+      shell: bash
+      run: npx -y @absolutejs/renown@${{ inputs.version }} ci-sync
+      env:
+        RENOWN_ENDPOINT: ${{ inputs.endpoint }}

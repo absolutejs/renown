@@ -46,6 +46,38 @@ bun run db:check          # verify connectivity
 `DATABASE_URL` lives in `.env` (gitignored) — never commit it. **Rotate the Neon
 password before this repo is public.**
 
+## GitHub Action — auto-sync from CI
+
+Drop the renown Action into a repo and every push refreshes that repo's contributors'
+renown — their score, **Co-Authored-By attribution**, and freshly-minted 1/1 pets — with
+**no manual `renown sync` and no secrets in the workflow**. The Action reads GitHub's own
+context (the pusher + the authors GitHub names in the event) and asks your renown server to
+recompute each *linked* contributor from the GitHub API using the **server's** token.
+Contributors who aren't on renown simply no-op, and the step never fails your build.
+
+```yaml
+# .github/workflows/renown.yml
+name: Renown
+on: [push]
+jobs:
+  renown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: absolutejs/renown@v1
+        with:
+          endpoint: https://renown.example.com/api   # your renown server's API base
+```
+
+Prefer no extra action? Call the CLI directly — same effect:
+
+```yaml
+      - run: npx -y @absolutejs/renown ci-sync
+        env:
+          RENOWN_ENDPOINT: https://renown.example.com/api
+```
+
+Locally, `renown ci-sync --endpoint <url>` does the same against a `GITHUB_*`-populated env.
+
 ## Roadmap
 - [x] DB schema + Neon
 - [x] Engine in `core/` (craft, achievements, stats, leaderboard, runtime, event)
@@ -55,6 +87,7 @@ password before this repo is public.**
 - [x] Coding-agent usage skills (`renown agent codex`, `renown agent claude`, etc.)
 - [x] Server API (`/submit`, `/top`, `/top?project`, `/achievements` + rarity %)
 - [x] Per-project leaderboards end-to-end
+- [x] GitHub Action — auto-sync contributors' renown from CI (`renown ci-sync`)
 - [ ] Wire the TUI to show live rarity % from the server
 - [ ] Editor plugins (VS Code first — we already ship `absolutejs-vscode-extension`)
 - [ ] Auth / anti-cheat on the server before public launch

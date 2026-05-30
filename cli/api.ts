@@ -286,6 +286,7 @@ const usage = () => {
   console.log("  statusline                print the local renown HUD for shells and agent footers");
   console.log("  heartbeat                 refresh local HUD and submit current state");
   console.log("  link                     link this install to GitHub (browserless, via gh auth token)");
+  console.log("  ci-sync [--endpoint U]   refresh contributors' renown from a CI run (the GitHub Action; RENOWN_ENDPOINT)");
   console.log("  merit                    refresh PR-review / cross-repo / shipper / maintainer signals");
   console.log("  substance [--limit N]    classify recent commits by substance (RAG when configured)");
   console.log("  ai-attest --provider X   mark this account as AI participant ([--auto] [--webauthn] [--jwt] [--clear])");
@@ -680,6 +681,53 @@ const main = async () => {
     }
     const line = existsSync(HUD) ? readFileSync(HUD, "utf8").trim() : renderLocalHud(s);
     console.log(line);
+    return;
+  }
+
+  // ── ci-sync: refresh every contributor's renown from a CI run (powers the GitHub Action) ──
+  // Zero secrets. /api/verify recomputes a linked player's renown (base score + Co-Authored-By
+  // attribution + freshly-minted 1/1 pets) from just their login, using the SERVER's own GitHub
+  // token — so a workflow can credit contributors without anyone exposing a personal token. We
+  // refresh the pusher plus every author GitHub names in the event payload; logins that aren't on
+  // renown (or aren't OAuth-verified) no-op, and we always exit 0 so CI never fails over this.
+  if (cmd === "ci-sync") {
+    const endpoint = (flag(rest, "endpoint") ?? process.env.RENOWN_ENDPOINT ?? cfg.leaderboardEndpoint ?? "").replace(/\/$/, "");
+    if (!endpoint) { console.log("renown ci-sync: no endpoint set — pass --endpoint or RENOWN_ENDPOINT (e.g. https://your-renown.example/api). Skipping."); return; }
+    const repo = process.env.GITHUB_REPOSITORY ?? "";
+    // Logins to refresh: the actor + every author/committer GitHub attributes in the event.
+    const logins = new Set<string>();
+    const add = (l: unknown) => { const s = String(l ?? "").trim().toLowerCase(); if (s && !s.endsWith("[bot]") && s !== "github-actions") logins.add(s); };
+    add(process.env.GITHUB_ACTOR);
+    try {
+      const ep = process.env.GITHUB_EVENT_PATH;
+      if (ep && existsSync(ep)) {
+        const ev = JSON.parse(readFileSync(ep, "utf8")) as Record<string, any>;
+        for (const c of Array.isArray(ev.commits) ? ev.commits : []) { add(c?.author?.username); add(c?.committer?.username); }
+        add(ev?.head_commit?.author?.username);
+        add(ev?.pull_request?.user?.login);
+        add(ev?.sender?.login);
+      }
+    } catch { /* event payload is best-effort */ }
+    if (logins.size === 0) { console.log("renown ci-sync: no contributor logins in this event — skipping."); return; }
+    console.log(`\n  ${B}renown ci-sync${R}${repo ? `  ${HC.dim}${repo}${R}` : ""}`);
+    let credited = 0;
+    for (const login of logins) {
+      const res = await fetch(`${endpoint}/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ login }), signal: AbortSignal.timeout(15000) }).catch(() => null);
+      const j: any = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+      if (j.ok) {
+        credited++;
+        const dpets = Array.isArray(j.newPetSeeds) ? j.newPetSeeds.length : Number(j.newPets ?? 0);
+        const bits = [`renown ${Number(j.score ?? 0).toLocaleString()}`];
+        if (Number(j.attributionDelta) > 0) bits.push(`+${j.attributionDelta} attributed`);
+        if (dpets > 0) bits.push(`+${dpets} new pet${dpets === 1 ? "" : "s"}`);
+        if (j.throttled) bits.push("synced recently");
+        console.log(`  ✓ ${B}@${login}${R}  ${HC.dim}${bits.join(" · ")}${R}`);
+      } else {
+        const why = j.error === "login ownership not verified (OAuth required)" ? "not on renown yet" : (j.error ?? "skipped");
+        console.log(`  ${HC.dim}· @${login} — ${why}${R}`);
+      }
+    }
+    console.log(`\n  ${HC.mag}${credited} contributor${credited === 1 ? "" : "s"} refreshed${R}  ${HC.dim}· join: npm i -g @absolutejs/renown && renown link${R}\n`);
     return;
   }
 
