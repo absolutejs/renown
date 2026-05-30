@@ -195,13 +195,19 @@ earned seeds after a change get the new active look at verify/mint time.
           gh=absolutejs → alexkahndev player, no dup. (full plan: ~/.claude/
           plans/nifty-meandering-wigderson.md)
 
-[next]    Multi-github STAGE 2 — rewrite auth/config onGithubVerified so a web
-          link attaches (no per-login player minting); route authApiPlugin +
-          cron + backfills + stripe/admin/attestation through the resolver too
-[next]    Multi-github STAGE 3 — cross-github score/merit/substance aggregation
-          (per-account fetch+sum, rollupPlayerFromAccounts) + accounts[] in payload
+[done]    Multi-github STAGE 2 — auth/config onGithubVerified attaches to the
+          user's one canonical player (no per-login minting); authApiPlugin +
+          crons route through the resolver; accountPayload has accounts[] breakdown
+[done]    Multi-github STAGE 3 — cross-github aggregation via
+          web/src/backend/playerAccounts.ts rollupPlayerFromAccounts; /verify +
+          /cli/* + crons write per-account then roll up. Verified: alexkahndev +
+          absolutejs combine to 8244 verified (11505 w/ merit), no clobber on resync.
+
 [next]    Multi-github STAGE 4 — merge-request prompt+confirm for a populated 2nd
           github (extend mergeUserAccounts to fold players/accounts/wild)
+[next]    Route the DEFERRED lookups through the resolver too (operator/edge paths
+          still resolve via primary github): attestation.ts, stripePlugin,
+          adminAuthPlugin tier writes, db/backfill-merit.ts + db/backfill-substance.ts
 
 [medium]  SPA-style profile-to-profile navigation (no full reload)
 [medium]  Push notifications on tier unlocks (push infra already exists)
