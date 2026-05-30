@@ -8,6 +8,19 @@
 // renders server-side in the OG card only.
 import { Head } from "@absolutejs/absolute/react/components";
 import { useState } from "react";
+import { generate } from "../../../../../core/procgen.ts";
+import { spriteToSvg } from "../../../../../core/petSvg.ts";
+
+// Each contributor's 1/1 pet, rendered as a static 2D SVG (the same canonical sprite the OG
+// card + 3D viewer use) — no three.js, so the board stays fast + crawlable but still shows the
+// signature renown pets. Returns a wrapped <svg> string for dangerouslySetInnerHTML.
+const petSvgHtml = (seed: string, box: number) => {
+  const { svg, width, height } = spriteToSvg(generate(seed), { box });
+  return `<svg width="${width.toFixed(0)}" height="${height.toFixed(0)}" viewBox="0 0 ${width.toFixed(1)} ${height.toFixed(1)}" xmlns="http://www.w3.org/2000/svg" style="display:block">${svg}</svg>`;
+};
+const PetSprite = ({ seed, box }: { seed: string; box: number }) => (
+  <span style={{ width: box, height: box, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: petSvgHtml(seed, box) }} />
+);
 
 type Contributor = { login: string; handle: string; avatarSeed: string | null; isAi: boolean; tier: string; xp: number; commits: number; lines: number };
 type ProjectForUI = {
@@ -53,13 +66,21 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
     <main className="wrap profilePage">
       <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a>  <a href="/" className="muted" style={{ marginLeft: 12 }}>← Browse leaderboard</a></header>
 
-      <section className="card">
-        <h1 style={{ marginBottom: 4 }}>{project.key}</h1>
-        <p className="muted">
-          {project.stars > 0 && <>★ {fmt(project.stars)} · </>}
-          {project.oss ? "open source · " : ""}
-          {fmt(project.totals.devs)} dev{project.totals.devs === 1 ? "" : "s"} earning renown · {fmt(project.totals.xp)} XP · {fmt(project.totals.commits)} commits
-        </p>
+      <section className="card" style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ marginBottom: 4 }}>{project.key}</h1>
+          <p className="muted">
+            {project.stars > 0 && <>★ {fmt(project.stars)} · </>}
+            {project.oss ? "open source · " : ""}
+            {fmt(project.totals.devs)} dev{project.totals.devs === 1 ? "" : "s"} earning renown · {fmt(project.totals.xp)} XP · {fmt(project.totals.commits)} commits
+          </p>
+        </div>
+        {project.topContributor?.avatarSeed && (
+          <div style={{ textAlign: "center", flexShrink: 0 }}>
+            <PetSprite seed={project.topContributor.avatarSeed} box={96} />
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>top · @{project.topContributor.login}</div>
+          </div>
+        )}
       </section>
 
       <section className="card">
@@ -71,6 +92,7 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
               {project.contributors.map((c, i) => (
                 <a key={c.login} href={`/profile/${encodeURIComponent(c.login)}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderRadius: 8, textDecoration: "none", color: "inherit", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
                   <span style={{ width: 28, textAlign: "right", fontWeight: 700, opacity: 0.8 }}>{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
+                  {c.avatarSeed && <PetSprite seed={c.avatarSeed} box={40} />}
                   <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{c.login}{c.isAi && <span style={{ fontSize: 11, opacity: 0.7 }}> 🤖</span>}</span>
                   <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>{fmt(c.xp)} XP</span>
                   <span className="muted" style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, minWidth: 110, textAlign: "right" }}>{fmt(c.commits)} commits · {fmt(c.lines)} lines</span>
