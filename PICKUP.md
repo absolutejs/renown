@@ -189,6 +189,19 @@ earned seeds after a change get the new active look at verify/mint time.
 
 [done]    Volumetric look parity — camera now depth-aware (front face framed
           like legacy); legacy pixel-identical (depth-push is 0 for depth 1)
+[done]    Multi-github STAGE 1 — players.user_sub + player_accounts ledger +
+          wild_seed_sources + resolvePlayer.ts; /cli/link attaches a 2nd github;
+          renown pet/rarest/switch resolve across a user's githubs. Verified:
+          gh=absolutejs → alexkahndev player, no dup. (full plan: ~/.claude/
+          plans/nifty-meandering-wigderson.md)
+
+[next]    Multi-github STAGE 2 — rewrite auth/config onGithubVerified so a web
+          link attaches (no per-login player minting); route authApiPlugin +
+          cron + backfills + stripe/admin/attestation through the resolver too
+[next]    Multi-github STAGE 3 — cross-github score/merit/substance aggregation
+          (per-account fetch+sum, rollupPlayerFromAccounts) + accounts[] in payload
+[next]    Multi-github STAGE 4 — merge-request prompt+confirm for a populated 2nd
+          github (extend mergeUserAccounts to fold players/accounts/wild)
 
 [medium]  SPA-style profile-to-profile navigation (no full reload)
 [medium]  Push notifications on tier unlocks (push infra already exists)
