@@ -234,6 +234,10 @@ earned seeds after a change get the new active look at verify/mint time.
           into the verified target; core/runtime loadConfig now adopts an existing
           state.json playerId on (re)create so it can't recur. Applied: alexkahndev
           now total_level 790 + 5 repos; /project/absolutejs/* boards rank @alexkahndev.
+[done]    Board polish: contributors' 1/1 pets render on /project pages (2D SVG, no
+          three.js); profiles gained a "Top repos" section → discovery loop closes
+          both ways (badge → board → profile → their repos → board → …).
+
 [ship]    Public deployment of renown.app (server is NOT on npm — needs a Bun host)
 [ship]    README/marketing — turn the docs+INSTALL.md into a landing
 ```
