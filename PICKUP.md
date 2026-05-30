@@ -222,6 +222,18 @@ earned seeds after a change get the new active look at verify/mint time.
 [done]    Published @absolutejs/renown@0.2.0 to npm (latest) — BSL-1.1 w/ named
           carveout; ships the pet/rarest/switch + multi-github `renown link` CLI.
           `renown upgrade` / `npm i -g @absolutejs/renown` pulls it.
+[done]    Per-repo leaderboard page + README badge (distribution loop):
+          /project/:owner/:repo (page), /badge.svg, /og.png, /api/project/:o/:r.
+          web/src/backend/project.ts loader + projectBadge.ts + projectOg.ts +
+          RenownProject.tsx (lightweight, no three.js). Ranks verified contributors
+          by per-project XP. Ships with the renown.app deploy.
+
+[next]    DATA GAP for project boards: all current player_projects rows belong to an
+          UNVERIFIED, login-less local player (id 7369540ce502) → live boards show
+          "0 devs" until VERIFIED users accumulate project data. Fix path: the linked
+          CLI's commit scoring must submit under the verified player (or reconcile the
+          legacy local player into the github-verified one). Without this the badge is
+          empty on real repos at launch.
 [ship]    Public deployment of renown.app (server is NOT on npm — needs a Bun host)
 [ship]    README/marketing — turn the docs+INSTALL.md into a landing
 ```
