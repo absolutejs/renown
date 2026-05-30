@@ -9,10 +9,11 @@
 import { cron } from "@elysiajs/cron";
 import { and, eq, isNotNull, lt, or, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
-import { players } from "../../../../db/schema.ts";
+import { players, playerAccounts } from "../../../../db/schema.ts";
 import { buildStaleAttestationDigest, deliverWebhook } from "../attestation.ts";
-import { computeMeritScore, fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, meritAchievementsToGrant } from "../merit.ts";
+import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, meritAchievementsToGrant } from "../merit.ts";
 import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
+import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import { gameDb, grantAchievements, hub } from "../sync.ts";
 
 const sweepExpiredAttestations = async (): Promise<number> => {
@@ -93,44 +94,44 @@ export const cronPlugin = () =>
       run: async () => {
         try {
           const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-          const due = await gameDb.select({
-            id: players.id, login: players.githubLogin,
-            substanceScore: players.substanceScore, substanceSampleSize: players.substanceSampleSize,
-            verifiedScore: players.verifiedScore, meritScore: players.meritScore,
-          }).from(players).where(and(
-            eq(players.githubVerified, true),
-            isNotNull(players.githubLogin),
-            or(sql`${players.lastMeritSyncAt} IS NULL`, lt(players.lastMeritSyncAt, cutoff)),
-          )).orderBy(sql`${players.lastMeritSyncAt} NULLS FIRST`).limit(20);
-          for (const p of due) {
-            const login = p.login!;   // isNotNull guard above
+          // Iterate per-github ACCOUNTS (oldest-synced first) so a multi-github player gets each
+          // of its githubs refreshed; roll the touched players up once at the end.
+          const due = await gameDb.select({ playerId: playerAccounts.playerId, login: playerAccounts.githubLogin })
+            .from(playerAccounts)
+            .innerJoin(players, eq(players.id, playerAccounts.playerId))
+            .where(and(
+              eq(players.githubVerified, true),
+              eq(playerAccounts.githubVerified, true),
+              or(sql`${playerAccounts.lastMeritSyncAt} IS NULL`, lt(playerAccounts.lastMeritSyncAt, cutoff)),
+            )).orderBy(sql`${playerAccounts.lastMeritSyncAt} NULLS FIRST`).limit(20);
+          const touched = new Set<string>();
+          for (const a of due) {
+            const login = a.login;
             try {
               const [reviews, crossRepo, prCounts, downloads] = await Promise.all([
                 fetchPrReviewsCount(login), fetchCrossRepoPrsCount(login),
                 fetchPrCounts(login), fetchPackageDownloads(login),
               ]);
-              const meritScore = computeMeritScore({
+              await gameDb.update(playerAccounts).set({
                 prReviewsCount: reviews, crossRepoPrsCount: crossRepo,
                 prsAuthoredCount: prCounts.authored, prsMergedCount: prCounts.merged,
-                packageDownloads: downloads,
-                substanceScore: p.substanceScore, substanceSampleSize: p.substanceSampleSize,
-              });
-              await gameDb.update(players).set({
-                prReviewsCount: reviews, crossRepoPrsCount: crossRepo,
-                prsAuthoredCount: prCounts.authored, prsMergedCount: prCounts.merged,
-                packageDownloads: downloads, meritScore, lastMeritSyncAt: new Date(),
-              }).where(eq(players.id, p.id));
-              const grantIds = meritAchievementsToGrant({
-                prReviewsCount: reviews, crossRepoPrsCount: crossRepo, prsMergedCount: prCounts.merged,
-                packageDownloads: downloads, substanceScore: p.substanceScore, substanceSampleSize: p.substanceSampleSize,
-              });
-              const granted = await grantAchievements(p.id, grantIds);
-              if (granted.length > 0) hub.publish("merit", { login, meritScore, reviews, crossRepo, authored: prCounts.authored, merged: prCounts.merged, downloads, granted });
+                packageDownloads: downloads, lastMeritSyncAt: new Date(),
+              }).where(and(eq(playerAccounts.playerId, a.playerId), eq(playerAccounts.githubLogin, login)));
+              touched.add(a.playerId);
             } catch (e) {
               console.error(`[renown:cron] merit-refresh failed for ${login}`, e);
             }
           }
-          if (due.length > 0) console.log(`[renown:cron] merit-refresh synced ${due.length} player(s)`);
+          for (const pid of touched) {
+            const rolled = await rollupPlayerFromAccounts(pid);
+            const granted = await grantAchievements(pid, meritAchievementsToGrant({
+              prReviewsCount: rolled?.prReviewsCount ?? 0, crossRepoPrsCount: rolled?.crossRepoPrsCount ?? 0,
+              prsMergedCount: rolled?.prsMergedCount ?? 0, packageDownloads: rolled?.packageDownloads ?? 0,
+              substanceScore: rolled?.substanceScore ?? 0, substanceSampleSize: rolled?.substanceSampleSize ?? 0,
+            }));
+            if (granted.length > 0) hub.publish("merit", { meritScore: rolled?.meritScore ?? 0, granted });
+          }
+          if (due.length > 0) console.log(`[renown:cron] merit-refresh synced ${due.length} github account(s)`);
         } catch (e) {
           console.error("[renown:cron] merit-refresh batch failed", e);
         }
@@ -148,38 +149,39 @@ export const cronPlugin = () =>
       pattern: "30 3 * * *",   // 03:30 UTC daily; offset from the other crons
       run: async () => {
         try {
-          const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);   // ran in last 3 days
-          const due = await gameDb.select().from(players).where(and(
-            eq(players.githubVerified, true),
-            isNotNull(players.attributionQuery),
-            sql`${players.lastMeritSyncAt} >= ${cutoff}`,
-          )).orderBy(sql`${players.substanceSampleSize} ASC NULLS FIRST`).limit(5);
-          for (const p of due) {
+          const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);   // active in last 3 days
+          // Per-github accounts with an attribution query, least-classified first; roll up after.
+          const due = await gameDb.select({ playerId: playerAccounts.playerId, login: playerAccounts.githubLogin, attributionQuery: playerAccounts.attributionQuery })
+            .from(playerAccounts)
+            .innerJoin(players, eq(players.id, playerAccounts.playerId))
+            .where(and(
+              eq(players.githubVerified, true),
+              isNotNull(playerAccounts.attributionQuery),
+              sql`${playerAccounts.lastMeritSyncAt} >= ${cutoff}`,
+            )).orderBy(sql`${playerAccounts.substanceSampleSize} ASC NULLS FIRST`).limit(5);
+          const touched = new Set<string>();
+          for (const a of due) {
             try {
-              const commits = await fetchRecentCommits(p.attributionQuery!, 30);
+              const commits = await fetchRecentCommits(a.attributionQuery!, 30);
               if (commits.length === 0) continue;
               const { mean, sampleSize } = await aggregateSubstance(commits);
-              const meritScore = computeMeritScore({
-                prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount,
-                prsAuthoredCount: p.prsAuthoredCount, prsMergedCount: p.prsMergedCount,
-                packageDownloads: Number(p.packageDownloads),
-                substanceScore: mean, substanceSampleSize: sampleSize,
-              });
-              await gameDb.update(players).set({
-                substanceScore: mean, substanceSampleSize: sampleSize, meritScore,
-              }).where(eq(players.id, p.id));
-              const grantIds = meritAchievementsToGrant({
-                prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount,
-                prsMergedCount: p.prsMergedCount, packageDownloads: Number(p.packageDownloads),
-                substanceScore: mean, substanceSampleSize: sampleSize,
-              });
-              const granted = await grantAchievements(p.id, grantIds);
-              if (granted.length > 0) hub.publish("substance", { login: p.githubLogin, mean, sampleSize, meritScore, granted });
+              await gameDb.update(playerAccounts).set({ substanceScore: mean, substanceSampleSize: sampleSize, lastMeritSyncAt: new Date() })
+                .where(and(eq(playerAccounts.playerId, a.playerId), eq(playerAccounts.githubLogin, a.login)));
+              touched.add(a.playerId);
             } catch (e) {
-              console.error(`[renown:cron] substance-refresh failed for ${p.githubLogin}`, e);
+              console.error(`[renown:cron] substance-refresh failed for ${a.login}`, e);
             }
           }
-          if (due.length > 0) console.log(`[renown:cron] substance-refresh classified for ${due.length} player(s)`);
+          for (const pid of touched) {
+            const rolled = await rollupPlayerFromAccounts(pid);
+            const granted = await grantAchievements(pid, meritAchievementsToGrant({
+              prReviewsCount: rolled?.prReviewsCount ?? 0, crossRepoPrsCount: rolled?.crossRepoPrsCount ?? 0,
+              prsMergedCount: rolled?.prsMergedCount ?? 0, packageDownloads: rolled?.packageDownloads ?? 0,
+              substanceScore: rolled?.substanceScore ?? 0, substanceSampleSize: rolled?.substanceSampleSize ?? 0,
+            }));
+            if (granted.length > 0) hub.publish("substance", { mean: rolled?.substanceScore ?? 0, sampleSize: rolled?.substanceSampleSize ?? 0, meritScore: rolled?.meritScore ?? 0, granted });
+          }
+          if (due.length > 0) console.log(`[renown:cron] substance-refresh classified ${due.length} github account(s)`);
         } catch (e) {
           console.error("[renown:cron] substance-refresh batch failed", e);
         }

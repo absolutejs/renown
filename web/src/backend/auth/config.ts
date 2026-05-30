@@ -16,12 +16,14 @@ import {
   instantiateUserSession,
   resolveOAuthAuthorization,
 } from "@absolutejs/auth";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { SchemaType, User } from "../../../db/schema";
-import { players } from "../../../../db/schema.ts";
+import { SchemaType, User, authIdentities } from "../../../db/schema";
+import { players, playerAccounts } from "../../../../db/schema.ts";
 import { gameDb } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";
+import { resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
+import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import {
   createUser,
   getUser,
@@ -42,19 +44,38 @@ import { providersConfiguration } from "./providersConfiguration";
 // (it will have been set by an admin/migration to a co-author search). Only set the default
 // for fresh / non-AI rows.
 const defaultAttributionQuery = (login: string) => `author:${login}`;
+// A proven GitHub login (first login OR a later linked one) binds to the user's ONE canonical
+// player and verifies that github as one of the player's accounts — it does NOT mint a new
+// player per login (the multi-github fix). The auth identity already exists by the time this
+// runs (createUser / linkUserIdentity wrote it), so we resolve the owning user from it.
 const onGithubVerified = async (login: string) => {
-  const id = `gh:${login}`;
-  await gameDb.insert(players).values({
-    attributionQuery: defaultAttributionQuery(login),
-    githubLogin: login, githubVerified: true,
-    handle: login.slice(0, 40), id,
-  }).onConflictDoUpdate({ target: players.id, set: { githubVerified: true, githubLogin: login } });
-  // Backfill the default query for an existing non-AI row that pre-dates this column (was
-  // null). AI rows are skipped — their query must point at a co-author trailer, not
-  // author:<login>, and that's set by migration / admin / attestation, not here.
-  await gameDb.execute(sql`UPDATE players SET attribution_query = ${defaultAttributionQuery(login)} WHERE id = ${id} AND attribution_query IS NULL AND is_ai = false`);
+  const lower = login.toLowerCase();
+  const ident = (await gameDb.select({ userSub: authIdentities.user_sub }).from(authIdentities)
+    .where(and(eq(authIdentities.auth_provider, "github"), sql`lower(coalesce(${authIdentities.metadata}->>'login', ${authIdentities.provider_subject})) = ${lower}`)).limit(1))[0];
+  const userSub = ident?.userSub ?? null;
+  // Canonical player: by user (preferred) → by this login (legacy) → create on first github.
+  let player = (userSub ? await resolvePlayerByUserSub(userSub) : null) ?? await resolvePlayerByGithubLogin(login);
+  if (!player) {
+    const id = `gh:${login}`;   // keep gh:<login> as the id for the user's FIRST github (back-compat)
+    await gameDb.insert(players).values({ attributionQuery: defaultAttributionQuery(login), githubLogin: login, githubVerified: true, handle: login.slice(0, 40), id, userSub })
+      .onConflictDoUpdate({ target: players.id, set: { githubVerified: true, githubLogin: login, ...(userSub ? { userSub } : {}) } });
+    player = (await gameDb.select().from(players).where(eq(players.id, id)).limit(1))[0]!;
+  } else {
+    // Existing player: ensure verified + stamp user_sub if it wasn't set; never clobber the primary login.
+    await gameDb.update(players).set({ githubVerified: true, ...(player.userSub || !userSub ? {} : { userSub }) }).where(eq(players.id, player.id));
+  }
+  const isPrimary = !player.githubLogin || player.githubLogin.toLowerCase() === lower;
+  // Provenance ledger row for this github; backfill the default query only for the primary.
+  await gameDb.insert(playerAccounts).values({ playerId: player.id, githubLogin: login, attributionQuery: defaultAttributionQuery(login), githubVerified: true })
+    .onConflictDoUpdate({ target: [playerAccounts.playerId, playerAccounts.githubLogin], set: { githubVerified: true } });
+  if (isPrimary) await gameDb.execute(sql`UPDATE players SET attribution_query = ${defaultAttributionQuery(login)} WHERE id = ${player.id} AND attribution_query IS NULL AND is_ai = false`);
+  // Verify this github's base into its account row (base + its own attribution), then roll up.
   const v = await verifyGithub(login);
-  if (v) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, id));
+  if (v) {
+    const a = (await gameDb.select({ attributionScore: playerAccounts.attributionScore }).from(playerAccounts).where(and(eq(playerAccounts.playerId, player.id), sql`lower(${playerAccounts.githubLogin}) = ${lower}`)).limit(1))[0];
+    await gameDb.update(playerAccounts).set({ verifiedScore: v.score + Number(a?.attributionScore ?? 0), verifiedAt: new Date() }).where(and(eq(playerAccounts.playerId, player.id), sql`lower(${playerAccounts.githubLogin}) = ${lower}`));
+  }
+  await rollupPlayerFromAccounts(player.id);
 };
 
 export const authConfig = (db: NeonHttpDatabase<SchemaType>) =>

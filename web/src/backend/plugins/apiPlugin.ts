@@ -8,10 +8,11 @@ import { generate } from "../../../../core/procgen.ts";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
 import { achievements, aiAttestationEvents, playerAccounts, playerAchievements, playerAttributionSnapshots, playerProjects, players, wildSeedSources } from "../../../../db/schema.ts";
 import { resolvePlayerByGithubLogin } from "../resolvePlayer.ts";
+import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import { authIdentities, users } from "../../../db/schema.ts";
 import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
-import { computeMeritScore, fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
+import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
 import { loadProfile } from "../profile.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } from "../petLooks.ts";
@@ -194,26 +195,33 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       if (!login) return { error: "login required" };
       const row = await resolvePlayerByGithubLogin(login);
       if (!row?.githubVerified) return { error: "login ownership not verified (OAuth required)" };
-      // Refresh cooldown by tier (cost meter — never changes the score, only how often it refreshes).
+      // Per-account: /verify syncs the github it was called with. That github's own attribution
+      // window + score live on its player_accounts row; the player's headline numbers are rolled
+      // up across all the user's githubs at the end.
+      const acct = (await gameDb.select().from(playerAccounts).where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`)).limit(1))[0];
+      const acctQuery = acct?.attributionQuery ?? row.attributionQuery;
+      // Refresh cooldown by tier — measured on the synced account's own last verify.
       const cooldown = REVERIFY_COOLDOWN_MS[normalizeTier(row.tier)];
-      const baseScoreCached = Number(row.verifiedScore) - Number(row.attributionScore);
-      if (row.verifiedAt && Date.now() - new Date(row.verifiedAt).getTime() < cooldown) {
+      const acctVerifiedAt = acct?.verifiedAt ?? row.verifiedAt;
+      if (acctVerifiedAt && Date.now() - new Date(acctVerifiedAt).getTime() < cooldown) {
+        const baseScoreCached = Number(row.verifiedScore) - Number(row.attributionScore);
         return { ok: true, score: row.verifiedScore, baseScore: baseScoreCached, attributionScore: row.attributionScore, attributionDelta: 0, throttled: true, tier: normalizeTier(row.tier) };
       }
       const v = await verifyGithub(login);
       if (!v) return { error: "github verification failed" };
-      // Attribution: count NEW commits since max(account_created, last_attribution_sync). The
+      // Attribution: count NEW commits since max(account_created, account's last sync). The
       // window cap guarantees a resync never double-counts; a long absence backfills correctly.
       let attrDelta = 0;
       let newShas: string[] = [];
-      if (row.attributionQuery) {
-        const since = row.lastAttributionSyncAt ?? row.createdAt;
-        attrDelta = await searchAttributions(row.attributionQuery, since);
+      if (acctQuery) {
+        const since = acct?.lastAttributionSyncAt ?? row.createdAt;
+        attrDelta = await searchAttributions(acctQuery, since);
       // Pet seeds: pull up to 30 fresh SHAs from this window. Each = a unique procgen 1/1.
-      if (attrDelta > 0) newShas = await fetchAttributionShas(row.attributionQuery, since, 30);
+      if (attrDelta > 0) newShas = await fetchAttributionShas(acctQuery, since, 30);
       }
-      const attributionScore = Number(row.attributionScore) + attrDelta;
-      const score = v.score + attributionScore;
+      // This github's own verified score (base + its attribution); rolls up to the player below.
+      const acctAttribution = Number(acct?.attributionScore ?? 0) + attrDelta;
+      const acctScore = v.score + acctAttribution;
       // Append new SHAs to the player's wild; cap at the 100 newest so it doesn't grow forever.
       const wild: string[] = Array.isArray(row.wild) ? row.wild : [];
       const mergedWild = Array.from(new Set([...newShas, ...wild])).slice(0, 100);
@@ -240,18 +248,28 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const curated = currentShowcase.filter((s) => mergedWild.includes(s)).slice(0, slots);
       const showcase = curated.length > 0 ? curated : sortedByScore.slice(0, slots).map((x) => x.s);
       await gameDb.update(players).set({
-        attributionScore, avatarSeed: currentAvatar, biggestPetSeed, biggestPetSize,
-        lastAttributionSyncAt: row.attributionQuery ? new Date() : row.lastAttributionSyncAt,
+        avatarSeed: currentAvatar, biggestPetSeed, biggestPetSize,
         petsCount: mergedWild.length, rarestPetScore, rarestPetSeed,
-        showcaseSeeds: showcase, verifiedAt: new Date(), verifiedScore: score, wild: mergedWild,
+        showcaseSeeds: showcase, verifiedAt: new Date(), wild: mergedWild,
       }).where(eq(players.id, row.id));
+      // Write THIS github's account row (its score + attribution + sync cursor), tag any new pet
+      // seeds with the github that earned them, then roll the player's headline score/attribution
+      // up across all the user's linked githubs.
+      await gameDb.update(playerAccounts).set({
+        verifiedScore: acctScore, attributionScore: acctAttribution, verifiedAt: new Date(),
+        lastAttributionSyncAt: acctQuery ? new Date() : acct?.lastAttributionSyncAt ?? null,
+      }).where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`));
+      if (newShas.length > 0) await gameDb.insert(wildSeedSources).values(newShas.map((s) => ({ playerId: row.id, petSeed: s, githubLogin: login }))).onConflictDoNothing();
+      const agg = await rollupPlayerFromAccounts(row.id);
+      const aggAttribution = agg?.attributionScore ?? acctAttribution;
+      const aggScore = agg?.verifiedScore ?? acctScore;
       // Lazy daily snapshot — one row per (player, calendar day). onConflictDoNothing
       // means we only write the FIRST verify of a day; subsequent verifies don't
       // overwrite it (so the day's baseline stays the day's first reading, and weekly
       // deltas are derived from a consistent series). No cron, no schedule drift.
       const today = new Date().toISOString().slice(0, 10);
       await gameDb.insert(playerAttributionSnapshots)
-        .values({ playerId: row.id, snapshotDate: today, attributionScore, verifiedScore: score })
+        .values({ playerId: row.id, snapshotDate: today, attributionScore: aggAttribution, verifiedScore: aggScore })
         .onConflictDoNothing();
       // Attestation expiry sweep — if the verified flag is set with an expiresAt in the
       // past, demote it to a public claim (keep .provider/.claimedAt/.evidenceUrl, strip
@@ -272,10 +290,10 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // sync.ts so /api/account/ai-attestation can call the same idempotent grant flow.
       const att = (row as { aiAttestation?: { verified?: boolean } | null }).aiAttestation;
       const grantIds = [
-        attributionScore >= 1     && "better-together",
-        attributionScore >= 100   && "symbiote-100",
-        attributionScore >= 1000  && "symbiote-1k",
-        attributionScore >= 10000 && "cohabit-10k",
+        aggAttribution >= 1     && "better-together",
+        aggAttribution >= 100   && "symbiote-100",
+        aggAttribution >= 1000  && "symbiote-1k",
+        aggAttribution >= 10000 && "cohabit-10k",
         !!row.isAi                && "ai-revealed",
         !!att                     && "ai-attested",
         !!att?.verified           && "ai-verified",
@@ -288,7 +306,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // small (<= 6) — the cinematic burns ~2s per pet on-screen so dumping 30 at once
       // would be tedious. Anything beyond the cap still lands in `wild` (the player owns
       // every pet they earned this sync), it just doesn't get a screen-takeover entrance.
-      return { ok: true, score, baseScore: v.score, attributionScore, attributionDelta: attrDelta, newPets: newShas.length, newPetSeeds, newPetLooks, totalPets: mergedWild.length, rarestPetScore, biggestPetSize, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
+      return { ok: true, score: aggScore, baseScore: v.score, attributionScore: aggAttribution, attributionDelta: attrDelta, newPets: newShas.length, newPetSeeds, newPetLooks, totalPets: mergedWild.length, rarestPetScore, biggestPetSize, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
     })
     // Browserless CLI link: the CLI presents its existing GitHub OAuth token (gh auth token).
     // We verify it against GitHub (GET /user) — which PROVES the caller owns that login, no
@@ -345,14 +363,16 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         .onConflictDoUpdate({ target: [playerAccounts.playerId, playerAccounts.githubLogin], set: { githubVerified: true, attributionQuery } });
       if (isPrimary) await gameDb.execute(sql`UPDATE players SET attribution_query = ${attributionQuery} WHERE id = ${playerRow.id} AND attribution_query IS NULL AND is_ai = false`);
 
-      // Verify this github's base score → its per-account row. Only mirror to the player's
-      // headline verified_score for the PRIMARY github (cross-github aggregation is stage 3).
+      // Verify this github's base score → its per-account row (verified_score = base + this
+      // account's own attribution credit, so re-linking the primary never drops its attribution),
+      // then roll the player's headline columns up across all accounts.
       const v = await verifyGithub(login);
       if (v) {
-        await gameDb.update(playerAccounts).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(and(eq(playerAccounts.playerId, playerRow.id), eq(playerAccounts.githubLogin, login)));
-        if (isPrimary) await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, playerRow.id));
+        const acct = (await gameDb.select({ attributionScore: playerAccounts.attributionScore }).from(playerAccounts).where(and(eq(playerAccounts.playerId, playerRow.id), eq(playerAccounts.githubLogin, login))).limit(1))[0];
+        await gameDb.update(playerAccounts).set({ verifiedScore: v.score + Number(acct?.attributionScore ?? 0), verifiedAt: new Date() }).where(and(eq(playerAccounts.playerId, playerRow.id), eq(playerAccounts.githubLogin, login)));
       }
-      return { ok: true, login, primary: isPrimary, verifiedScore: v?.score ?? 0, playerId: playerRow.id };
+      const rolled = await rollupPlayerFromAccounts(playerRow.id);
+      return { ok: true, login, primary: isPrimary, verifiedScore: rolled?.verifiedScore ?? v?.score ?? 0, playerId: playerRow.id };
     })
     // Generic easter-egg quirk bumper. POST { token, name, count? } increments
     // players.quirks[name] by count, then auto-grants any newly-crossed threshold
@@ -489,24 +509,18 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // the commit ingestion cron).
       const cur = await resolvePlayerByGithubLogin(login);
       if (!cur) return { error: "player not found — link first via /api/cli/link" };
-      const meritScore = computeMeritScore({
+      // Write the synced signals to THIS github's account row, then roll the player's headline
+      // merit columns up across all the user's githubs.
+      await gameDb.update(playerAccounts).set({
         prReviewsCount: reviews, crossRepoPrsCount: crossRepo,
         prsAuthoredCount: prCounts.authored, prsMergedCount: prCounts.merged,
-        packageDownloads: downloads,
-        substanceScore: cur.substanceScore, substanceSampleSize: cur.substanceSampleSize,
-      });
-      await gameDb.update(players).set({
-        prReviewsCount: reviews,
-        crossRepoPrsCount: crossRepo,
-        prsAuthoredCount: prCounts.authored,
-        prsMergedCount: prCounts.merged,
-        packageDownloads: downloads,
-        meritScore,
-        lastMeritSyncAt: new Date(),
-      }).where(eq(players.id, cur.id));
+        packageDownloads: downloads, lastMeritSyncAt: new Date(),
+      }).where(and(eq(playerAccounts.playerId, cur.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`));
+      const rolled = await rollupPlayerFromAccounts(cur.id);
+      const meritScore = rolled?.meritScore ?? 0;
       const grantIds = meritAchievementsToGrant({
-        prReviewsCount: reviews, crossRepoPrsCount: crossRepo, prsMergedCount: prCounts.merged,
-        packageDownloads: downloads, substanceScore: cur.substanceScore, substanceSampleSize: cur.substanceSampleSize,
+        prReviewsCount: rolled?.prReviewsCount ?? 0, crossRepoPrsCount: rolled?.crossRepoPrsCount ?? 0, prsMergedCount: rolled?.prsMergedCount ?? 0,
+        packageDownloads: rolled?.packageDownloads ?? 0, substanceScore: rolled?.substanceScore ?? 0, substanceSampleSize: rolled?.substanceSampleSize ?? 0,
       });
       const granted = await grantAchievements(cur.id, grantIds);
       const payload = { login, meritScore, reviews, crossRepo, authored: prCounts.authored, merged: prCounts.merged, downloads, granted };
@@ -530,27 +544,22 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       if (!login) return { error: "could not read github login" };
       const row = await resolvePlayerByGithubLogin(login);
       if (!row) return { error: "player not found — link first via /api/cli/link" };
-      if (!row.attributionQuery) return { error: "no attribution query set — run /api/cli/link first, or set one explicitly" };
-      const commits = await fetchRecentCommits(row.attributionQuery, limit, token);
+      // Classify THIS github's own commits (its account attribution query), write to its account
+      // row, then roll the player's substance + merit up across all the user's githubs.
+      const acct = (await gameDb.select().from(playerAccounts).where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`)).limit(1))[0];
+      const attrQuery = acct?.attributionQuery ?? row.attributionQuery;
+      if (!attrQuery) return { error: "no attribution query set — run /api/cli/link first, or set one explicitly" };
+      const commits = await fetchRecentCommits(attrQuery, limit, token);
       if (commits.length === 0) return { ok: true, login, substanceScore: row.substanceScore, sampleSize: row.substanceSampleSize, note: "no attributed commits found in the window" };
       const { mean, sampleSize, detail } = await aggregateSubstance(commits);
-      // Recompute merit_score with the new substance values so the change
-      // propagates immediately into the leaderboard sort.
-      const meritScore = computeMeritScore({
-        prReviewsCount: row.prReviewsCount, crossRepoPrsCount: row.crossRepoPrsCount,
-        prsAuthoredCount: row.prsAuthoredCount, prsMergedCount: row.prsMergedCount,
-        packageDownloads: Number(row.packageDownloads),
-        substanceScore: mean, substanceSampleSize: sampleSize,
-      });
-      await gameDb.update(players).set({
-        substanceScore: mean,
-        substanceSampleSize: sampleSize,
-        meritScore,
-      }).where(eq(players.id, row.id));
+      await gameDb.update(playerAccounts).set({ substanceScore: mean, substanceSampleSize: sampleSize, lastMeritSyncAt: new Date() })
+        .where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`));
+      const rolled = await rollupPlayerFromAccounts(row.id);
+      const meritScore = rolled?.meritScore ?? 0;
       const grantIds = meritAchievementsToGrant({
-        prReviewsCount: row.prReviewsCount, crossRepoPrsCount: row.crossRepoPrsCount,
-        prsMergedCount: row.prsMergedCount, packageDownloads: Number(row.packageDownloads),
-        substanceScore: mean, substanceSampleSize: sampleSize,
+        prReviewsCount: rolled?.prReviewsCount ?? 0, crossRepoPrsCount: rolled?.crossRepoPrsCount ?? 0,
+        prsMergedCount: rolled?.prsMergedCount ?? 0, packageDownloads: rolled?.packageDownloads ?? 0,
+        substanceScore: rolled?.substanceScore ?? 0, substanceSampleSize: rolled?.substanceSampleSize ?? 0,
       });
       const granted = await grantAchievements(row.id, grantIds);
       // Build a small breakdown the CLI/page can show — top reasons + counts

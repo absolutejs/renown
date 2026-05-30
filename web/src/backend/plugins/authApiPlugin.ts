@@ -24,6 +24,7 @@ import {
   setPrimaryAuthIdentity,
 } from "../handlers/userHandlers";
 import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookAssignment, type PetLookAssignments } from "../petLooks.ts";
+import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 
@@ -62,9 +63,10 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
   // verified timestamp, total level. Surfacing it here drives the Sync card in the UI.
   const ghIdentity = identities.find((i) => i.auth_provider === "github");
   const ghLogin = (ghIdentity?.metadata as { login?: string } | undefined)?.login ?? ghIdentity?.provider_subject ?? null;
-  const player = ghLogin
-    ? (await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin)))[0] ?? null
-    : null;
+  // Resolve the ONE aggregate player for this user (across all their linked githubs), not the
+  // first github's row. Fall back to login resolution for not-yet-stamped legacy players.
+  const player = (await resolvePlayerByUserSub(userSub)) ?? (ghLogin ? await resolvePlayerByGithubLogin(ghLogin) : null);
+  const accounts = player ? await listPlayerAccounts(player.id) : [];
   const wild = Array.isArray(player?.wild) ? (player!.wild as string[]) : [];
   const petLookAssignments: PetLookAssignments = player?.id && wild.length > 0
     ? await getPlayerPetLookAssignments(player.id, wild)
@@ -89,6 +91,8 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       verifiedAt: player?.verifiedAt ?? null,
       totalLevel: player?.totalLevel ?? 0,
       playerId: player?.id ?? null,
+      // Per-github provenance so the settings UI can show "alexkahndev 6,946 · absolutejs 1,298".
+      accounts: accounts.map((a) => ({ login: a.githubLogin, verified: a.githubVerified, verifiedScore: Number(a.verifiedScore), attributionScore: Number(a.attributionScore) })),
       wild,
       activePetLookId: player?.activePetLookId ?? resolvePetLookId(undefined),
       petLookAssignments,
@@ -461,8 +465,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const rows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
         const ghLogin = (rows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
         if (!ghLogin) return status("Bad Request", "link GitHub first");
-        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
-        const p = playerRows[0];
+        const p = (await resolvePlayerByUserSub(user.sub)) ?? await resolvePlayerByGithubLogin(ghLogin);
         if (!p) return status("Not Found", "player not found");
         const wild = Array.isArray(p.wild) ? (p.wild as string[]) : [];
         if (!wild.includes(seed)) return status("Bad Request", "you don't own that pet");
@@ -479,8 +482,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const rows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
         const ghLogin = (rows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
         if (!ghLogin) return status("Bad Request", "link GitHub first");
-        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
-        const p = playerRows[0];
+        const p = (await resolvePlayerByUserSub(user.sub)) ?? await resolvePlayerByGithubLogin(ghLogin);
         if (!p) return status("Not Found", "player not found");
         const nextLookId = resolvePetLookId(b.lookId);
         const currentLookId = resolvePetLookId(p.activePetLookId);
@@ -504,8 +506,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const rows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
         const ghLogin = (rows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
         if (!ghLogin) return status("Bad Request", "link GitHub first");
-        const playerRows = await gameDb.select().from(players).where(eq(players.githubLogin, ghLogin));
-        const p = playerRows[0];
+        const p = (await resolvePlayerByUserSub(user.sub)) ?? await resolvePlayerByGithubLogin(ghLogin);
         if (!p) return status("Not Found", "player not found");
         const seed = String(params.seed ?? "").trim();
         const wild = Array.isArray(p.wild) ? (p.wild as string[]) : [];
