@@ -4,8 +4,12 @@ import { Elysia } from "elysia";
 import { RenownAdmin } from "../../frontend/react/pages/RenownAdmin";
 import { RenownHome } from "../../frontend/react/pages/RenownHome";
 import { RenownProfile } from "../../frontend/react/pages/RenownProfile";
+import { RenownProject } from "../../frontend/react/pages/RenownProject";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { loadProfile, profileShareSnippet } from "../profile";
+import { loadProject, projectShareSnippet } from "../project";
+import { projectOgEtag, renderProjectOgPng } from "../projectOg";
+import { projectBadgeEtag, renderProjectBadge } from "../projectBadge";
 
 // Resolve the absolute origin (https://host) the request was made to. Used
 // for OG/canonical URL tags so shared profile links produce fully-qualified
@@ -74,9 +78,40 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
       },
     });
   };
+  // --- per-repo leaderboard: page + README badge + OG card (mirrors the profile trio) ---
+  const projKey = (params: { owner: string; repo: string }) => `${params.owner}/${params.repo}`.toLowerCase();
+  const projectPage = async ({ request, params }: { request: Request; params: { owner: string; repo: string } }) => {
+    const key = projKey(params);
+    const data = await loadProject(key);
+    return handleReactPageRequest({
+      index: asset(manifest, "RenownProjectIndex"),
+      Page: RenownProject,
+      props: { cssPath, project: data, keyParam: key, origin: originOf(request), shareSnippet: data ? projectShareSnippet(data) : "Not on Renown yet." },
+      request,
+    });
+  };
+  const projectOg = async ({ request, params }: { request: Request; params: { owner: string; repo: string } }) => {
+    const data = await loadProject(projKey(params));
+    if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = projectOgEtag(data);
+    const headers = { "cache-control": "public, max-age=300", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderProjectOgPng(data), { headers: { ...headers, "content-type": "image/png" } });
+  };
+  const projectBadge = async ({ request, params }: { request: Request; params: { owner: string; repo: string } }) => {
+    const data = await loadProject(projKey(params));
+    if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = projectBadgeEtag(data);
+    const headers = { "cache-control": "public, max-age=300", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderProjectBadge(data), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+  };
   return new Elysia()
     .get("/", home)
     .get("/admin", admin)
     .get("/profile/:login/og.png", profileOg)
-    .get("/profile/:login", profile);
+    .get("/profile/:login", profile)
+    .get("/project/:owner/:repo/og.png", projectOg)
+    .get("/project/:owner/:repo/badge.svg", projectBadge)
+    .get("/project/:owner/:repo", projectPage);
 };

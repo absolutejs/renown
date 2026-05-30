@@ -14,6 +14,7 @@ import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
 import { loadProfile } from "../profile.ts";
+import { loadProject } from "../project.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } from "../petLooks.ts";
 import { resolvePetLookId } from "../../../../core/petLooks.ts";
@@ -165,6 +166,13 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const profile = await loadProfile(params.login);
       if (!profile) return { error: "not found" };
       return profile;
+    })
+    // Per-repo leaderboard JSON — shared loader (../project.ts), same data the public
+    // /project/:owner/:repo page, README badge, and OG card use.
+    .get("/project/:owner/:repo", async ({ params }) => {
+      const data = await loadProject(`${params.owner}/${params.repo}`);
+      if (!data) return { error: "not found" };
+      return data;
     })
     // Live ghost-cursors on the leaderboard — anonymous path. POST a hover ping, server
     // fans it to anyone subscribed to `cursors`. Deliberately anonymous: the `sid` is a
