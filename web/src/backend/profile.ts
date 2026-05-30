@@ -6,7 +6,7 @@
 // Returns null when the login isn't a verified player (caller decides whether
 // to 404 or render an empty state).
 import { and, desc, eq } from "drizzle-orm";
-import { achievements, aiAttestationEvents, playerAchievements, players } from "../../../db/schema.ts";
+import { achievements, aiAttestationEvents, playerAchievements, playerProjects, players, projects } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
 import { getPlayerPetLookAssignments, type PetLookAssignments } from "./petLooks.ts";
 import { resolvePlayerByGithubLogin } from "./resolvePlayer.ts";
@@ -32,6 +32,13 @@ export const loadProfile = async (login: string) => {
     .where(eq(aiAttestationEvents.playerId, p.id))
     .orderBy(desc(aiAttestationEvents.at))
     .limit(30);
+
+  // Top repos this player has renown on — links the profile back to the per-repo boards so
+  // discovery flows both ways (badge → board → profile → their other repos → …).
+  const topProjects = await gameDb
+    .select({ key: playerProjects.projectKey, xp: playerProjects.xp, commits: playerProjects.commits, stars: projects.stars, oss: projects.oss })
+    .from(playerProjects).innerJoin(projects, eq(projects.key, playerProjects.projectKey))
+    .where(eq(playerProjects.playerId, p.id)).orderBy(desc(playerProjects.xp)).limit(6);
 
   const wild = Array.isArray(p.wild) ? p.wild : [];
   const petLookAssignments: PetLookAssignments = wild.length > 0 && p.id
@@ -74,6 +81,7 @@ export const loadProfile = async (login: string) => {
     },
     achievements: ach,
     attestationEvents,
+    topProjects: topProjects.map((r) => ({ key: r.key, stars: r.stars, oss: r.oss, xp: Number(r.xp), commits: r.commits })),
   };
 };
 

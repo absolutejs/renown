@@ -48,6 +48,7 @@ type ProfileForUI = {
   petLookAssignments?: Record<string, PetLookId>;
   merit?: Merit | null;
   achievements?: AchievementRow[];
+  topProjects?: { key: string; stars: number; oss: boolean; xp: number; commits: number }[];
 };
 
 // Mirrors ProfileModal's quirk tier mapping. Inlined to keep this page free
@@ -180,6 +181,21 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
             {profile.merit.substanceSampleSize >= 10 && (
               <div className="stat"><span className="num">{Math.round(profile.merit.substanceScore * 100)}%</span><span className="lbl">substance</span></div>
             )}
+          </div>
+        </section>
+      )}
+
+      {(profile.topProjects?.length ?? 0) > 0 && (
+        <section className="card">
+          <h2>Top repos <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· renown by repo</span></h2>
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+            {profile.topProjects!.map((r) => (
+              <a key={r.key} href={`/project/${r.key}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderRadius: 8, textDecoration: "none", color: "inherit", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+                <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.key}{r.oss && <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}> · OSS</span>}</span>
+                <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>{r.xp.toLocaleString()} XP</span>
+                <span className="muted" style={{ fontVariantNumeric: "tabular-nums", fontSize: 12 }}>{r.commits.toLocaleString()} commits</span>
+              </a>
+            ))}
           </div>
         </section>
       )}
