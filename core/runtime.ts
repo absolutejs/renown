@@ -28,13 +28,20 @@ export const hash = (s: string) => { let h = 2166136261; for (const ch of s) { h
 export interface Config { playerName: string; playerId: string; myEmails: string[]; myOwners: string[]; leaderboardEndpoint: string; bossLogDir: string; codeRoots: string[]; clientId?: string; clientSecret?: string }
 const uuid = () => "xxxxxxxxxxxx".replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
 const sh = (cmd: string[]) => { try { return (Bun.spawnSync(cmd, { stdout: "pipe", stderr: "ignore" }).stdout?.toString() ?? "").trim(); } catch { return ""; } };
+// If a state.json already exists, adopt ITS playerId when (re)creating the config — otherwise a
+// regenerated config mints a new id and orphans all the game state (skills/level/projects) the
+// game has been accumulating under the old id (and github verification then lands on the new,
+// hollow id). One identity per install.
+const existingStatePlayerId = (): string | undefined => {
+  try { const id = JSON.parse(readFileSync(`${RDIR}/state.json`, "utf8"))?.playerId; return typeof id === "string" && id && id !== "local" ? id : undefined; } catch { return undefined; }
+};
 export function loadConfig(): Config {
   try { return { bossLogDir: `${HOME}/.claude/mem-tools/logs`, leaderboardEndpoint: "", codeRoots: [HOME], ...JSON.parse(readFileSync(CONFIG, "utf8")) }; }
   catch {
     const login = sh(["gh", "api", "user", "-q", ".login"]) || sh(["git", "config", "--global", "user.name"]) || "player";
     const email = sh(["git", "config", "--global", "user.email"]);
     const orgs = sh(["gh", "api", "user/orgs", "-q", ".[].login"]).split("\n").filter(Boolean);
-    const cfg: Config = { playerName: login, playerId: uuid(), myEmails: [email].filter(Boolean), myOwners: [login, ...orgs], leaderboardEndpoint: "", bossLogDir: `${HOME}/.claude/mem-tools/logs`, codeRoots: [HOME] };
+    const cfg: Config = { playerName: login, playerId: existingStatePlayerId() ?? uuid(), myEmails: [email].filter(Boolean), myOwners: [login, ...orgs], leaderboardEndpoint: "", bossLogDir: `${HOME}/.claude/mem-tools/logs`, codeRoots: [HOME] };
     try { mkdirSync(RDIR, { recursive: true }); writeFileSync(CONFIG, JSON.stringify(cfg, null, 2)); } catch {}
     return cfg;
   }
