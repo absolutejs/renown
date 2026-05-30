@@ -14,7 +14,7 @@ import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
 import { loadProfile } from "../profile.ts";
-import { loadProject, normalizeProjectSort } from "../project.ts";
+import { loadProject, loadTopProjects, normalizeProjectSort } from "../project.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } from "../petLooks.ts";
 import { resolvePetLookId } from "../../../../core/petLooks.ts";
@@ -156,6 +156,13 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         const assignments = petLookAssignmentsByPlayer.get(p.id) ?? {};
           return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
       });
+    })
+    // Trending repos — the home page's discovery surface. Ranks every repo someone on renown
+    // contributes to by total verified XP, each linking to its /project board. Closes the
+    // discovery loop: profiles → repos → boards → more profiles.
+    .get("/projects/top", async ({ query }) => {
+      const n = Math.min(24, Math.max(1, Number(query.n ?? 12)));
+      return loadTopProjects(n);
     })
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.

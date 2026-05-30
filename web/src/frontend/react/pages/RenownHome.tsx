@@ -6,6 +6,8 @@ import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
 import { DEFAULT_PET_LOOK_ID, isPetLookId, PET_LOOKS, type PetLookId } from "../../../../../core/petLooks.ts";
+import { generate } from "../../../../../core/procgen.ts";
+import { spriteToSvg } from "../../../../../core/petSvg.ts";
 
 type Tier = "free" | "supporter" | "pro";
 type PetLookMap = Record<string, PetLookId>;
@@ -503,6 +505,43 @@ const SoundToggle = () => {
     >
       {on ? "🔊" : "🔇"}
     </button>
+  );
+};
+
+// ── Trending repos (discovery loop) ─────────────────────────────────────────
+// The home page's repo-discovery surface: profiles rank PEOPLE, this ranks the REPOS where
+// renown is being earned. Each card links to that repo's public /project board — closing the
+// loop profiles → repos → boards → more profiles. Lightweight 2D pet sprites (no three.js)
+// so the section stays cheap to render alongside the WebGL leaderboard.
+type TopRepo = { key: string; owner: string; repo: string; name: string; stars: number; oss: boolean; devs: number; xp: number; commits: number; topLogin: string | null; topSeed: string | null };
+const repoFmt = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 10_000 ? `${Math.round(n / 1_000)}k` : n.toLocaleString("en-US"));
+const RepoPet = ({ seed }: { seed: string }) => {
+  const { svg, width, height } = spriteToSvg(generate(seed), { box: 40 });
+  const html = `<svg width="40" height="40" viewBox="0 0 ${width.toFixed(1)} ${height.toFixed(1)}" xmlns="http://www.w3.org/2000/svg" style="display:block">${svg}</svg>`;
+  return <span style={{ width: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: html }} />;
+};
+const TrendingRepos = () => {
+  const [repos, setRepos] = useState<TopRepo[] | null>(null);
+  useEffect(() => { fetch("/api/projects/top?n=12").then((r) => r.json()).then((d) => setRepos(Array.isArray(d) ? d : [])).catch(() => setRepos([])); }, []);
+  if (!repos || repos.length === 0) return null;
+  return (
+    <section className="card">
+      <h2>Trending repos <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· where renown is being earned</span></h2>
+      <p className="muted hint">Repos ranked by the renown their contributors earn here. Each links to its public leaderboard — add the badge to yours from any repo's board.</p>
+      <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 8 }}>
+        {repos.map((r) => (
+          <a key={r.key} href={`/project/${r.key}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, textDecoration: "none", color: "inherit", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)" }}>
+            {r.topSeed && <RepoPet seed={r.topSeed} />}
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.key}</div>
+              <div className="muted" style={{ fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>
+                {r.stars > 0 && <>★ {repoFmt(r.stars)} · </>}{r.devs} dev{r.devs === 1 ? "" : "s"} · {repoFmt(r.xp)} XP · {repoFmt(r.commits)} commits
+              </div>
+            </div>
+          </a>
+        ))}
+      </div>
+    </section>
   );
 };
 
@@ -1925,6 +1964,7 @@ const App = () => {
             </section>
           )}
           <Board top={top} board={board} setBoard={setBoard} audience={audience} setAudience={setAudience} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} myLogin={account?.github?.login ?? null} />
+          <TrendingRepos />
         </>
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}

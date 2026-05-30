@@ -2,7 +2,7 @@
 // /project/:owner/:repo SSR page, the README badge, and the project OG card. One source of
 // truth so they can't drift (mirrors profile.ts). Returns null for a repo nobody on renown
 // has contributed to (caller decides: soft-200 "not on renown yet" page vs 404 for badge/og).
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { players, playerProjects, projects } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
 import { gameDb } from "./sync.ts";
@@ -45,6 +45,46 @@ export const loadProject = async (key: string, sort: ProjectSort = "xp") => {
     key: proj.key, owner, repo, name: proj.name, stars: proj.stars, oss: proj.oss, sort,
     contributors, topContributor: contributors[0] ?? null, totals,
   };
+};
+
+// Trending repos for the home page's discovery surface — every repo anyone on renown
+// contributes to, ranked by total verified XP (the same craft signal the per-repo board uses),
+// each carrying its top contributor's pet so the home page advertises the /project boards.
+// Mirrors loadProject's "verified players only" rule so headcounts/totals stay consistent.
+export const loadTopProjects = async (limit = 12) => {
+  const agg = await gameDb.select({
+    key: playerProjects.projectKey, name: projects.name, stars: projects.stars, oss: projects.oss,
+    devs: sql<number>`count(distinct ${playerProjects.playerId})::int`,
+    xp: sql<number>`coalesce(sum(${playerProjects.xp}), 0)`,
+    commits: sql<number>`coalesce(sum(${playerProjects.commits}), 0)::int`,
+  }).from(playerProjects)
+    .innerJoin(projects, eq(projects.key, playerProjects.projectKey))
+    .innerJoin(players, eq(players.id, playerProjects.playerId))
+    .where(eq(players.githubVerified, true))
+    .groupBy(playerProjects.projectKey, projects.name, projects.stars, projects.oss)
+    .orderBy(desc(sql`sum(${playerProjects.xp})`))
+    .limit(limit);
+  if (agg.length === 0) return [];
+
+  // Top contributor (login + pet seed) per repo, for the card's pet + "top @x" caption.
+  const keys = agg.map((r) => r.key);
+  const contribs = await gameDb.select({
+    key: playerProjects.projectKey, login: players.githubLogin, avatarSeed: players.avatarSeed,
+  }).from(playerProjects).innerJoin(players, eq(players.id, playerProjects.playerId))
+    .where(and(inArray(playerProjects.projectKey, keys), eq(players.githubVerified, true)))
+    .orderBy(desc(playerProjects.xp));
+  const topByKey = new Map<string, { login: string | null; avatarSeed: string | null }>();
+  for (const c of contribs) if (!topByKey.has(c.key)) topByKey.set(c.key, { login: c.login, avatarSeed: c.avatarSeed });
+
+  return agg.map((r) => {
+    const [owner, ...rest] = r.key.split("/");
+    const top = topByKey.get(r.key);
+    return {
+      key: r.key, owner, repo: rest.join("/") || r.key, name: r.name,
+      stars: r.stars, oss: r.oss, devs: Number(r.devs), xp: Number(r.xp), commits: Number(r.commits),
+      topLogin: top?.login ?? null, topSeed: top?.avatarSeed ?? null,
+    };
+  });
 };
 
 // One-line OG/share description: "12 devs · 48k XP · top @alexkahndev".
