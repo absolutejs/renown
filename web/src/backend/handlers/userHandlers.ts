@@ -15,6 +15,7 @@ import {
   SchemaType,
 } from "../../../db/schema";
 import { LinkUserIdentityProps, UserFunctionProps } from "../auth/types";
+import { foldPlayersForMerge } from "../playerAccounts.ts";
 
 type GetDBUserProps = {
   userSub: string;
@@ -626,6 +627,11 @@ export const mergeUserAccounts = async ({
     .where(
       eq(schema.linkedProviderGrants.owner_ref, mergeRequest.source_user_sub),
     );
+
+  // Fold the source user's GAME player (pets/scores/accounts/achievements) into the target's
+  // before the source user row goes away. Auth identities have already moved above, so the
+  // target now owns the conflicting github; the player rollup reflects both.
+  await foldPlayersForMerge({ sourceUserSub: mergeRequest.source_user_sub, targetUserSub });
 
   await db
     .delete(schema.users)
