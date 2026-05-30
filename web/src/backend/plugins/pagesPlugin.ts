@@ -7,7 +7,7 @@ import { RenownProfile } from "../../frontend/react/pages/RenownProfile";
 import { RenownProject } from "../../frontend/react/pages/RenownProject";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { loadProfile, profileShareSnippet } from "../profile";
-import { loadProject, projectShareSnippet } from "../project";
+import { loadProject, normalizeProjectSort, projectShareSnippet } from "../project";
 import { projectOgEtag, renderProjectOgPng } from "../projectOg";
 import { projectBadgeEtag, renderProjectBadge } from "../projectBadge";
 
@@ -80,9 +80,9 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   };
   // --- per-repo leaderboard: page + README badge + OG card (mirrors the profile trio) ---
   const projKey = (params: { owner: string; repo: string }) => `${params.owner}/${params.repo}`.toLowerCase();
-  const projectPage = async ({ request, params }: { request: Request; params: { owner: string; repo: string } }) => {
+  const projectPage = async ({ request, params, query }: { request: Request; params: { owner: string; repo: string }; query: Record<string, string | undefined> }) => {
     const key = projKey(params);
-    const data = await loadProject(key);
+    const data = await loadProject(key, normalizeProjectSort(query.sort));
     return handleReactPageRequest({
       index: asset(manifest, "RenownProjectIndex"),
       Page: RenownProject,

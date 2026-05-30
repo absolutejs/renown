@@ -36,7 +36,7 @@ import { play } from "../core/ascii.ts";
 import { B, R, gradientBar, gradient, rainbow, shimmer } from "../core/shiny.ts";
 import { evalAll, info as achInfo } from "../core/achievements/index.ts";
 
-type AppConfig = { leaderboardEndpoint?: string; playerId?: string; clientId?: string; clientSecret?: string; autoUpdate?: boolean };
+type AppConfig = { leaderboardEndpoint?: string; playerId?: string; playerName?: string; clientId?: string; clientSecret?: string; autoUpdate?: boolean };
 
 const HOME = homedir();
 const RDIR = join(HOME, ".renown");
@@ -204,6 +204,8 @@ const submitLocalState = async (s: LocalState, cfg: AppConfig) => {
 // gh auth token — used by all auth'd CLI commands. Returns empty string if gh isn't
 // installed or the user isn't logged in; callers decide what to do.
 const ghToken = (): string => runSync(["gh", "auth", "token"]).stdout.trim();
+// The caller's GitHub login (for "← you" highlighting). Empty if gh isn't installed / logged in.
+const ghLogin = (): string => runSync(["gh", "api", "user", "--jq", ".login"]).stdout.trim();
 
 const flag = (args: string[], name: string): string | undefined => {
   const i = args.findIndex((a) => a === `--${name}` || a.startsWith(`--${name}=`));
@@ -212,6 +214,13 @@ const flag = (args: string[], name: string): string | undefined => {
   return args[i + 1];
 };
 const hasFlag = (args: string[], name: string) => args.some((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+
+// owner/repo for the cwd's GitHub remote, so `renown board` (no arg) targets the current repo.
+const detectRepoKey = (): string | undefined => {
+  const url = runSync(["git", "config", "--get", "remote.origin.url"]).stdout.trim();
+  const m = url.match(/github\.com[:/]+([^/]+)\/(.+?)(?:\.git)?\/?$/i);
+  return m ? `${m[1]}/${m[2]}` : undefined;
+};
 
 // Output parsers per tool — same set the bun CLI uses; copy-pasted here so the api
 // bundle is self-contained. When the bun CLI's PARSE_TOOL changes, mirror the change
@@ -270,6 +279,7 @@ const usage = () => {
   console.log("  install-agent <target>    install first-party agent wiring (claude / codex / tmux / all)");
   console.log("  upgrade                   update renown to the latest published version");
   console.log("  launch codex              run Codex with Renown terminal-title HUD");
+  console.log("  board [owner/repo]        a repo's renown leaderboard (defaults to the current git repo)");
   console.log("  pet                       show your avatar pet, animated, in the terminal");
   console.log("  rarest                    show your rarest pet");
   console.log("  switch [number]           switch your avatar to another pet you own (lists them; pick by number)");
@@ -837,6 +847,39 @@ const main = async () => {
     if (j.error) { console.log("ai-attest failed:", j.error); return; }
     if (j.cleared) console.log("✓ Attestation cleared.");
     else console.log(`✓ Attested as ${j.provider}${j.verified ? " ✓" : ""}${j.resolvedKnownProvider ? "" : " (unknown provider)"}`);
+    return;
+  }
+
+  // ── board: a repo's renown leaderboard in the terminal ─────────────────────
+  if (cmd === "board") {
+    if (!apiBase) { console.log("No leaderboard endpoint configured. Set leaderboardEndpoint in your renown config."); return; }
+    const sort = flag(rest, "sort");   // xp | commits | lines
+    const key = (rest.find((a) => !a.startsWith("-")) ?? detectRepoKey());
+    if (!key) { console.log("usage: renown board <owner/repo>   (or run inside a git repo with a github remote)"); return; }
+    const qs = sort ? `?sort=${encodeURIComponent(sort)}` : "";
+    const res = await fetch(`${apiBase}/project/${key}${qs}`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+    const j = res ? await res.json().catch(() => ({ error: "bad response" })) : { error: "server unreachable" };
+    if (j.error) { console.log(`board: ${key} isn't on renown yet (${j.error}). Be the first — \`renown link\` and commit.`); return; }
+    const me = (cfg.playerName ?? ghLogin()).toLowerCase();
+    const t = j.totals ?? { devs: 0, xp: 0, commits: 0 };
+    const by = (j.sort === "commits" || j.sort === "lines") ? j.sort : "xp";   // active metric (server echoes it)
+    const label = { xp: "XP", commits: "commits", lines: "lines" }[by];
+    console.log(`\n  ${B}${j.key}${R}  ${HC.dim}${j.stars ? `★ ${j.stars} · ` : ""}${j.oss ? "OSS · " : ""}${t.devs} dev${t.devs === 1 ? "" : "s"} · ${Number(t.xp).toLocaleString()} XP${by === "xp" ? "" : ` · by ${label}`}${R}`);
+    const rows: { login: string; avatarSeed: string | null; xp: number; commits: number; lines: number }[] = j.contributors ?? [];
+    if (rows.length === 0) { console.log(`  ${HC.dim}no verified contributors yet — claim the top spot.${R}\n`); return; }
+    const medal = (i: number) => ["🥇", "🥈", "🥉"][i] ?? `${HC.dim}${String(i + 1).padStart(2)}${R}`;
+    let myRank = 0;
+    rows.forEach((c, i) => {
+      const pet = c.avatarSeed ? `${face(generate(c.avatarSeed))} ` : "";
+      const mine = c.login.toLowerCase() === me;
+      if (mine) myRank = i + 1;
+      const name = mine ? `${B}${HC.mag}@${c.login}${R}` : `@${c.login}`;
+      const primary = `${Number(c[by]).toLocaleString()} ${label}`;
+      const secondary = by === "xp" ? `${c.commits.toLocaleString()} commits` : `${Number(c.xp).toLocaleString()} XP`;
+      console.log(`  ${medal(i)}  ${pet}${name}${" ".repeat(Math.max(1, 22 - c.login.length))}${B}${primary}${R}  ${HC.dim}${secondary}${R}${mine ? `  ${HC.mag}← you${R}` : ""}`);
+    });
+    if (myRank) console.log(`\n  ${HC.mag}you're #${myRank} of ${rows.length} on ${j.repo ?? j.key}.${R}`);
+    console.log("");
     return;
   }
 

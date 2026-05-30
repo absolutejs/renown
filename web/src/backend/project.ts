@@ -8,20 +8,24 @@ import { normalizeTier } from "./billing/tiers";
 import { gameDb } from "./sync.ts";
 
 export type ProjectData = Awaited<ReturnType<typeof loadProject>>;
+export type ProjectSort = "xp" | "commits" | "lines";
+const SORT_COL = { xp: playerProjects.xp, commits: playerProjects.commits, lines: playerProjects.lines } as const;
+export const normalizeProjectSort = (v: unknown): ProjectSort => (v === "commits" || v === "lines" ? v : "xp");
 
-export const loadProject = async (key: string) => {
+export const loadProject = async (key: string, sort: ProjectSort = "xp") => {
   const k = key.toLowerCase();
   const proj = (await gameDb.select().from(projects).where(sql`lower(${projects.key}) = ${k}`).limit(1))[0];
   if (!proj) return null;
 
-  // Contributors to THIS repo, ranked by per-project XP (the craft score). Verified players only.
+  // Contributors to THIS repo, ranked by the chosen metric (default per-project XP, the craft
+  // score). Verified players only.
   const rows = await gameDb.select({
     login: players.githubLogin, handle: players.handle, avatarSeed: players.avatarSeed,
     isAi: players.isAi, tier: players.tier,
     xp: playerProjects.xp, commits: playerProjects.commits, lines: playerProjects.lines,
   }).from(playerProjects).innerJoin(players, eq(players.id, playerProjects.playerId))
     .where(and(sql`lower(${playerProjects.projectKey}) = ${k}`, eq(players.githubVerified, true)))
-    .orderBy(desc(playerProjects.xp)).limit(50);
+    .orderBy(desc(SORT_COL[sort])).limit(50);
 
   // Ranked list = contributors with a github login (so each row links to a real profile);
   // totals count every verified contributor (incl. login-less rows) so the headcount is honest.
@@ -38,7 +42,7 @@ export const loadProject = async (key: string) => {
     lines: rows.reduce((s, r) => s + Number(r.lines), 0),
   };
   return {
-    key: proj.key, owner, repo, name: proj.name, stars: proj.stars, oss: proj.oss,
+    key: proj.key, owner, repo, name: proj.name, stars: proj.stars, oss: proj.oss, sort,
     contributors, topContributor: contributors[0] ?? null, totals,
   };
 };

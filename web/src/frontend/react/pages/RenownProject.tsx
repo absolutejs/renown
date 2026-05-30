@@ -25,11 +25,13 @@ const PetSprite = ({ seed, box }: { seed: string; box: number }) => (
 type Contributor = { login: string; handle: string; avatarSeed: string | null; isAi: boolean; tier: string; xp: number; commits: number; lines: number };
 type ProjectForUI = {
   key: string; owner: string; repo: string; name: string; stars: number; oss: boolean;
+  sort: "xp" | "commits" | "lines";
   contributors: Contributor[]; topContributor: Contributor | null;
   totals: { devs: number; xp: number; commits: number; lines: number };
 };
 
 const fmt = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 10_000 ? `${Math.round(n / 1_000)}k` : n.toLocaleString("en-US"));
+const SORT_LABEL = { xp: "renown XP", commits: "commits", lines: "lines" } as const;
 
 const Copyable = ({ text }: { text: string }) => {
   const [copied, setCopied] = useState(false);
@@ -84,7 +86,19 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
       </section>
 
       <section className="card">
-        <h2>Contributors <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· by renown XP on this repo</span></h2>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <h2 style={{ margin: 0 }}>Contributors <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· ranked by {SORT_LABEL[project.sort]} on this repo</span></h2>
+          <nav style={{ display: "flex", gap: 4, fontSize: 13 }}>
+            {(["xp", "commits", "lines"] as const).map((s) => (
+              <a key={s} href={`/project/${project.key}?sort=${s}`} style={{
+                padding: "4px 10px", borderRadius: 999, textDecoration: "none",
+                background: project.sort === s ? "rgba(134,239,172,.16)" : "rgba(255,255,255,.04)",
+                border: `1px solid ${project.sort === s ? "rgba(134,239,172,.4)" : "rgba(255,255,255,.10)"}`,
+                color: "inherit", fontWeight: project.sort === s ? 700 : 500,
+              }}>{SORT_LABEL[s]}</a>
+            ))}
+          </nav>
+        </div>
         {project.contributors.length === 0
           ? <p className="muted">No verified contributors yet — link your account and commit to claim the top spot.</p>
           : (
@@ -94,8 +108,14 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
                   <span style={{ width: 28, textAlign: "right", fontWeight: 700, opacity: 0.8 }}>{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
                   {c.avatarSeed && <PetSprite seed={c.avatarSeed} box={40} />}
                   <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{c.login}{c.isAi && <span style={{ fontSize: 11, opacity: 0.7 }}> 🤖</span>}</span>
-                  <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>{fmt(c.xp)} XP</span>
-                  <span className="muted" style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, minWidth: 110, textAlign: "right" }}>{fmt(c.commits)} commits · {fmt(c.lines)} lines</span>
+                  {(() => {
+                    const stat = { xp: `${fmt(c.xp)} XP`, commits: `${fmt(c.commits)} commits`, lines: `${fmt(c.lines)} lines` } as const;
+                    const rest = (["xp", "commits", "lines"] as const).filter((s) => s !== project.sort);
+                    return (<>
+                      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>{stat[project.sort]}</span>
+                      <span className="muted" style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, minWidth: 110, textAlign: "right" }}>{rest.map((s) => stat[s]).join(" · ")}</span>
+                    </>);
+                  })()}
                 </a>
               ))}
             </div>
