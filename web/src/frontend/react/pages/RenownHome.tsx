@@ -521,29 +521,60 @@ const RepoPet = ({ seed }: { seed: string }) => {
   return <span style={{ width: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: html }} />;
 };
 const TrendingRepos = () => {
+  // Default to "this week" so "trending" actually means recent activity, not an all-time
+  // ranking. Toggling to "all" shows the all-time leaderboard of repos by total renown.
+  const [period, setPeriod] = useState<"week" | "all">("week");
   const [repos, setRepos] = useState<TopRepo[] | null>(null);
-  useEffect(() => { fetch("/api/projects/top?n=12").then((r) => r.json()).then((d) => setRepos(Array.isArray(d) ? d : [])).catch(() => setRepos([])); }, []);
-  if (!repos || repos.length === 0) return null;
-  return (
-    <section className="card">
-      <h2>Trending repos <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· where renown is being earned</span></h2>
-      <p className="muted hint">Repos ranked by the renown their contributors earn here. Each links to its public leaderboard — add the badge to yours from any repo's board.</p>
-      <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 8 }}>
-        {repos.map((r) => (
-          <a key={r.key} href={`/project/${r.key}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, textDecoration: "none", color: "inherit", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)" }}>
-            {r.topSeed && <RepoPet seed={r.topSeed} />}
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.key}</div>
-              <div className="muted" style={{ fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>
-                {r.stars > 0 && <>★ {repoFmt(r.stars)} · </>}{r.devs} dev{r.devs === 1 ? "" : "s"} · {repoFmt(r.xp)} XP · {repoFmt(r.commits)} commits
-              </div>
-            </div>
-          </a>
-        ))}
-      </div>
-    </section>
-  );
+  useEffect(() => {
+    let live = true;
+    setRepos(null);
+    fetch(`/api/projects/top?n=12&window=${period}`).then((r) => r.json())
+      .then((d) => { if (live) setRepos(Array.isArray(d) ? d : []); })
+      .catch(() => { if (live) setRepos([]); });
+    return () => { live = false; };
+  }, [period]);
+  return <TrendingReposShell period={period} setPeriod={setPeriod} repos={repos} />;
 };
+
+const TrendingReposShell = ({ period, setPeriod, repos }: { period: "week" | "all"; setPeriod: (p: "week" | "all") => void; repos: TopRepo[] | null }) => (
+  <section className="card">
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <h2 style={{ margin: 0 }}>Trending repos <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {period === "week" ? "active this week" : "all time"}</span></h2>
+      <nav style={{ display: "flex", gap: 4, fontSize: 13 }}>
+        {([["week", "This week"], ["all", "All time"]] as const).map(([p, label]) => (
+          <button key={p} onClick={() => setPeriod(p)} style={{
+            padding: "4px 10px", borderRadius: 999, cursor: "pointer",
+            background: period === p ? "rgba(134,239,172,.16)" : "rgba(255,255,255,.04)",
+            border: `1px solid ${period === p ? "rgba(134,239,172,.4)" : "rgba(255,255,255,.10)"}`,
+            color: "inherit", fontWeight: period === p ? 700 : 500,
+          }}>{label}</button>
+        ))}
+      </nav>
+    </div>
+    <p className="muted hint">{period === "week"
+      ? "Repos where renown is being earned right now — ranked by how many contributors are active there this week. Each links to its public leaderboard."
+      : "Repos ranked by the all-time renown their contributors earn here. Each links to its public leaderboard — add the badge to yours from any repo's board."}</p>
+    {repos === null
+      ? <p className="muted" style={{ marginTop: 10 }}>Loading…</p>
+      : repos.length === 0
+        ? <p className="muted" style={{ marginTop: 10 }}>{period === "week" ? "No repos active this week yet — check All time." : "No repos yet."}</p>
+        : (
+          <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 8 }}>
+            {repos.map((r) => (
+              <a key={r.key} href={`/project/${r.key}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, textDecoration: "none", color: "inherit", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)" }}>
+                {r.topSeed && <RepoPet seed={r.topSeed} />}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.key}</div>
+                  <div className="muted" style={{ fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>
+                    {r.stars > 0 && <>★ {repoFmt(r.stars)} · </>}{r.devs} dev{r.devs === 1 ? "" : "s"}{period === "week" ? " active" : ""} · {repoFmt(r.xp)} XP · {repoFmt(r.commits)} commits
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+  </section>
+);
 
 // ── Leaderboard ────────────────────────────────────────────────────────────
 // seedOf: which pet renders next to each row on this board. For Score and Most-pets we

@@ -14,7 +14,7 @@ import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
 import { loadProfile } from "../profile.ts";
-import { loadProject, loadTopProjects, normalizeProjectSort } from "../project.ts";
+import { loadProject, loadTopProjects, normalizeProjectSort, normalizeProjectWindow } from "../project.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } from "../petLooks.ts";
 import { resolvePetLookId } from "../../../../core/petLooks.ts";
@@ -162,7 +162,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     // discovery loop: profiles → repos → boards → more profiles.
     .get("/projects/top", async ({ query }) => {
       const n = Math.min(24, Math.max(1, Number(query.n ?? 12)));
-      return loadTopProjects(n);
+      return loadTopProjects(n, normalizeProjectWindow(query.window));
     })
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.

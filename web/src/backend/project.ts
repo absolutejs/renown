@@ -2,7 +2,7 @@
 // /project/:owner/:repo SSR page, the README badge, and the project OG card. One source of
 // truth so they can't drift (mirrors profile.ts). Returns null for a repo nobody on renown
 // has contributed to (caller decides: soft-200 "not on renown yet" page vs 404 for badge/og).
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { players, playerProjects, projects } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
 import { gameDb } from "./sync.ts";
@@ -47,11 +47,25 @@ export const loadProject = async (key: string, sort: ProjectSort = "xp") => {
   };
 };
 
+export type ProjectWindow = "week" | "all";
+export const normalizeProjectWindow = (v: unknown): ProjectWindow => (v === "week" ? "week" : "all");
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
 // Trending repos for the home page's discovery surface — every repo anyone on renown
-// contributes to, ranked by total verified XP (the same craft signal the per-repo board uses),
-// each carrying its top contributor's pet so the home page advertises the /project boards.
-// Mirrors loadProject's "verified players only" rule so headcounts/totals stay consistent.
-export const loadTopProjects = async (limit = 12) => {
+// contributes to, each carrying its top contributor's pet so the home page advertises the
+// /project boards. Mirrors loadProject's "verified players only" rule so headcounts/totals
+// stay consistent.
+//   window="all"  → ranked by all-time total verified XP (the craft signal the board uses).
+//   window="week" → only repos with contributor activity (player_projects.updatedAt) in the
+//                    last 7 days, ranked by how many contributors are active there this week
+//                    (XP as tiebreak) — i.e. where renown is actively being earned right now.
+export const loadTopProjects = async (limit = 12, window: ProjectWindow = "all") => {
+  const recent = window === "week";
+  const where = recent
+    ? and(eq(players.githubVerified, true), gte(playerProjects.updatedAt, new Date(Date.now() - WEEK_MS)))
+    : eq(players.githubVerified, true);
+  const xpSum = sql`sum(${playerProjects.xp})`;
+  const devCount = sql`count(distinct ${playerProjects.playerId})`;
   const agg = await gameDb.select({
     key: playerProjects.projectKey, name: projects.name, stars: projects.stars, oss: projects.oss,
     devs: sql<number>`count(distinct ${playerProjects.playerId})::int`,
@@ -60,9 +74,9 @@ export const loadTopProjects = async (limit = 12) => {
   }).from(playerProjects)
     .innerJoin(projects, eq(projects.key, playerProjects.projectKey))
     .innerJoin(players, eq(players.id, playerProjects.playerId))
-    .where(eq(players.githubVerified, true))
+    .where(where)
     .groupBy(playerProjects.projectKey, projects.name, projects.stars, projects.oss)
-    .orderBy(desc(sql`sum(${playerProjects.xp})`))
+    .orderBy(...(recent ? [desc(devCount), desc(xpSum)] : [desc(xpSum)]))
     .limit(limit);
   if (agg.length === 0) return [];
 
