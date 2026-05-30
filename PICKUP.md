@@ -184,9 +184,10 @@ earned seeds after a change get the new active look at verify/mint time.
 [done]    3D crests visually confirmed in production (claude's antlers)
 
 [done]    Leaderboard + feeds rows as <a> tags (cmd-click → /profile new tab)
+[done]    Substance backfill script (db/backfill-substance.ts) — run for @claude
+          (substance 66%, n=30, +3 tiers); idempotent skip-if-classified verified
 
 [soon]    Tune volumetric look parity in compact views (camera/scale)
-[soon]    Substance backfill script (counterpart to merit backfill)
 
 [medium]  SPA-style profile-to-profile navigation (no full reload)
 [medium]  Push notifications on tier unlocks (push infra already exists)
