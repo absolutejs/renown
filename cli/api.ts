@@ -34,6 +34,7 @@ import { createInterface } from "node:readline";
 import { face, frames, generate, renderCard } from "../core/procgen.ts";
 import { play } from "../core/ascii.ts";
 import { B, R, gradientBar, gradient, rainbow, shimmer } from "../core/shiny.ts";
+import { evalAll, info as achInfo } from "../core/achievements/index.ts";
 
 type AppConfig = { leaderboardEndpoint?: string; playerId?: string; clientId?: string; clientSecret?: string; autoUpdate?: boolean };
 
@@ -137,6 +138,38 @@ const skillUpCel = (icon: string, name: string, level: number): Celebration => (
 });
 const totalUpCel = (total: number): Celebration => ({ tier: total % 100 === 0 ? 4 : total % 50 === 0 ? 3 : 2, text: `Total Level ${total}` });
 const HEARTBEAT_XP = 25;   // small per-turn activity nudge (vs a full `agent` SESSION = 250)
+const achievementUpCel = (name: string, tier = 2): Celebration => ({ tier, text: `🏆 ${name}` });
+
+// Evaluate the achievement catalog (curated + generated; both pure) against the published CLI's
+// state. The published state is sparse, so commit/lang/project-based achievements just won't fire
+// here (they unlock via the Bun CLI's commit scoring) — but skill-level / agent / streak / total
+// ones do. Fields the checks read must EXIST or their accessors throw, so overlay onto a full
+// zeroed State. Mutates s.achievements with new unlocks; returns the 🏆 toasts to enqueue.
+const blankStats = () => ({ firstSeen: 0, lastSeen: 0, lastActivity: 0, activeSec: 0, sessionCount: 0, longestSec: 0, curStart: 0, curSec: 0, anchorXp: 0, anchorCommits: 0, hourActive: [], dowActive: [], commitHour: [], commitDow: [], daily: {}, sessions: [] });
+const checkAchievements = (s: LocalState): Celebration[] => {
+  s.achievements ??= {};
+  const full = {
+    v: 3, name: "", playerId: "local", createdAt: 0, xp: 0, lifetimeXp: 0, streak: 0, lastActiveDay: "",
+    commits: 0, linesAdded: 0, bossesSurvived: 0, secondsHealthy: 0, ossCommits: 0, extCommits: 0, starsTouched: 0, topStars: 0,
+    langs: {}, hours: {}, days: {}, skillXp: {}, agentUses: {}, agentLastUsedAt: {}, collectibles: {}, wild: [],
+    achievements: {}, bestiary: {}, questDay: "", quests: [], repoHeads: {}, recentFp: [], craftDay: "", craftXpToday: 0, maxMem: 0,
+    lastTick: 0, lastLogScanTs: 0, lastBossTs: 0, projects: {}, langsDeep: {},
+    ...s,
+    stats: { ...blankStats(), ...(s.stats ?? {}) },
+    best: { xpInDay: 0, level: 0, streak: s.streak ?? 0 },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+  const have = new Set(Object.keys(s.achievements));
+  const cels: Celebration[] = [];
+  try {
+    for (const id of evalAll(full, have)) {
+      s.achievements[id] = Date.now();
+      const a = achInfo(id);
+      cels.push(achievementUpCel(a?.name ?? id, a?.vis === "secret" ? 3 : 2));
+    }
+  } catch { /* a sparse-state check threw — skip this pass */ }
+  return cels;
+};
 
 const submitLocalState = async (s: LocalState, cfg: AppConfig) => {
   const apiBase = cfg.leaderboardEndpoint?.replace(/\/$/, "");
@@ -705,6 +738,7 @@ const main = async () => {
     if (a) for (const u of applyGains(s.skillXp, { [a.skillId]: HEARTBEAT_XP })) cels.push(skillUpCel(a.icon, a.name, u.to));
     const totalAfter = totalLevel(s.skillXp);
     for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUpCel(m));
+    cels.push(...checkAchievements(s));   // 🏆 newly-unlocked catalog achievements
     enqueueCelebrations(cels);
     saveLocalState(s);
     mkdirSync(RDIR, { recursive: true });
@@ -736,6 +770,7 @@ const main = async () => {
     // --quiet SessionStart hook (previously only printed in interactive mode → silently dropped).
     const cels: Celebration[] = ups.map((u) => skillUpCel(a.icon, a.name, u.to));
     for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUpCel(m));
+    cels.push(...checkAchievements(s));   // 🏆 newly-unlocked catalog achievements
     enqueueCelebrations(cels);
     saveLocalState(s);
     writeFileSync(HUD, renderLocalHud(s));
