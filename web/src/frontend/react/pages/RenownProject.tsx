@@ -7,7 +7,7 @@
 // page stays fast + crawlable. Contributor pets live on their own /profile pages; the top pet
 // renders server-side in the OG card only.
 import { Head } from "@absolutejs/absolute/react/components";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { generate } from "../../../../../core/procgen.ts";
 import { spriteToSvg } from "../../../../../core/petSvg.ts";
 
@@ -61,9 +61,25 @@ const ProjectNotFound = ({ keyParam }: { keyParam: string }) => (
   </main>
 );
 
+// The signed-in viewer's GitHub login, so we can highlight their row + show "you're #N".
+// Public page, so this is a best-effort client fetch — null when logged out (no highlight).
+const useViewerLogin = (): string | null => {
+  const [login, setLogin] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/account").then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (live) setLogin((d?.github?.login as string | undefined)?.toLowerCase() ?? null);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  return login;
+};
+
 const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: string }) => {
   const pageUrl = `${origin}/project/${project.key}`;
   const badgeMd = `[![renown](${origin}/project/${project.key}/badge.svg)](${pageUrl})`;
+  const me = useViewerLogin();
+  const myIndex = me ? project.contributors.findIndex((c) => c.login.toLowerCase() === me) : -1;
   return (
     <main className="wrap profilePage">
       <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a>  <a href="/" className="muted" style={{ marginLeft: 12 }}>← Browse leaderboard</a></header>
@@ -99,15 +115,26 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
             ))}
           </nav>
         </div>
+        {me && myIndex >= 0 && (
+          <p style={{ marginTop: 6, fontSize: 13 }}>
+            <span style={{ color: "#86efac", fontWeight: 700 }}>You're #{myIndex + 1} of {project.contributors.length}</span>
+            <span className="muted"> on {project.repo}.</span>
+          </p>
+        )}
+        {me && myIndex < 0 && project.contributors.length > 0 && (
+          <p className="muted" style={{ marginTop: 6, fontSize: 13 }}>You haven't earned renown on {project.repo} yet — commit here to claim a spot.</p>
+        )}
         {project.contributors.length === 0
           ? <p className="muted">No verified contributors yet — link your account and commit to claim the top spot.</p>
           : (
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-              {project.contributors.map((c, i) => (
-                <a key={c.login} href={`/profile/${encodeURIComponent(c.login)}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderRadius: 8, textDecoration: "none", color: "inherit", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+              {project.contributors.map((c, i) => {
+                const mine = i === myIndex;
+                return (
+                <a key={c.login} href={`/profile/${encodeURIComponent(c.login)}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderRadius: 8, textDecoration: "none", color: "inherit", background: mine ? "rgba(134,239,172,.10)" : "rgba(255,255,255,.03)", border: `1px solid ${mine ? "rgba(134,239,172,.4)" : "rgba(255,255,255,.06)"}` }}>
                   <span style={{ width: 28, textAlign: "right", fontWeight: 700, opacity: 0.8 }}>{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
                   {c.avatarSeed && <PetSprite seed={c.avatarSeed} box={40} />}
-                  <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{c.login}{c.isAi && <span style={{ fontSize: 11, opacity: 0.7 }}> 🤖</span>}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{c.login}{c.isAi && <span style={{ fontSize: 11, opacity: 0.7 }}> 🤖</span>}{mine && <span style={{ color: "#86efac", fontSize: 12, fontWeight: 700 }}> ← you</span>}</span>
                   {(() => {
                     const stat = { xp: `${fmt(c.xp)} XP`, commits: `${fmt(c.commits)} commits`, lines: `${fmt(c.lines)} lines` } as const;
                     const rest = (["xp", "commits", "lines"] as const).filter((s) => s !== project.sort);
@@ -117,7 +144,8 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
                     </>);
                   })()}
                 </a>
-              ))}
+                );
+              })}
             </div>
           )}
       </section>
