@@ -7,6 +7,7 @@ import { RenownProfile } from "../../frontend/react/pages/RenownProfile";
 import { RenownProject } from "../../frontend/react/pages/RenownProject";
 import { RenownRecap } from "../../frontend/react/pages/RenownRecap";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
+import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { loadProfile, profileShareSnippet } from "../profile";
 import { loadProject, normalizeProjectSort, projectShareSnippet } from "../project";
 import { projectOgEtag, renderProjectOgPng } from "../projectOg";
@@ -81,6 +82,14 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
       },
     });
   };
+  const profileBadge = async ({ request, params }: { request: Request; params: { login: string } }) => {
+    const data = await loadProfile(String(params.login ?? "").toLowerCase());
+    if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = profileBadgeEtag(data);
+    const headers = { "cache-control": "public, max-age=300", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderProfileBadge(data), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+  };
   // --- per-repo leaderboard: page + README badge + OG card (mirrors the profile trio) ---
   const projKey = (params: { owner: string; repo: string }) => `${params.owner}/${params.repo}`.toLowerCase();
   const projectPage = async ({ request, params, query }: { request: Request; params: { owner: string; repo: string }; query: Record<string, string | undefined> }) => {
@@ -132,6 +141,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/", home)
     .get("/admin", admin)
     .get("/profile/:login/og.png", profileOg)
+    .get("/profile/:login/badge.svg", profileBadge)
     .get("/profile/:login", profile)
     .get("/project/:owner/:repo/og.png", projectOg)
     .get("/project/:owner/:repo/badge.svg", projectBadge)

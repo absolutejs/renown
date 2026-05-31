@@ -164,6 +164,11 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
           <div className="stat"><span className="num">{profile.biggestPetSize}</span><span className="lbl">biggest size</span></div>
           <div className="stat"><span className="num">{profile.totalLevel.toLocaleString()}</span><span className="lbl">total level</span></div>
         </div>
+        <details style={{ marginTop: 14 }}>
+          <summary className="muted" style={{ cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Add this badge to your README</summary>
+          <p style={{ marginTop: 8 }}><img src={`${url}/badge.svg`} alt="renown badge preview" /></p>
+          <code style={{ display: "block", overflowX: "auto", whiteSpace: "nowrap", padding: "10px 12px", background: "rgba(0,0,0,.28)", border: "1px solid rgba(255,255,255,.10)", borderRadius: 8, fontSize: 12 }}>{`[![renown](${url}/badge.svg)](${url})`}</code>
+        </details>
       </section>
 
       {profile.merit && profile.merit.score > 0 && (
