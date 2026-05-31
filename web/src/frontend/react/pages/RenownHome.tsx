@@ -148,6 +148,39 @@ type UnlockRow = {
   achievement: { id: string; name: string; tier: string; category: string; description: string };
   player: { login: string; handle: string; avatarSeed: string | null; isAi: boolean; tier: Tier };
 };
+// FollowingFeed — the personalized counterpart to RecentUnlocks: recent unlocks from the devs
+// you follow, server-filtered via /api/rivals/:me's feed. Live on the same 'unlock' SSE topic.
+// Renders nothing when signed out or following no one (so it never shows an empty box).
+type FollowFeedItem = { unlockedAt: string; achievement: { id: string; name: string; tier: string }; player: { login: string | null; handle: string; isAi: boolean } };
+const FollowingFeed = ({ myLogin, openProfile }: { myLogin: string | null; openProfile: (login: string) => void }) => {
+  const [feed, setFeed] = useState<FollowFeedItem[]>([]);
+  useEffect(() => {
+    if (!myLogin) { setFeed([]); return; }
+    const load = () => fetch(`/api/rivals/${encodeURIComponent(myLogin)}`).then((r) => r.json()).then((d) => { if (d && Array.isArray(d.feed)) setFeed(d.feed); }).catch(() => {});
+    load();
+    const sub = createSyncSubscriber({ topics: ["unlock"], onEvent: () => load() });
+    return () => sub.close();
+  }, [myLogin]);
+  if (!myLogin || feed.length === 0) return null;
+  const ago = (iso: string) => { const s = Math.max(1, Math.round((Date.now() - Date.parse(iso)) / 1000)); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
+  return (
+    <section className="card">
+      <h2>From devs you follow <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· live</span></h2>
+      <p className="muted hint">Recent unlocks from your circle. <a href={`/rivals/${encodeURIComponent(myLogin)}`}>Your rivals →</a></p>
+      <div className="achList" style={{ marginTop: 8, flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+        {feed.map((r, i) => (
+          <a key={`${r.player.login}:${r.achievement.id}:${i}`} href={r.player.login ? profileHref(r.player.login) : "#"}
+            onClick={(ev) => { if (!r.player.login || !isPlainPrimaryClick(ev)) return; ev.preventDefault(); openProfile(r.player.login); }}
+            className={`achChip tier-${r.achievement.tier}`}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", textAlign: "left", cursor: "pointer", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+            <span><strong>@{r.player.login ?? r.player.handle}</strong>{r.player.isAi && " 🤖"} <span className="muted">unlocked</span> {r.achievement.name}</span>
+            <span className="muted" style={{ fontSize: 12 }}>{ago(r.unlockedAt)}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  );
+};
 const RecentUnlocks = ({ openProfile }: { openProfile: (login: string) => void }) => {
   const [rows, setRows] = useState<UnlockRow[]>([]);
   useEffect(() => {
@@ -994,6 +1027,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, boardWindow, setBo
           </div>
         )}
       </section>
+      <FollowingFeed myLogin={myLogin} openProfile={openProfile} />
       <RecentUnlocks openProfile={openProfile} />
       {sheet && (
         <section className="card">
