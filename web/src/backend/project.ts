@@ -28,7 +28,10 @@ export const loadProject = async (key: string, sort: ProjectSort = "xp") => {
     vXp: playerProjects.verifiedXp, vCommits: playerProjects.verifiedCommits, vLines: playerProjects.verifiedLines,
   }).from(playerProjects).innerJoin(players, eq(players.id, playerProjects.playerId))
     .where(and(sql`lower(${playerProjects.projectKey}) = ${k}`, eq(players.githubVerified, true)))
-    .orderBy(desc(VERIFIED_COL[sort]), desc(SORT_COL[sort])).limit(50);
+    // Verified bucket first (keyed on verifiedXp, exactly like the `verified` flag below — so the
+    // flag and the ranking can never disagree even when sort=commits/lines), then the chosen
+    // metric's verified column, then self-reported.
+    .orderBy(desc(sql`(${playerProjects.verifiedXp} > 0)`), desc(VERIFIED_COL[sort]), desc(SORT_COL[sort])).limit(50);
 
   // Effective per-contributor numbers: prefer the verified (GitHub-scored) values; fall back to
   // self-reported for contributors a CI sync hasn't covered yet. `verified` flags which is which.
@@ -103,7 +106,8 @@ export const loadTopProjects = async (limit = 12, window: ProjectWindow = "all")
     key: playerProjects.projectKey, login: players.githubLogin, avatarSeed: players.avatarSeed,
   }).from(playerProjects).innerJoin(players, eq(players.id, playerProjects.playerId))
     .where(and(inArray(playerProjects.projectKey, keys), eq(players.githubVerified, true)))
-    .orderBy(desc(playerProjects.xp));
+    // verified-preferred (matches the board's #1), so the card's pet/top-@ isn't a self-reported inflator.
+    .orderBy(desc(sql`case when ${playerProjects.verifiedXp} > 0 then ${playerProjects.verifiedXp} else ${playerProjects.xp} end`));
   const topByKey = new Map<string, { login: string | null; avatarSeed: string | null }>();
   for (const c of contribs) if (!topByKey.has(c.key)) topByKey.set(c.key, { login: c.login, avatarSeed: c.avatarSeed });
 

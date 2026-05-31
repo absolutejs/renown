@@ -81,6 +81,38 @@ rows) — a UX call, deferred so boards aren't empty pre-adoption.
   (GitHub-quota) bucket.
 - This document.
 
+## Hardening from the post-review pass
+
+A multi-agent review of the feature work surfaced (and these fixed) several quota/abuse/correctness
+issues:
+
+- **Score deflation on GitHub rate-limit** (`verify.ts`): a 403/429 on the repos/events fetch used to
+  coalesce to `[]` and write a *deflated* score over the real one. Now a failed fetch (vs a genuine
+  200-empty) aborts the verify — never overwrites good data with a degraded recompute.
+- **Search-API budget** (GitHub's 30-req/min, far scarcer than the 5000/hr core): the per-verify
+  skill recompute is now gated to runs with NEW attribution (or a player with no skill XP yet), and
+  `/api/ci/repo-sync` no longer calls `search/commits` at all — it derives the commit count from the
+  core commits API. A no-op CI re-sync now spends ~0 search calls.
+- **`/api/ci/repo-sync` fan-out**: `logins` capped at 8 (was 50) and the per-login scoring sample
+  bounded, so a single request can't fan out to ~1600 GitHub calls.
+- **Rate-limit IP spoofing** (`rateLimit.ts`): forwarded headers (`X-Forwarded-For`/`CF`) are only
+  trusted when `RENOWN_TRUST_PROXY=1`; otherwise the unspoofable socket IP is used. **Set
+  `RENOWN_TRUST_PROXY=1` only when actually behind a proxy that overwrites those headers.**
+- **Caching**: `/api/achievements` (incl. the ~11k-row compact rarity scan) and `/api/catalog` now
+  send `cache-control: public, max-age=300`.
+- **Consistency**: project board ranks verified-bucket-first so the `verified` flag and ordering
+  always agree; trending-card top contributor + recap page are verified-preferred / verified-gated;
+  multi-github skill XP merges per-skill (max) instead of clobbering.
+
+### Recommended (maintainer-run) follow-ups
+
+- **Board indexes** — `bun run db/migrate-add-player-projects-indexes.ts` adds functional indexes on
+  `lower(project_key)` and the owner so /project + /org board queries are index scans, not seq scans.
+- **OG/SVG render cache** — the `*.png`/`*.svg` routes re-rasterize on each cache-miss; an in-process
+  LRU keyed by ETag (and/or an edge cache) would blunt crawler-unfurl bursts. Not yet done.
+- **True multi-github skill SUM** — would need a per-`player_accounts` `verified_skill_xp` column +
+  rollup; the current max-merge is the no-migration interim.
+
 ## What's explicitly out of scope (and why it's fine)
 
 - Authenticating `/api/submit` would break the agent flow (Claude/Codex/etc. submit without a GitHub

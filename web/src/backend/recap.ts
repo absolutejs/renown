@@ -17,7 +17,7 @@ export const loadRecap = async (login: string, days = 7) => {
   const cutoffDate = new Date(cutoffMs).toISOString().slice(0, 10);
   const cutoff = new Date(cutoffMs);
   const p = await resolvePlayerByGithubLogin(login);
-  if (!p) return null;
+  if (!p || !p.githubVerified) return null;   // public surface — gate like profile/org/project
 
   // Baseline = earliest snapshot in the window; the live row is the comparand. No snapshots
   // (brand-new / quiet week) → baseline = current → delta 0, which is honest.

@@ -25,13 +25,19 @@ const sessionKey = (request: Request): string | null => {
   return m ? `s:${m[1]}` : null;
 };
 
+// Only trust client-supplied forwarding headers when we're actually behind a proxy that sets
+// them (set RENOWN_TRUST_PROXY=1). Otherwise an attacker spoofs a unique X-Forwarded-For per
+// request and gets a fresh bucket every time, nullifying every limiter. Default = use the
+// unspoofable socket IP.
+const TRUST_PROXY = process.env.RENOWN_TRUST_PROXY === "1" || process.env.RENOWN_TRUST_PROXY === "true";
 const ipGenerator = (request: Request, server: { requestIP?: (r: Request) => { address?: string } | null } | null) => {
-  const cf = request.headers.get("cf-connecting-ip");
-  if (cf) return cf.trim();
-  const fwd = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  if (fwd) return fwd;
-  const addr = server?.requestIP?.(request)?.address;
-  return addr ?? "unknown";
+  if (TRUST_PROXY) {
+    const cf = request.headers.get("cf-connecting-ip");
+    if (cf) return cf.trim();
+    const fwd = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+    if (fwd) return fwd;
+  }
+  return server?.requestIP?.(request)?.address ?? "unknown";
 };
 
 const sessionGenerator = (request: Request, server: Parameters<typeof ipGenerator>[1]) =>
@@ -91,10 +97,8 @@ const abuseGuard = createAbuseGuard({
   classifyBot: defaultBotClassifier,
   ipDeny: (process.env.ABUSE_IP_DENYLIST ?? "").split(",").map((s) => s.trim()).filter(Boolean),
 });
-const abuseIp = (request: Request) =>
-  request.headers.get("cf-connecting-ip")?.trim() ??
-  request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-  "unknown";
+const abuseIp = (request: Request, server: Parameters<typeof ipGenerator>[1] = null) =>
+  ipGenerator(request, server);
 
 // One plugin that installs every limiter + the guard. Mounted early in server.ts.
 export const rateLimiting = () =>
@@ -104,8 +108,8 @@ export const rateLimiting = () =>
     .use(expensiveRateLimit)
     .use(writeRateLimit)
     .use(authEntryRateLimit)
-    .onRequest(async ({ request, status }) => {
+    .onRequest(async ({ request, status, server }) => {
       if (!GUARDED(path(request))) return;
-      const { action } = await abuseGuard.assess({ ip: abuseIp(request), userAgent: request.headers.get("user-agent") ?? undefined });
+      const { action } = await abuseGuard.assess({ ip: abuseIp(request, server), userAgent: request.headers.get("user-agent") ?? undefined });
       if (action === "deny") return status("Forbidden", "Request blocked");
     });

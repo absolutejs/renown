@@ -32,8 +32,13 @@ export const verifyGithub = async (login: string, token = process.env.GITHUB_TOK
 
   const user = await get<{ created_at: string }>(`/users/${login}`);
   if (!user) return null;
-  const repos = (await get<Repo[]>(`/users/${login}/repos?sort=pushed&per_page=100&type=owner`)) ?? [];
-  const events = (await get<Event[]>(`/users/${login}/events/public?per_page=100`)) ?? [];
+  // `get` returns null on a FAILED fetch (non-ok/timeout — e.g. GitHub rate-limiting us) and a
+  // 200 returns the array (possibly empty for a real account with no repos/events). Abort on
+  // failure rather than coalescing to [] — otherwise a transient 403/429 would compute a
+  // deflated score and overwrite the player's real one.
+  const repos = await get<Repo[]>(`/users/${login}/repos?sort=pushed&per_page=100&type=owner`);
+  const events = await get<Event[]>(`/users/${login}/events/public?per_page=100`);
+  if (repos === null || events === null) return null;
 
   const accountAgeDays = Math.max(0, Math.round((Date.now() - Date.parse(user.created_at)) / DAY));
   const owned = repos.filter((r) => !r.fork);

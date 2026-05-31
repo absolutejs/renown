@@ -208,7 +208,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const [, owner, repo] = m;
       const key = `${owner}/${repo}`, keyLc = key.toLowerCase();
       const logins = Array.isArray(b.logins)
-        ? Array.from(new Set(b.logins.map((l) => String(l).trim().toLowerCase()).filter(Boolean))).slice(0, 50)
+        ? Array.from(new Set(b.logins.map((l) => String(l).trim().toLowerCase()).filter(Boolean))).slice(0, 8)
         : [];
       if (logins.length === 0) return { error: "logins required" };
       const importance = await fetchRepoImportance(owner, repo);   // fetched once for the whole repo
@@ -218,7 +218,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         if (!player?.githubVerified) { results.push({ login, status: "unlinked" }); continue; }
         const existing = (await gameDb.select().from(playerProjects).where(and(eq(playerProjects.playerId, player.id), sql`lower(${playerProjects.projectKey}) = ${keyLc}`)).limit(1))[0];
         if (existing && Date.now() - new Date(existing.updatedAt).getTime() < CI_REPO_COOLDOWN_MS) {
-          results.push({ login, status: "throttled", xp: Number(existing.xp), commits: existing.commits, lines: Number(existing.lines) });
+          results.push({ login, status: "throttled", xp: Number(existing.verifiedXp || existing.xp), commits: existing.verifiedCommits || existing.commits, lines: Number(existing.verifiedLines || existing.lines) });
           continue;
         }
         const sc = await scoreRepoForLogin(owner, repo, login, { importance });
@@ -334,13 +334,26 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const showcase = curated.length > 0 ? curated : sortedByScore.slice(0, slots).map((x) => x.s);
       // Server-verified skill XP — recompute from this github's recent commits using the SAME
       // routing the local engine uses, so /top?skill ranks GitHub-scored skill XP, not /submit's.
-      // Cooldown-gated (we're past the throttle check), so CI pushes don't re-run it every time.
-      const verifiedSkillXp = await computeVerifiedSkillXp(login).catch(() => ({}));
+      // GUARD: this costs a Search-API call + ~25 commit fetches, so only recompute when there's
+      // NEW attribution this sync (attrDelta > 0) or the player has no verified skill XP yet.
+      // A no-op CI re-sync (attrDelta 0) skips it — keeping the scarce Search-API budget for real
+      // activity. (We're already past the per-tier reverify cooldown here.)
+      const existingSkillXp = (row.verifiedSkillXp as Record<string, number> | null) ?? {};
+      const recomputed = (attrDelta > 0 || Object.keys(existingSkillXp).length === 0) ? await computeVerifiedSkillXp(login).catch((): Record<string, number> => ({})) : null;
+      // MERGE per skill with max(existing, recomputed) rather than overwrite — for a multi-github
+      // player, syncing github B no longer clobbers the skill XP github A earned (each github
+      // keeps its best per skill; a true cross-account SUM is a future per-account migration). Also
+      // makes single-github re-verifies monotonic across the shifting commit-sample window.
+      let mergedSkillXp: Record<string, number> | null = null;
+      if (recomputed && Object.keys(recomputed).length > 0) {
+        mergedSkillXp = { ...existingSkillXp };
+        for (const [k, v] of Object.entries(recomputed)) mergedSkillXp[k] = Math.max(mergedSkillXp[k] ?? 0, v);
+      }
       await gameDb.update(players).set({
         avatarSeed: currentAvatar, biggestPetSeed, biggestPetSize,
         petsCount: mergedWild.length, rarestPetScore, rarestPetSeed,
         showcaseSeeds: showcase, verifiedAt: new Date(), wild: mergedWild,
-        ...(Object.keys(verifiedSkillXp).length > 0 ? { verifiedSkillXp } : {}),
+        ...(mergedSkillXp ? { verifiedSkillXp: mergedSkillXp } : {}),
       }).where(eq(players.id, row.id));
       // Write THIS github's account row (its score + attribution + sync cursor), tag any new pet
       // seeds with the github that earned them, then roll the player's headline score/attribution
@@ -778,7 +791,10 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         skills: SKILLS.map((sk) => { const xp = skx[sk.id] ?? 0; const pr = skillProgress(xp); return { id: sk.id, name: sk.name, icon: sk.icon, level: pr.level, pct: pr.pct, xp }; })
       };
     })
-    .get("/achievements", async ({ query }) => {
+    .get("/achievements", async ({ query, set }) => {
+      // Rarity drifts slowly + is identical for every viewer → cache it (esp. the compact mode,
+      // which full-scans the ~11k-row catalog). The TUI also caches the compact map locally.
+      set.headers["cache-control"] = "public, max-age=300";
       const tp = (await gameDb.select({ n: sql<number>`count(*)::int` }).from(players))[0]?.n ?? 0;
       // Compact rarity-only mode: every achievement's rarity % as { id: pct }. Small enough to
       // ship the whole catalog (the TUI caches it), so even RARE badges — which sort below the
@@ -1035,7 +1051,8 @@ ${items}
     // earned set from /api/account or /api/profile, so this endpoint stays cacheable across
     // viewers. Generated achievements (10k+) intentionally skipped — render is too heavy
     // for one page; a later iteration can paginate them.
-    .get("/catalog", async () => {
+    .get("/catalog", async ({ set }) => {
+      set.headers["cache-control"] = "public, max-age=300";
       const tp = (await gameDb.select({ n: sql<number>`count(*)::int` }).from(players))[0]?.n ?? 0;
       const rows = await gameDb.select().from(achievements).where(eq(achievements.generated, false)).orderBy(desc(achievements.unlockCount));
       return {

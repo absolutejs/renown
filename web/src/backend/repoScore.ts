@@ -17,9 +17,6 @@ const headers = (token?: string): Record<string, string> => ({
   "user-agent": "renown",
   ...(token ? { authorization: `Bearer ${token}` } : {}),
 });
-// Commit search needs the cloak-preview media type.
-const searchHeaders = (token?: string) => ({ ...headers(token), accept: "application/vnd.github.cloak-preview+json" });
-
 export type RepoImportance = { stars: number; oss: boolean; owner: string; private: boolean; fork: boolean };
 export type RepoScore = { commits: number; lines: number; xp: number; stars: number; oss: boolean };
 
@@ -33,23 +30,15 @@ export const fetchRepoImportance = async (owner: string, repo: string, token = p
   } catch { return null; }
 };
 
-// Exact count of (login)'s commits in (owner/repo) — one search call (total_count).
-const fetchCommitCount = async (owner: string, repo: string, login: string, token?: string): Promise<number> => {
+// Most-recent commit SHAs by (login) in the repo (merges excluded), via the CORE commits API —
+// NOT search/commits, whose 30-req/min budget is far scarcer. `fetchN` (≤100) sets how many we
+// list for the count floor; we score only the first `sample` of them.
+const fetchAuthorShas = async (owner: string, repo: string, login: string, fetchN: number, token?: string): Promise<string[]> => {
   try {
-    const q = `repo:${owner}/${repo} author:${login}`;
-    const r = await fetch(`${GH}/search/commits?q=${encodeURIComponent(q)}&per_page=1`, { headers: searchHeaders(token), signal: AbortSignal.timeout(15_000) });
-    if (!r.ok) return 0;
-    return ((await r.json()) as { total_count?: number }).total_count ?? 0;
-  } catch { return 0; }
-};
-
-// Most-recent commit SHAs by (login) in the repo, merges excluded (like the local scorer).
-const fetchAuthorShas = async (owner: string, repo: string, login: string, cap: number, token?: string): Promise<string[]> => {
-  try {
-    const r = await fetch(`${GH}/repos/${owner}/${repo}/commits?author=${encodeURIComponent(login)}&per_page=${Math.min(100, cap)}`, { headers: headers(token), signal: AbortSignal.timeout(15_000) });
+    const r = await fetch(`${GH}/repos/${owner}/${repo}/commits?author=${encodeURIComponent(login)}&per_page=${Math.min(100, fetchN)}`, { headers: headers(token), signal: AbortSignal.timeout(15_000) });
     if (!r.ok) return [];
     const j = (await r.json()) as Array<{ sha?: string; parents?: unknown[] }>;
-    return j.filter((c) => (c.parents?.length ?? 0) < 2).map((c) => c.sha).filter((s): s is string => !!s).slice(0, cap);
+    return j.filter((c) => (c.parents?.length ?? 0) < 2).map((c) => c.sha).filter((s): s is string => !!s);
   } catch { return []; }
 };
 
@@ -70,11 +59,13 @@ export const scoreRepoForLogin = async (
   opts?: { token?: string; sample?: number; importance?: RepoImportance | null },
 ): Promise<RepoScore | null> => {
   const token = opts?.token ?? process.env.GITHUB_TOKEN;
-  const sample = Math.max(1, Math.min(50, opts?.sample ?? 30));
+  const sample = Math.max(1, Math.min(30, opts?.sample ?? 20));
   const meta = opts?.importance !== undefined ? opts.importance : await fetchRepoImportance(owner, repo, token);
-  const commits = await fetchCommitCount(owner, repo, login, token);
-  const shas = await fetchAuthorShas(owner, repo, login, sample, token);
-  if (commits === 0 && shas.length === 0) return null;
+  // List up to 100 author commits in ONE core-API call → commit-count floor; score only the
+  // first `sample` of them (each = one more core call). No Search-API call at all.
+  const allShas = await fetchAuthorShas(owner, repo, login, 100, token);
+  if (allShas.length === 0) return null;
+  const shas = allShas.slice(0, sample);
 
   // Fetch commit details concurrently (5 in flight), then score in SHA order so the
   // diminishing-returns / near-duplicate state is deterministic.
@@ -100,5 +91,5 @@ export const scoreRepoForLogin = async (
     recentFps.unshift(scored.fp); if (recentFps.length > 40) recentFps.pop();
     xp += scored.xp; lines += scored.lines;
   }
-  return { commits: Math.max(commits, shas.length), lines, xp, stars: meta?.stars ?? 0, oss: !!meta?.oss };
+  return { commits: allShas.length, lines, xp, stars: meta?.stars ?? 0, oss: !!meta?.oss };
 };
