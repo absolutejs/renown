@@ -10,6 +10,7 @@ import { RenownOrg } from "../../frontend/react/pages/RenownOrg";
 import { RenownAchievement } from "../../frontend/react/pages/RenownAchievement";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
+import { profilePetsEtag, renderProfilePets } from "../profilePets";
 import { loadProfile, profileShareSnippet } from "../profile";
 import { loadProject, normalizeProjectSort, projectShareSnippet } from "../project";
 import { projectOgEtag, renderProjectOgPng } from "../projectOg";
@@ -98,6 +99,14 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const headers = { "cache-control": "public, max-age=300", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
     return new Response(renderCached(etag, () => renderProfileBadge(data)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+  };
+  const profilePets = async ({ request, params }: { request: Request; params: { login: string } }) => {
+    const data = await loadProfile(String(params.login ?? "").toLowerCase());
+    if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = profilePetsEtag(data);
+    const headers = { "cache-control": "public, max-age=300", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderCached(etag, () => renderProfilePets(data)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
   // --- per-repo leaderboard: page + README badge + OG card (mirrors the profile trio) ---
   const projKey = (params: { owner: string; repo: string }) => `${params.owner}/${params.repo}`.toLowerCase();
@@ -208,6 +217,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/achievement/:id", achievementPage)
     .get("/profile/:login/og.png", profileOg)
     .get("/profile/:login/badge.svg", profileBadge)
+    .get("/profile/:login/pets.svg", profilePets)
     .get("/profile/:login", profile)
     .get("/project/:owner/:repo/og.png", projectOg)
     .get("/project/:owner/:repo/badge.svg", projectBadge)
