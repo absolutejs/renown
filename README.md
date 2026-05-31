@@ -98,6 +98,6 @@ Locally, `renown ci-sync --endpoint <url>` does the same against a `GITHUB_*`-po
 - [x] Shareable "your week" recap card + page (`/recap/:login`) with an OG image
 - [x] Per-user README badge (`/profile/:login/badge.svg`) with your pet
 - [x] Trust model documented + hardened ([docs/trust-model.md](docs/trust-model.md)): submit clamps, monotonic boards, verified-gated rarity, rate limits
-- [ ] Wire the TUI to show live rarity % from the server
+- [x] TUI shows live rarity % from the server (per-badge, full-catalog coverage)
 - [ ] Editor plugins (VS Code first — we already ship `absolutejs-vscode-extension`)
 - [x] Anti-cheat: project + skill boards rank GitHub-verified XP (server-recomputed); no public board ranks purely on self-reported data ([docs/trust-model.md](docs/trust-model.md))

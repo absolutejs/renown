@@ -767,8 +767,17 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       };
     })
     .get("/achievements", async ({ query }) => {
-      const n = Math.min(ACH_MAX, Number(query.n ?? 500));
       const tp = (await gameDb.select({ n: sql<number>`count(*)::int` }).from(players))[0]?.n ?? 0;
+      // Compact rarity-only mode: every achievement's rarity % as { id: pct }. Small enough to
+      // ship the whole catalog (the TUI caches it), so even RARE badges — which sort below the
+      // popularity-capped list below — still get a live %. (The CLI's TUI uses this.)
+      if (query.compact) {
+        const rows = await gameDb.select({ id: achievements.id, unlocks: achievements.unlockCount }).from(achievements);
+        const rarity: Record<string, number> = {};
+        for (const r of rows) rarity[r.id] = tp ? +((r.unlocks / tp) * 100).toFixed(1) : 0;
+        return { players: tp, rarity };
+      }
+      const n = Math.min(ACH_MAX, Number(query.n ?? 500));
       const rows = await gameDb.select().from(achievements).orderBy(desc(achievements.unlockCount)).limit(n);
       return { players: tp, achievements: rows.map((r) => ({ id: r.id, name: r.name, tier: r.tier, unlocks: r.unlockCount, rarity: tp ? +((r.unlockCount / tp) * 100).toFixed(1) : 0 })) };
     })

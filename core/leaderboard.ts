@@ -14,10 +14,11 @@ export interface Rarity { map: Record<string, number>; players: number; live: bo
 export async function fetchRarity(cfg: Config): Promise<Rarity> {
   if (cfg.leaderboardEndpoint) {
     try {
-      const r = await fetch(`${base(cfg)}/achievements?n=2000`, { signal: AbortSignal.timeout(5000) });
-      const j = await r.json() as { players: number; achievements: { id: string; rarity: number }[] };
-      const map: Record<string, number> = {};
-      for (const a of j.achievements ?? []) map[a.id] = a.rarity;
+      // Compact mode → rarity for EVERY achievement (incl. rare ones below the server's
+      // popularity cap), as a small { id: pct } map we cache for the TUI.
+      const r = await fetch(`${base(cfg)}/achievements?compact=1`, { signal: AbortSignal.timeout(5000) });
+      const j = await r.json() as { players: number; rarity: Record<string, number> };
+      const map = j.rarity ?? {};
       writeFileSync(RCACHE, JSON.stringify({ map, players: j.players }));
       return { map, players: j.players ?? 0, live: true };
     } catch { try { const c = JSON.parse(readFileSync(RCACHE, "utf8")); return { map: c.map, players: c.players, live: false }; } catch {} }
