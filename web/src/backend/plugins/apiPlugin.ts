@@ -9,6 +9,7 @@ import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/
 import { achievements, aiAttestationEvents, playerAccounts, playerAchievements, playerAttributionSnapshots, playerProjects, players, projects, wildSeedSources } from "../../../../db/schema.ts";
 import { resolvePlayerByGithubLogin } from "../resolvePlayer.ts";
 import { fetchRepoImportance, scoreRepoForLogin } from "../repoScore.ts";
+import { computeVerifiedSkillXp } from "../skillScore.ts";
 import { loadRecap } from "../recap.ts";
 import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import { authIdentities, users } from "../../../db/schema.ts";
@@ -82,9 +83,17 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const n = Math.min(TOP_MAX, Number(query.n ?? 20));
       if (query.skill) {
         const skill = String(query.skill);
-        const xpExpr = sql<number>`coalesce((${players.skillXp} ->> ${skill})::int, 0)`;
-        const rows = await gameDb.select({ id: players.id, name: players.handle, xp: xpExpr }).from(players).orderBy(desc(xpExpr)).limit(n);
-        return rows.map((r) => ({ id: r.id, name: r.name, skill, xp: r.xp, level: levelForXp(r.xp) }));
+        // Verified-first: rank by GitHub-scored verified_skill_xp, self-reported as fallback, and
+        // verified players only — so a forged /submit skill_xp can't top the board.
+        const vExpr = sql<number>`coalesce((${players.verifiedSkillXp} ->> ${skill})::int, 0)`;
+        const sExpr = sql<number>`coalesce((${players.skillXp} ->> ${skill})::int, 0)`;
+        const rows = await gameDb.select({ id: players.id, name: players.handle, v: vExpr, s: sExpr })
+          .from(players).where(eq(players.githubVerified, true)).orderBy(desc(vExpr), desc(sExpr)).limit(n);
+        return rows.map((r) => {
+          const verified = Number(r.v) > 0;
+          const xp = verified ? Number(r.v) : Number(r.s);
+          return { id: r.id, name: r.name, skill, xp, level: levelForXp(xp), verified };
+        });
       }
       if (query.project) {
         // Verified-first: rank by GitHub-scored verified_xp, then self-reported as fallback, and
@@ -311,10 +320,15 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const currentShowcase: string[] = Array.isArray(row.showcaseSeeds) ? row.showcaseSeeds : [];
       const curated = currentShowcase.filter((s) => mergedWild.includes(s)).slice(0, slots);
       const showcase = curated.length > 0 ? curated : sortedByScore.slice(0, slots).map((x) => x.s);
+      // Server-verified skill XP — recompute from this github's recent commits using the SAME
+      // routing the local engine uses, so /top?skill ranks GitHub-scored skill XP, not /submit's.
+      // Cooldown-gated (we're past the throttle check), so CI pushes don't re-run it every time.
+      const verifiedSkillXp = await computeVerifiedSkillXp(login).catch(() => ({}));
       await gameDb.update(players).set({
         avatarSeed: currentAvatar, biggestPetSeed, biggestPetSize,
         petsCount: mergedWild.length, rarestPetScore, rarestPetSeed,
         showcaseSeeds: showcase, verifiedAt: new Date(), wild: mergedWild,
+        ...(Object.keys(verifiedSkillXp).length > 0 ? { verifiedSkillXp } : {}),
       }).where(eq(players.id, row.id));
       // Write THIS github's account row (its score + attribution + sync cursor), tag any new pet
       // seeds with the github that earned them, then roll the player's headline score/attribution

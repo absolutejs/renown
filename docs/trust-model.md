@@ -52,22 +52,27 @@ and we've bounded it so it can't be weaponized:
 
 These are labelled as self-reported in the UI and never feed the headline score.
 
-## Known residual launch blockers
+## Known residual
 
-1. **Skill boards (`/top?skill=<id>`)** rank by `players.skillXp[skill]`, which comes from
-   `/api/submit`. A determined client can still top a single skill board (within the clamp ceiling).
-   *Fix:* recompute skill XP server-side (from GitHub language stats / commit analysis), or drop the
-   public skill board until then. Until fixed, the UI should label it "your reported practice," not a
-   ranking. **← the last remaining spoofable-and-ranked surface.**
+No public board ranks purely on self-reported data anymore. The one remaining nuance: the
+verified-first ordering guarantees a verified contributor **always outranks** any self-reported
+one, but *among* contributors with no verified data yet, self-reported values still order them
+(shown un-ticked). That window closes per-board as contributors verify; a cheater can never sit
+above a verified player. To fully eliminate it, make the boards verified-ONLY (drop self-reported
+rows) — a UX call, deferred so boards aren't empty pre-adoption.
 
 ## Resolved
 
 - **Project boards (`/top?project=` and the `/project/:owner/:repo` page)** — *fixed.* `player_projects`
-  now has GitHub-scored `verified_{xp,commits,lines}` columns (written only by `/api/ci/repo-sync`,
-  monotonic). Both boards rank **verified-first** (verified column desc, self-reported as fallback) and
-  surface the verified numbers with a ✓, so a forged `/submit` can never outrank a CI-verified
-  contributor. Self-reported `/submit` xp still shows for contributors a CI sync hasn't covered yet,
-  clearly marked, and is bounded by `commits × 300`.
+  has GitHub-scored `verified_{xp,commits,lines}` (written only by `/api/ci/repo-sync`, monotonic).
+  Both boards rank **verified-first** and show the verified numbers with a ✓. "Trending repos" sums
+  verified-preferred XP too.
+- **Skill boards (`/top?skill=<id>`)** — *fixed.* `players.verified_skill_xp` is recomputed server-side
+  by running `core/skills.ts awardCraft` (the exact local routing) over the player's GitHub commits in
+  `/api/verify` (cooldown-gated). The board ranks **verified-first** with a `verified` flag. 84/94 skills
+  are commit-derived (verifiable); the 10 `agent-*` skills stay self-reported (no GitHub signal), and
+  oss/foreign/stargazing aren't trained on the verified path (no per-commit repo-meta fetch) — both
+  documented, not ranked deceptively.
 
 ## What changed in this pass
 
