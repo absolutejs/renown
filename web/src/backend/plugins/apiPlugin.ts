@@ -2,7 +2,7 @@
 // through the write-behind cache + reactive hub in ../sync.ts so we never hammer Neon
 // on the per-tick hot path. Skill levels are computed from the shared core/skills.ts.
 import { createNeonAccessTokenStore, hasScopes, resolveApiPrincipal } from "@absolutejs/auth";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { generate } from "../../../../core/procgen.ts";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
@@ -162,11 +162,11 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         // Subquery: per-player earliest snapshot's attribution_score in the last 7d.
         // Drizzle SQL builder keeps this typed; the inner select is parameterized.
         const weeklyOrder = sql<number>`(${players.attributionScore} - coalesce((select ${playerAttributionSnapshots.attributionScore} from ${playerAttributionSnapshots} where ${playerAttributionSnapshots.playerId} = ${players.id} and ${playerAttributionSnapshots.snapshotDate} >= ${cutoff} order by ${playerAttributionSnapshots.snapshotDate} asc limit 1), ${players.attributionScore}))`;
-        const rows = await gameDb.select().from(players).where(where).orderBy(desc(weeklyOrder)).limit(n);
+        const rows = await gameDb.select({ ...getTableColumns(players), weekXp: weeklyOrder }).from(players).where(where).orderBy(desc(weeklyOrder)).limit(n);
         const petLookAssignmentsByPlayer = await getPlayerPetLookAssignmentsForRows(rows);
         return rows.map((p) => {
           const assignments = petLookAssignmentsByPlayer.get(p.id) ?? {};
-          return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
+          return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), weekXp: Math.max(0, Number(p.weekXp)), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
         });
       }
       const rows = await gameDb.select().from(players).where(where).orderBy(desc(orderCol)).limit(n);

@@ -12,7 +12,7 @@ import { spriteToSvg } from "../../../../../core/petSvg.ts";
 type Tier = "free" | "supporter" | "pro";
 type PetLookMap = Record<string, PetLookId>;
 type SummonPet = { seed: string; lookId: PetLookId };
-type Entry = { id?: string; name: string; login?: string; score?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number; activePetLookId?: string; petLookAssignments?: PetLookMap };
+type Entry = { id?: string; name: string; login?: string; score?: number; weekXp?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number; activePetLookId?: string; petLookAssignments?: PetLookMap };
 // Board ids: well-known fixed strings + a "quirk:<name>" dynamic family for the
 // cope leaderboards (one per registered quirk in web/src/backend/quirks.ts).
 type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | "merit" | `quirk:${string}` | `merit:${"reviews" | "crossRepo" | "shipper" | "downloads" | "substance"}`;
@@ -505,6 +505,38 @@ const SoundToggle = () => {
     >
       {on ? "🔊" : "🔇"}
     </button>
+  );
+};
+
+// ── Top this week (the weekly heat + recap-card discovery) ───────────────────
+// The home leaderboard ranks ALL-TIME; this surfaces who earned the most renown in the last
+// 7 days (the weekly attribution delta the /top?window=week board ranks by), each linking to
+// their shareable recap card. Hidden entirely on a quiet week (no one with a positive delta).
+const TopThisWeek = ({ openProfile }: { openProfile: (login: string) => void }) => {
+  const [rows, setRows] = useState<Entry[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/top?n=8&window=week").then((r) => r.json())
+      .then((d) => { if (live) setRows(Array.isArray(d) ? d.filter((e: Entry) => (e.weekXp ?? 0) > 0) : []); })
+      .catch(() => { if (live) setRows([]); });
+    return () => { live = false; };
+  }, []);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <section className="card">
+      <h2>Top this week <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· renown earned in the last 7 days</span></h2>
+      <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+        {rows.map((e, i) => (
+          <div key={e.id ?? e.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderRadius: 8, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+            <span style={{ width: 28, textAlign: "right", fontWeight: 700, opacity: 0.8 }}>{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
+            {e.avatarSeed && <RepoPet seed={e.avatarSeed} />}
+            <button onClick={() => e.login && openProfile(e.login)} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "none", border: "none", color: "inherit", cursor: "pointer", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{e.login ?? e.name}{e.isAi && <span style={{ fontSize: 11, opacity: 0.7 }}> 🤖</span>}</button>
+            <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 800, color: "#86efac" }}>+{repoFmt(e.weekXp ?? 0)}</span>
+            {e.login && <a href={`/recap/${encodeURIComponent(e.login)}`} style={{ fontSize: 12, fontWeight: 700, color: "#c4b5fd", textDecoration: "none" }}>week →</a>}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 };
 
@@ -1998,6 +2030,7 @@ const App = () => {
             </section>
           )}
           <Board top={top} board={board} setBoard={setBoard} audience={audience} setAudience={setAudience} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} myLogin={account?.github?.login ?? null} />
+          <TopThisWeek openProfile={(login) => setProfileLogin(login)} />
           <TrendingRepos />
         </>
       )}
