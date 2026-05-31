@@ -10,15 +10,30 @@ import { gameDb } from "./sync.ts";
 
 type Mode = "delta" | "threshold";
 type QuestDef = { id: string; name: string; desc: string; icon: string; mode: Mode; signal: keyof SignalRow; target: number };
-type SignalRow = { attributionScore: number; prReviewsCount: number; crossRepoPrsCount: number; petsCount: number; streak: number };
+type SignalRow = { attributionScore: number; prReviewsCount: number; crossRepoPrsCount: number; prsMergedCount: number; petsCount: number; streak: number; ossCommits: number; totalLevel: number };
 
-const QUESTS: QuestDef[] = [
+// The pool. Five are drawn per ISO week (deterministically — see selectQuests), so quests rotate
+// week to week instead of being static. Signals are verified player columns.
+const POOL: QuestDef[] = [
   { id: "weekly-renown", name: "On the climb", desc: "Earn 100 renown this week.", icon: "📈", mode: "delta", signal: "attributionScore", target: 100 },
+  { id: "weekly-renown-big", name: "Big week", desc: "Earn 500 renown this week.", icon: "🚀", mode: "delta", signal: "attributionScore", target: 500 },
   { id: "weekly-reviews", name: "Good neighbor", desc: "Review 2 PRs this week.", icon: "👀", mode: "delta", signal: "prReviewsCount", target: 2 },
+  { id: "weekly-reviews-many", name: "Pillar of the community", desc: "Review 5 PRs this week.", icon: "🛟", mode: "delta", signal: "prReviewsCount", target: 5 },
   { id: "weekly-crossrepo", name: "Cross-pollinator", desc: "Land a cross-repo PR this week.", icon: "🌐", mode: "delta", signal: "crossRepoPrsCount", target: 1 },
+  { id: "weekly-shipper", name: "Shipper", desc: "Merge 2 PRs this week.", icon: "📦", mode: "delta", signal: "prsMergedCount", target: 2 },
+  { id: "weekly-oss", name: "Open source", desc: "Land 5 OSS commits this week.", icon: "🌱", mode: "delta", signal: "ossCommits", target: 5 },
   { id: "weekly-pets", name: "Hatchery", desc: "Hatch 2 new pets this week.", icon: "🥚", mode: "delta", signal: "petsCount", target: 2 },
+  { id: "weekly-pets-many", name: "Menagerie", desc: "Hatch 5 new pets this week.", icon: "🐣", mode: "delta", signal: "petsCount", target: 5 },
+  { id: "weekly-level", name: "Ascendant", desc: "Gain 2 total levels this week.", icon: "⬆️", mode: "delta", signal: "totalLevel", target: 2 },
   { id: "weekly-streak", name: "Showing up", desc: "Hold a 3-day streak.", icon: "🔥", mode: "threshold", signal: "streak", target: 3 },
+  { id: "weekly-streak-long", name: "Locked in", desc: "Hold a 7-day streak.", icon: "🔒", mode: "threshold", signal: "streak", target: 7 },
 ];
+
+// Deterministic 32-bit string hash → a stable weekly ordering. Same week always yields the same
+// five quests for everyone; a new week reshuffles. No persistence needed.
+const hash = (s: string): number => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+const selectQuests = (weekKey: string): QuestDef[] =>
+  [...POOL].sort((a, b) => hash(`${weekKey}:${a.id}`) - hash(`${weekKey}:${b.id}`)).slice(0, 5);
 
 export type QuestView = { id: string; name: string; desc: string; icon: string; progress: number; target: number; pct: number; completed: boolean; rewardSeed: string | null };
 export type Quests = { login: string; handle: string; weekKey: string; quests: QuestView[]; completedCount: number };
@@ -45,7 +60,7 @@ export const loadQuests = async (login: string): Promise<Quests | null> => {
   let wildChanged = false;
   const out: QuestView[] = [];
 
-  for (const q of QUESTS) {
+  for (const q of selectQuests(weekKey)) {
     const current = sig(q.signal);
     const row = byId.get(q.id);
     // Lazy baseline: first time we see this quest this week, anchor it. Threshold goals anchor 0.
