@@ -14,6 +14,7 @@ import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { profilePetsEtag, renderProfilePets } from "../profilePets";
 import { petCardEtag, renderPetCard } from "../petCard";
 import { petOgEtag, renderPetOgPng } from "../petOg";
+import { findPetOwner } from "../petOwner";
 import { generate } from "../../../../core/procgen.ts";
 import { loadProfile, profileShareSnippet } from "../profile";
 import { loadProject, normalizeProjectSort, projectShareSnippet } from "../project";
@@ -124,7 +125,8 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const seed = String(params.seed ?? "").trim();
     const c = seed ? generate(seed) : null;   // a seed deterministically generates the creature (pure, no DB)
     const pet = c ? { seed, name: c.name, tier: c.tier, sizeN: c.sizeN, statRarity: c.statRarity, rarestTrait: c.rarestTrait, oneOfOne: c.oneOfOne, mythicAura: c.mythicAura, traits: c.traits } : null;
-    return handleReactPageRequest({ index: asset(manifest, "RenownPetIndex"), Page: RenownPet, props: { cssPath, pet, origin: originOf(request) }, request });
+    const owner = c ? await findPetOwner(seed) : null;   // 1/1 → at most one owner; links back to their profile
+    return handleReactPageRequest({ index: asset(manifest, "RenownPetIndex"), Page: RenownPet, props: { cssPath, pet, owner, origin: originOf(request) }, request });
   };
   const petOg = async ({ request, params }: { request: Request; params: { seed: string } }) => {
     const seed = String(params.seed ?? "").trim();

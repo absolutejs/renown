@@ -23,7 +23,9 @@ type PetForUI = {
   traits: Record<string, string>;
 };
 
-const PetBody = ({ pet, origin }: { pet: PetForUI; origin: string }) => {
+type PetOwner = { login: string | null; handle: string; tier: string; isAi: boolean; earnedVia: string | null } | null;
+
+const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origin: string }) => {
   const accent = hex(TIER_RGB[pet.tier as Tier] ?? [160, 160, 180]);
   const pageUrl = `${origin}/pet/${pet.seed}`;
   return (
@@ -41,6 +43,9 @@ const PetBody = ({ pet, origin }: { pet: PetForUI; origin: string }) => {
             <span className="muted" style={{ marginLeft: 10 }}>size {pet.sizeN} · {pet.oneOfOne ? "the only one" : `1 in ${pet.statRarity.toLocaleString()}`}</span>
           </p>
           <p className="muted" style={{ margin: 0 }}>rarest trait · <strong style={{ color: "inherit" }}>{pet.rarestTrait}</strong>{pet.mythicAura ? " · mythic aura" : ""}</p>
+          {owner?.login
+            ? <p style={{ margin: "12px 0 0" }}>Owned by <a href={`/profile/${encodeURIComponent(owner.login)}`} style={{ fontWeight: 700, color: accent, textDecoration: "none" }}>@{owner.login}</a>{owner.isAi && <span title="AI participant"> 🤖</span>}{owner.earnedVia && owner.earnedVia.toLowerCase() !== owner.login.toLowerCase() && <span className="muted"> · earned via @{owner.earnedVia}</span>}</p>
+            : <p className="muted" style={{ margin: "12px 0 0", fontSize: 13 }}>Unclaimed — this seed isn't in anyone's wild yet.</p>}
         </div>
       </section>
 
@@ -66,9 +71,9 @@ const PetBody = ({ pet, origin }: { pet: PetForUI; origin: string }) => {
   );
 };
 
-type RenownPetProps = { cssPath?: string; pet?: PetForUI | null; origin?: string; shareSnippet?: string };
+type RenownPetProps = { cssPath?: string; pet?: PetForUI | null; owner?: PetOwner; origin?: string; shareSnippet?: string };
 
-export const RenownPet = ({ cssPath, pet = null, origin = "", shareSnippet }: RenownPetProps) => {
+export const RenownPet = ({ cssPath, pet = null, owner = null, origin = "", shareSnippet }: RenownPetProps) => {
   const an = pet && /^[AEIOU]/.test(pet.tier) ? "an" : "a";
   const title = pet ? `${pet.name} — ${an} ${pet.tier} 1/1 pet on Renown` : "A renown pet";
   const desc = shareSnippet ?? (pet ? `${pet.tier} · size ${pet.sizeN} · ${pet.oneOfOne ? "the only one (1 of 1)" : `1 in ${pet.statRarity.toLocaleString()}`} — a 1/1 pet minted from a real commit.` : "A 1/1 pet on Renown.");
@@ -85,7 +90,7 @@ export const RenownPet = ({ cssPath, pet = null, origin = "", shareSnippet }: Re
         twitter={{ card: "summary_large_image", title, description: desc, image, imageAlt: title }}
       />
       <body>
-        {pet ? <PetBody pet={pet} origin={origin} /> : (
+        {pet ? <PetBody pet={pet} owner={owner} origin={origin} /> : (
           <main className="wrap profilePage"><section className="card"><h1>No such pet</h1><p className="muted">That seed doesn't resolve to a pet.</p><p><a href="/">← Browse the leaderboard</a></p></section></main>
         )}
       </body>
