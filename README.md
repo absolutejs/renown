@@ -100,6 +100,7 @@ Locally, `renown ci-sync --endpoint <url>` does the same against a `GITHUB_*`-po
 - [x] Org pages (`/org/:owner`) — an org's repos + top contributors, badge + OG card
 - [x] Weekly recap digest webhook (`RENOWN_RECAP_WEBHOOK`) — Mondays; preview at `/api/recap-digest`
 - [x] Embeddable live mini-leaderboard SVG (`/project/:owner/:repo/board.svg`) for READMEs
+- [x] Achievement share pages (`/achievement/:id`) — rarity, recent earners, OG card
 - [x] Trust model documented + hardened ([docs/trust-model.md](docs/trust-model.md)): submit clamps, monotonic boards, verified-gated rarity, rate limits
 - [x] TUI shows live rarity % from the server (per-badge, full-catalog coverage)
 - [ ] Editor plugins (VS Code first — we already ship `absolutejs-vscode-extension`)

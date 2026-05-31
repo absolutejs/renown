@@ -88,11 +88,11 @@ const RecapBody = ({ recap, origin }: { recap: RecapForUI; origin: string }) => 
             <h2 style={{ fontSize: 16, margin: "0 0 8px" }}>Unlocked this week</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {recap.newAchievements.slice(0, 12).map((a) => (
-                <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: 8, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+                <a key={a.id} href={`/achievement/${encodeURIComponent(a.id)}`} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: 8, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)", textDecoration: "none", color: "inherit" }}>
                   <span>{TIER_EMOJI[a.tier] ?? "✦"}</span>
                   <span style={{ fontWeight: 600 }}>{a.name}</span>
                   <span className="muted" style={{ fontSize: 12, marginLeft: "auto" }}>{a.category}</span>
-                </div>
+                </a>
               ))}
               {recap.newAchievements.length > 12 && <p className="muted" style={{ fontSize: 12 }}>+{recap.newAchievements.length - 12} more</p>}
             </div>

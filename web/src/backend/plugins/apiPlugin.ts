@@ -19,6 +19,7 @@ import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrRe
 import { loadProfile } from "../profile.ts";
 import { loadProject, loadTopProjects, normalizeProjectSort, normalizeProjectWindow } from "../project.ts";
 import { loadOrg } from "../org.ts";
+import { loadAchievement } from "../achievement.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } from "../petLooks.ts";
 import { resolvePetLookId } from "../../../../core/petLooks.ts";
@@ -187,6 +188,11 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     // A whole org's renown — its repos + top contributors across them. Shared loader (../org.ts).
     .get("/org/:owner", async ({ params }) => {
       const data = await loadOrg(params.owner);
+      return data ?? { error: "not found" };
+    })
+    // One achievement's public share data — catalog + live rarity + recent earners (../achievement.ts).
+    .get("/achievement/:id", async ({ params }) => {
+      const data = await loadAchievement(params.id);
       return data ?? { error: "not found" };
     })
     // CI per-repo board sync — powers `renown ci-sync` (the GitHub Action). Given { repo, logins },

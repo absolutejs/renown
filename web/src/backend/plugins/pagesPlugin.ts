@@ -7,6 +7,7 @@ import { RenownProfile } from "../../frontend/react/pages/RenownProfile";
 import { RenownProject } from "../../frontend/react/pages/RenownProject";
 import { RenownRecap } from "../../frontend/react/pages/RenownRecap";
 import { RenownOrg } from "../../frontend/react/pages/RenownOrg";
+import { RenownAchievement } from "../../frontend/react/pages/RenownAchievement";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { loadProfile, profileShareSnippet } from "../profile";
@@ -19,6 +20,8 @@ import { recapOgEtag, renderRecapOgPng } from "../recapOg";
 import { loadOrg, orgShareSnippet } from "../org";
 import { orgBadgeEtag, renderOrgBadge } from "../orgBadge";
 import { orgOgEtag, renderOrgOgPng } from "../orgOg";
+import { achievementShareSnippet, loadAchievement } from "../achievement";
+import { achievementOgEtag, renderAchievementOgPng } from "../achievementOg";
 
 // Resolve the absolute origin (https://host) the request was made to. Used
 // for OG/canonical URL tags so shared profile links produce fully-qualified
@@ -178,9 +181,30 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
     return new Response(renderOrgBadge(data), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
+  // --- achievement share page + OG card ---
+  const achievementPage = async ({ request, params }: { request: Request; params: { id: string } }) => {
+    const id = String(params.id ?? "");
+    const data = await loadAchievement(id);
+    return handleReactPageRequest({
+      index: asset(manifest, "RenownAchievementIndex"),
+      Page: RenownAchievement,
+      props: { cssPath, achievement: data, id, origin: originOf(request), shareSnippet: data ? achievementShareSnippet(data) : "Not in the catalog." },
+      request,
+    });
+  };
+  const achievementOg = async ({ request, params }: { request: Request; params: { id: string } }) => {
+    const data = await loadAchievement(String(params.id ?? ""));
+    if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = achievementOgEtag(data);
+    const headers = { "cache-control": "public, max-age=300", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderAchievementOgPng(data), { headers: { ...headers, "content-type": "image/png" } });
+  };
   return new Elysia()
     .get("/", home)
     .get("/admin", admin)
+    .get("/achievement/:id/og.png", achievementOg)
+    .get("/achievement/:id", achievementPage)
     .get("/profile/:login/og.png", profileOg)
     .get("/profile/:login/badge.svg", profileBadge)
     .get("/profile/:login", profile)
