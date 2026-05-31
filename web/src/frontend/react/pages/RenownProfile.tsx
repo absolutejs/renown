@@ -146,8 +146,9 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
             <span className="lbl">score</span>
           </div>
         </div>
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           <ShareButton url={url} />
+          <a href={url.replace("/profile/", "/recap/")} style={{ fontSize: 13, fontWeight: 700, color: "#c4b5fd", textDecoration: "none" }}>This week →</a>
         </div>
       </section>
 
