@@ -338,29 +338,24 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // NEW attribution this sync (attrDelta > 0) or the player has no verified skill XP yet.
       // A no-op CI re-sync (attrDelta 0) skips it — keeping the scarce Search-API budget for real
       // activity. (We're already past the per-tier reverify cooldown here.)
-      const existingSkillXp = (row.verifiedSkillXp as Record<string, number> | null) ?? {};
-      const recomputed = (attrDelta > 0 || Object.keys(existingSkillXp).length === 0) ? await computeVerifiedSkillXp(login).catch((): Record<string, number> => ({})) : null;
-      // MERGE per skill with max(existing, recomputed) rather than overwrite — for a multi-github
-      // player, syncing github B no longer clobbers the skill XP github A earned (each github
-      // keeps its best per skill; a true cross-account SUM is a future per-account migration). Also
-      // makes single-github re-verifies monotonic across the shifting commit-sample window.
-      let mergedSkillXp: Record<string, number> | null = null;
-      if (recomputed && Object.keys(recomputed).length > 0) {
-        mergedSkillXp = { ...existingSkillXp };
-        for (const [k, v] of Object.entries(recomputed)) mergedSkillXp[k] = Math.max(mergedSkillXp[k] ?? 0, v);
-      }
+      // Recompute is written to THIS github's account row (overwrite — it's the full recompute for
+      // this github, so re-verifying doesn't double-count); rollupPlayerFromAccounts then SUMS
+      // per skill across the player's githubs into players.verified_skill_xp. Gate on new attribution
+      // (or an account with no skill XP yet) so a no-op CI re-sync skips the ~25-call recompute.
+      const acctHasSkill = Object.keys((acct?.verifiedSkillXp as Record<string, number> | null) ?? {}).length > 0;
+      const recomputedSkillXp = (attrDelta > 0 || !acctHasSkill) ? await computeVerifiedSkillXp(login).catch((): Record<string, number> => ({})) : null;
       await gameDb.update(players).set({
         avatarSeed: currentAvatar, biggestPetSeed, biggestPetSize,
         petsCount: mergedWild.length, rarestPetScore, rarestPetSeed,
         showcaseSeeds: showcase, verifiedAt: new Date(), wild: mergedWild,
-        ...(mergedSkillXp ? { verifiedSkillXp: mergedSkillXp } : {}),
-      }).where(eq(players.id, row.id));
+      }).where(eq(players.id, row.id));   // verified_skill_xp is rolled up from accounts below
       // Write THIS github's account row (its score + attribution + sync cursor), tag any new pet
       // seeds with the github that earned them, then roll the player's headline score/attribution
       // up across all the user's linked githubs.
       await gameDb.update(playerAccounts).set({
         verifiedScore: acctScore, attributionScore: acctAttribution, verifiedAt: new Date(),
         lastAttributionSyncAt: acctQuery ? new Date() : acct?.lastAttributionSyncAt ?? null,
+        ...(recomputedSkillXp ? { verifiedSkillXp: recomputedSkillXp } : {}),
       }).where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`));
       if (newShas.length > 0) await gameDb.insert(wildSeedSources).values(newShas.map((s) => ({ playerId: row.id, petSeed: s, githubLogin: login }))).onConflictDoNothing();
       const agg = await rollupPlayerFromAccounts(row.id);

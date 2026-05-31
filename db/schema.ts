@@ -133,6 +133,9 @@ export const playerAccounts = pgTable("player_accounts", {
   packageDownloads: bigint("package_downloads", { mode: "number" }).notNull().default(0),
   substanceScore: real("substance_score").notNull().default(0),
   substanceSampleSize: integer("substance_sample_size").notNull().default(0),
+  // This github's server-verified skill XP (from /api/verify's commit recompute). Summed per
+  // skill across the player's accounts into players.verified_skill_xp by rollupPlayerFromAccounts.
+  verifiedSkillXp: jsonb("verified_skill_xp").$type<Record<string, number>>().notNull().default({}),
   lastMeritSyncAt: timestamp("last_merit_sync_at"),
   githubVerified: boolean("github_verified").notNull().default(false),   // OAuth/CLI-token proved this github
   createdAt: timestamp("created_at").notNull().defaultNow(),

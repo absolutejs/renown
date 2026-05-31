@@ -34,11 +34,19 @@ export const rollupPlayerFromAccounts = async (playerId: string) => {
     packageDownloads: sum("packageDownloads"),
     substanceScore, substanceSampleSize,
   };
+  // Verified skill XP = per-skill SUM across the player's githubs (each account holds its own
+  // github's recompute), so a multi-github player's /top?skill standing is their combined total.
+  const verifiedSkillXp: Record<string, number> = {};
+  for (const a of accts) {
+    const m = (a.verifiedSkillXp as Record<string, number> | null) ?? {};
+    for (const [k, v] of Object.entries(m)) verifiedSkillXp[k] = (verifiedSkillXp[k] ?? 0) + Number(v ?? 0);
+  }
   const totals = {
     verifiedScore: sum("verifiedScore"),
     attributionScore: sum("attributionScore"),
     ...signals,
     meritScore: computeMeritScore(signals),
+    verifiedSkillXp,
     // honest cooldowns: a re-sync is "due" as soon as the OLDEST account is due.
     lastAttributionSyncAt: minDate(accts, "lastAttributionSyncAt"),
     lastMeritSyncAt: minDate(accts, "lastMeritSyncAt"),

@@ -110,8 +110,9 @@ issues:
   `lower(project_key)` and the owner so /project + /org board queries are index scans, not seq scans.
 - **OG/SVG render cache** — the `*.png`/`*.svg` routes re-rasterize on each cache-miss; an in-process
   LRU keyed by ETag (and/or an edge cache) would blunt crawler-unfurl bursts. Not yet done.
-- **True multi-github skill SUM** — would need a per-`player_accounts` `verified_skill_xp` column +
-  rollup; the current max-merge is the no-migration interim.
+- ~~True multi-github skill SUM~~ — **done**: `player_accounts.verified_skill_xp` holds each
+  github's recompute; `rollupPlayerFromAccounts` sums per skill into `players`, so a multi-github
+  player's `/top?skill` standing is their combined total (single-github = that one account).
 
 ## What's explicitly out of scope (and why it's fine)
 
