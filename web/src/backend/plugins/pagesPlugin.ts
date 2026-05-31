@@ -5,11 +5,14 @@ import { RenownAdmin } from "../../frontend/react/pages/RenownAdmin";
 import { RenownHome } from "../../frontend/react/pages/RenownHome";
 import { RenownProfile } from "../../frontend/react/pages/RenownProfile";
 import { RenownProject } from "../../frontend/react/pages/RenownProject";
+import { RenownRecap } from "../../frontend/react/pages/RenownRecap";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { loadProfile, profileShareSnippet } from "../profile";
 import { loadProject, normalizeProjectSort, projectShareSnippet } from "../project";
 import { projectOgEtag, renderProjectOgPng } from "../projectOg";
 import { projectBadgeEtag, renderProjectBadge } from "../projectBadge";
+import { loadRecap, recapShareSnippet } from "../recap";
+import { recapOgEtag, renderRecapOgPng } from "../recapOg";
 
 // Resolve the absolute origin (https://host) the request was made to. Used
 // for OG/canonical URL tags so shared profile links produce fully-qualified
@@ -106,6 +109,25 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
     return new Response(renderProjectBadge(data), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
+  // --- "your week" recap: shareable page + OG card (mirrors the profile/project trio) ---
+  const recapPage = async ({ request, params }: { request: Request; params: { login: string } }) => {
+    const login = String(params.login ?? "").toLowerCase();
+    const data = await loadRecap(login);
+    return handleReactPageRequest({
+      index: asset(manifest, "RenownRecapIndex"),
+      Page: RenownRecap,
+      props: { cssPath, recap: data, login, origin: originOf(request), shareSnippet: data ? recapShareSnippet(data) : "Not on Renown yet." },
+      request,
+    });
+  };
+  const recapOg = async ({ request, params }: { request: Request; params: { login: string } }) => {
+    const data = await loadRecap(String(params.login ?? "").toLowerCase());
+    if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = recapOgEtag(data);
+    const headers = { "cache-control": "public, max-age=300", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderRecapOgPng(data), { headers: { ...headers, "content-type": "image/png" } });
+  };
   return new Elysia()
     .get("/", home)
     .get("/admin", admin)
@@ -113,5 +135,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/profile/:login", profile)
     .get("/project/:owner/:repo/og.png", projectOg)
     .get("/project/:owner/:repo/badge.svg", projectBadge)
-    .get("/project/:owner/:repo", projectPage);
+    .get("/project/:owner/:repo", projectPage)
+    .get("/recap/:login/og.png", recapOg)
+    .get("/recap/:login", recapPage);
 };

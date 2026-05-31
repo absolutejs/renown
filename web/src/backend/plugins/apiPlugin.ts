@@ -9,6 +9,7 @@ import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/
 import { achievements, aiAttestationEvents, playerAccounts, playerAchievements, playerAttributionSnapshots, playerProjects, players, projects, wildSeedSources } from "../../../../db/schema.ts";
 import { resolvePlayerByGithubLogin } from "../resolvePlayer.ts";
 import { fetchRepoImportance, scoreRepoForLogin } from "../repoScore.ts";
+import { loadRecap } from "../recap.ts";
 import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import { authIdentities, users } from "../../../db/schema.ts";
 import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
@@ -952,37 +953,10 @@ ${items}
     // could plug into a future weekly digest email. Snapshots fuel the attribution and
     // verified-score deltas; player_achievements.unlocked_at fuels the newly-earned list.
     .get("/recap/:login", async ({ params, query }) => {
-      const days = Math.max(1, Math.min(90, Number(query.days ?? 7)));
-      const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
-      const cutoffDate = new Date(cutoffMs).toISOString().slice(0, 10);
-      const cutoff = new Date(cutoffMs);
-      const p = await resolvePlayerByGithubLogin(params.login);
-      if (!p) return { error: "not found" };
-      // Earliest snapshot in window (baseline) — current row is the comparand. If the
-      // player has no snapshots in the window (brand new account / quiet week), baseline
-      // = current → delta = 0, which is honest.
-      const snaps = await gameDb.select().from(playerAttributionSnapshots)
-        .where(and(eq(playerAttributionSnapshots.playerId, p.id), sql`${playerAttributionSnapshots.snapshotDate} >= ${cutoffDate}`))
-        .orderBy(playerAttributionSnapshots.snapshotDate);
-      const baseAttr = snaps[0]?.attributionScore ?? p.attributionScore;
-      const baseVer = snaps[0]?.verifiedScore ?? p.verifiedScore;
-      const newAch = await gameDb
-        .select({ id: achievements.id, name: achievements.name, tier: achievements.tier, category: achievements.category, at: playerAchievements.unlockedAt })
-        .from(playerAchievements)
-        .innerJoin(achievements, eq(achievements.id, playerAchievements.achievementId))
-        .where(and(eq(playerAchievements.playerId, p.id), sql`${playerAchievements.unlockedAt} >= ${cutoff}`))
-        .orderBy(desc(playerAchievements.unlockedAt));
-      return {
-        login: p.githubLogin,
-        windowDays: days,
-        attributionDelta: Number(p.attributionScore) - Number(baseAttr),
-        verifiedDelta: Number(p.verifiedScore) - Number(baseVer),
-        currentScore: p.verifiedScore,
-        totalLevel: p.totalLevel,
-        petsCount: p.petsCount,
-        newAchievements: newAch,
-        snapshots: snaps.length,
-      };
+      // Shared loader (../recap.ts) so this JSON, the /recap/:login share page, and the
+      // recap OG card can't drift on what "a week" is.
+      const data = await loadRecap(params.login, Number(query.days ?? 7));
+      return data ?? { error: "not found" };
     })
     // Per-player attribution delta over the past N days (default 7). Used by AccountView's
     // "your growth this week" stat and by anything else that wants a window-relative number

@@ -1276,7 +1276,10 @@ const RecapCard = ({ login }: { login: string }) => {
   const empty = r.attributionDelta === 0 && r.verifiedDelta === 0 && r.newAchievements.length === 0;
   return (
     <section className="card recapCard">
-      <h2>Your past week <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· last {r.windowDays} days</span></h2>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0 }}>Your past week <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· last {r.windowDays} days</span></h2>
+        {r.login && <a href={`/recap/${encodeURIComponent(r.login)}`} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: "#c4b5fd", textDecoration: "none" }}>Share your week →</a>}
+      </div>
       {empty ? (
         <p className="muted hint">No growth or new unlocks this week — quiet stretches are normal. Push some commits, then <code>renown sync</code> or click <em>Sync now</em> above.</p>
       ) : (
