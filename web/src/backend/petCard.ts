@@ -4,6 +4,7 @@
 // / OG card / 3D viewer, so it can't drift. Pure rects/circles/text, no <defs>/IDs.
 import { generate, TIER_RGB, type Tier } from "../../../core/procgen.ts";
 import { spriteToSvg } from "../../../core/petSvg.ts";
+import { idleBob } from "./petAnim.ts";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const hex = ([r, g, b]: readonly [number, number, number]) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
@@ -29,7 +30,7 @@ export const renderPetCard = (seed: string): string => {
   <rect x="6" y="6" width="${W - 12}" height="${H - 12}" rx="12" fill="${hex(tint)}" fill-opacity="0.10"/>
   <rect x="6.5" y="6.5" width="${W - 13}" height="${H - 13}" rx="12" fill="none" stroke="${hex(tint)}" stroke-opacity="0.5"/>
   ${one}
-  <g transform="translate(${px.toFixed(1)},${py.toFixed(1)})">${pet.svg}</g>
+  <g transform="translate(${px.toFixed(1)},${py.toFixed(1)})">${idleBob(pet.svg)}</g>
   <text x="${W / 2}" y="${(PAD + ART + 32).toFixed(1)}" text-anchor="middle" font-family="${FONT}" font-size="18" font-weight="700" fill="${TITLE}">${esc(truncate(c.name, 22))}</text>
   <text x="${W / 2}" y="${(PAD + ART + 54).toFixed(1)}" text-anchor="middle" font-family="${FONT}" font-size="12" fill="${hex(tint)}">${c.tier} · size ${c.sizeN}</text>
 </svg>`;

@@ -5,6 +5,7 @@
 // GitHub's camo rasterizer.
 import { generate, TIER_RGB, type Tier } from "../../../core/procgen.ts";
 import { spriteToSvg } from "../../../core/petSvg.ts";
+import { idleBob } from "./petAnim.ts";
 import type { ProfileData } from "./profile";
 
 type Profile = NonNullable<ProfileData>;
@@ -62,7 +63,7 @@ export const renderProfilePets = (p: Profile): string => {
     <rect x="${cx}" y="${cy}" width="${CARD}" height="${cardH}" rx="10" fill="${hex(tint)}" fill-opacity="0.12"/>
     <rect x="${cx + 0.5}" y="${cy + 0.5}" width="${CARD - 1}" height="${cardH - 1}" rx="10" fill="none" stroke="${hex(tint)}" stroke-opacity="0.45"/>
     ${one}
-    <g transform="translate(${px.toFixed(1)},${py.toFixed(1)})">${pet.svg}</g>
+    <g transform="translate(${px.toFixed(1)},${py.toFixed(1)})">${idleBob(pet.svg, (i % cols) * 0.25 + Math.floor(i / cols) * 0.15)}</g>
     <text x="${(cx + CARD / 2).toFixed(1)}" y="${(cy + CARD + 12).toFixed(1)}" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="700" fill="${TITLE}">${esc(truncate(c.name, 16))}</text>
     <text x="${(cx + CARD / 2).toFixed(1)}" y="${(cy + CARD + 26).toFixed(1)}" text-anchor="middle" font-family="${FONT}" font-size="9" fill="${hex(tint)}">${c.tier}${c.sizeN ? ` · sz ${c.sizeN}` : ""}</text>
   </g>`;
