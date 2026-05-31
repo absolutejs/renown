@@ -11,6 +11,7 @@ import { RenownAchievement } from "../../frontend/react/pages/RenownAchievement"
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { profilePetsEtag, renderProfilePets } from "../profilePets";
+import { petCardEtag, renderPetCard } from "../petCard";
 import { loadProfile, profileShareSnippet } from "../profile";
 import { loadProject, normalizeProjectSort, projectShareSnippet } from "../project";
 import { projectOgEtag, renderProjectOgPng } from "../projectOg";
@@ -107,6 +108,14 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const headers = { "cache-control": "public, max-age=300", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
     return new Response(renderCached(etag, () => renderProfilePets(data)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+  };
+  const petCard = async ({ request, params }: { request: Request; params: { seed: string } }) => {
+    const seed = String(params.seed ?? "").trim();
+    if (!seed) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = petCardEtag(seed);
+    const headers = { "cache-control": "public, max-age=86400", etag };   // a seed → creature is deterministic; cache hard
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderCached(etag, () => renderPetCard(seed)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
   // --- per-repo leaderboard: page + README badge + OG card (mirrors the profile trio) ---
   const projKey = (params: { owner: string; repo: string }) => `${params.owner}/${params.repo}`.toLowerCase();
@@ -219,6 +228,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/profile/:login/badge.svg", profileBadge)
     .get("/profile/:login/pets.svg", profilePets)
     .get("/profile/:login", profile)
+    .get("/pet/:seed/card.svg", petCard)
     .get("/project/:owner/:repo/og.png", projectOg)
     .get("/project/:owner/:repo/badge.svg", projectBadge)
     .get("/project/:owner/:repo/board.svg", projectBoard)
