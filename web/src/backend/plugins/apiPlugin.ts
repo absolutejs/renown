@@ -136,12 +136,23 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         substance: players.substanceScore as unknown as typeof players.verifiedScore,
       };
       const meritOrder = meritDim ? meritColMap[meritDim] : null;
-      const orderCol = quirkOrder ?? meritOrder ?? (
+      // Skill boards — board=skill:<id> ranks by that skill's XP (verified-first, self-reported
+      // fallback), dynamic like quirk: boards. Polyglot ranks by breadth: distinct skills logged.
+      const skillPrefix = "skill:";
+      const skillId = board.startsWith(skillPrefix) ? board.slice(skillPrefix.length) : null;
+      const skillOrder = skillId
+        ? sql<number>`coalesce((${players.verifiedSkillXp} ->> ${skillId})::int, (${players.skillXp} ->> ${skillId})::int, 0)`
+        : null;
+      // "Generalist" board (board=breadth): distinct skills a player has logged XP in. Named
+      // breadth, not polyglot, because there's already a "polyglot" SKILL (language breadth).
+      const breadthOrder = sql<number>`(select count(*) from jsonb_each_text(${players.skillXp}) je where je.value::numeric > 0)`;
+      const orderCol = quirkOrder ?? meritOrder ?? skillOrder ?? (
         board === "pets-count" ? players.petsCount
         : board === "rarest-pet" ? players.rarestPetScore
         : board === "biggest-pet" ? players.biggestPetSize
         : board === "rate-limited" ? players.rateLimitCount
         : board === "achievements" ? players.achievements
+        : board === "breadth" ? breadthOrder
         : sql<number>`${players.verifiedScore} + ${players.meritScore}`   // default "score" board: base + attribution + merit
       );
       // Audience filter — server-side WHERE so the top-N count stays stable per audience.
@@ -169,14 +180,14 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         const petLookAssignmentsByPlayer = await getPlayerPetLookAssignmentsForRows(rows);
         return rows.map((p) => {
           const assignments = petLookAssignmentsByPlayer.get(p.id) ?? {};
-          return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), weekXp: Math.max(0, Number(p.weekXp)), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
+          return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), weekXp: Math.max(0, Number(p.weekXp)), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, skillXp: p.skillXp ?? {}, distinctSkills: Object.values((p.skillXp as Record<string, number>) ?? {}).filter((v) => Number(v) > 0).length, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
         });
       }
       const rows = await gameDb.select().from(players).where(where).orderBy(desc(orderCol)).limit(n);
       const petLookAssignmentsByPlayer = await getPlayerPetLookAssignmentsForRows(rows);
       return rows.map((p) => {
         const assignments = petLookAssignmentsByPlayer.get(p.id) ?? {};
-          return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
+          return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, skillXp: p.skillXp ?? {}, distinctSkills: Object.values((p.skillXp as Record<string, number>) ?? {}).filter((v) => Number(v) > 0).length, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
       });
     })
     // Trending repos — the home page's discovery surface. Ranks every repo someone on renown

@@ -8,14 +8,15 @@ import { ProfileModal } from "../components/ProfileModal";
 import { DEFAULT_PET_LOOK_ID, isPetLookId, PET_LOOKS, type PetLookId } from "../../../../../core/petLooks.ts";
 import { generate } from "../../../../../core/procgen.ts";
 import { spriteToSvg } from "../../../../../core/petSvg.ts";
+import { SKILLS } from "../../../../../core/skills.ts";
 
 type Tier = "free" | "supporter" | "pro";
 type PetLookMap = Record<string, PetLookId>;
 type SummonPet = { seed: string; lookId: PetLookId };
-type Entry = { id?: string; name: string; login?: string; score?: number; weekXp?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number; activePetLookId?: string; petLookAssignments?: PetLookMap };
+type Entry = { id?: string; name: string; login?: string; score?: number; weekXp?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number; distinctSkills?: number; skillXp?: Record<string, number>; activePetLookId?: string; petLookAssignments?: PetLookMap };
 // Board ids: well-known fixed strings + a "quirk:<name>" dynamic family for the
 // cope leaderboards (one per registered quirk in web/src/backend/quirks.ts).
-type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | "achievements" | "merit" | `quirk:${string}` | `merit:${"reviews" | "crossRepo" | "shipper" | "downloads" | "substance"}`;
+type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | "achievements" | "breadth" | "merit" | `quirk:${string}` | `skill:${string}` | `merit:${"reviews" | "crossRepo" | "shipper" | "downloads" | "substance"}`;
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
@@ -625,6 +626,7 @@ const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => st
   { id: "rarest-pet", label: "Rarest pet", hint: "OpenRarity score of the rarest pet in your menagerie.", statOf: (e) => `${(e.rarestPetScore ?? 0).toFixed(2)} rarity`, seedOf: (e) => e.rarestPetSeed ?? e.avatarSeed },
   { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
   { id: "achievements", label: "Achievements", hint: "Total achievements unlocked — the trophy cabinet. Ranks the most decorated devs on renown.", statOf: (e) => `${(e.ach ?? 0).toLocaleString()} unlocked`, seedOf: (e) => e.avatarSeed },
+  { id: "breadth", label: "Generalist", hint: "Breadth — distinct skills you've logged XP in. Ranks the most well-rounded devs.", statOf: (e) => `${(e.distinctSkills ?? 0).toLocaleString()} skills`, seedOf: (e) => e.avatarSeed },
   { id: "rate-limited", label: "🤖 Most rate-limited", hint: "Most lovingly throttled by their providers. The cope is the achievement; the achievement is real.", statOf: (e) => `${(e.rateLimitCount ?? 0).toLocaleString()} 429s`, seedOf: (e) => e.avatarSeed },
 ];
 
@@ -719,10 +721,14 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
   useEffect(() => { fetch("/api/quirks/list").then((r) => r.json()).then(setQuirkRegistry).catch(() => {}); }, []);
   const quirkName = typeof board === "string" && board.startsWith("quirk:") ? board.slice("quirk:".length) : null;
   const activeQuirk = quirkName ? quirkRegistry.find((q) => q.id === quirkName) : null;
-  // Derive meta dynamically for quirk:* boards; fall back to the static BOARDS array
-  // for fixed boards.
+  const skillName = typeof board === "string" && board.startsWith("skill:") ? board.slice("skill:".length) : null;
+  const activeSkill = skillName ? SKILLS.find((s) => s.id === skillName) : null;
+  // Derive meta dynamically for quirk:* and skill:* boards; fall back to the static BOARDS
+  // array for fixed boards.
   const meta = activeQuirk
     ? { id: board, label: `🎭 ${activeQuirk.label}`, hint: `${activeQuirk.frame} The cope leaderboard for this quirk. Self-reported via \`renown ${activeQuirk.id}\` (or scan-commits). The badge is real; the cope is the achievement.`, statOf: (e: Entry) => `${(e.quirks?.[activeQuirk.id] ?? 0).toLocaleString()}`, seedOf: (e: Entry) => e.avatarSeed }
+    : activeSkill
+    ? { id: board, label: `${activeSkill.icon} ${activeSkill.name}`, hint: `Top devs by ${activeSkill.name} XP — GitHub-verified first, self-reported as fallback. One of ${SKILLS.length} skill boards.`, statOf: (e: Entry) => `${(e.skillXp?.[activeSkill.id] ?? 0).toLocaleString()} XP`, seedOf: (e: Entry) => e.avatarSeed }
     : (BOARDS.find((b) => b.id === board) ?? BOARDS[0]);
   // Spotlight target: whichever row the cursor is over, falling back to the selected row,
   // then the leader. Decoupled from `sel` because hover should be ephemeral (no click cost).
@@ -878,6 +884,16 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
               {quirkRegistry.map((q) => <option key={q.id} value={q.id}>{q.label}</option>)}
             </select>
           )}
+          <select
+            className={skillName ? "on" : ""}
+            value={skillName ?? ""}
+            onChange={(e) => { if (e.target.value) setBoard(`skill:${e.target.value}` as Board); }}
+            style={{ background: "none", border: 0, borderBottom: skillName ? "2px solid var(--accent)" : "2px solid transparent", color: skillName ? "var(--text)" : "var(--muted)", font: "inherit", fontSize: 13, padding: "8px 14px", cursor: "pointer", marginBottom: -1 }}
+            title="Per-skill leaderboards — top devs by a given skill's XP"
+          >
+            <option value="">🧬 Skills…</option>
+            {SKILLS.map((s) => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
+          </select>
         </div>
         {/* Audience filter — server-side WHERE, so top-N stays stable. AI scoring is
             identical to humans; this is a viewing preference, not a ranking change. */}
