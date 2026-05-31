@@ -8,10 +8,13 @@ import { RenownProject } from "../../frontend/react/pages/RenownProject";
 import { RenownRecap } from "../../frontend/react/pages/RenownRecap";
 import { RenownOrg } from "../../frontend/react/pages/RenownOrg";
 import { RenownAchievement } from "../../frontend/react/pages/RenownAchievement";
+import { RenownPet } from "../../frontend/react/pages/RenownPet";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { profilePetsEtag, renderProfilePets } from "../profilePets";
 import { petCardEtag, renderPetCard } from "../petCard";
+import { petOgEtag, renderPetOgPng } from "../petOg";
+import { generate } from "../../../../core/procgen.ts";
 import { loadProfile, profileShareSnippet } from "../profile";
 import { loadProject, normalizeProjectSort, projectShareSnippet } from "../project";
 import { projectOgEtag, renderProjectOgPng } from "../projectOg";
@@ -116,6 +119,20 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const headers = { "cache-control": "public, max-age=86400", etag };   // a seed → creature is deterministic; cache hard
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
     return new Response(renderCached(etag, () => renderPetCard(seed)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+  };
+  const petPage = async ({ request, params }: { request: Request; params: { seed: string } }) => {
+    const seed = String(params.seed ?? "").trim();
+    const c = seed ? generate(seed) : null;   // a seed deterministically generates the creature (pure, no DB)
+    const pet = c ? { seed, name: c.name, tier: c.tier, sizeN: c.sizeN, statRarity: c.statRarity, rarestTrait: c.rarestTrait, oneOfOne: c.oneOfOne, mythicAura: c.mythicAura, traits: c.traits } : null;
+    return handleReactPageRequest({ index: asset(manifest, "RenownPetIndex"), Page: RenownPet, props: { cssPath, pet, origin: originOf(request) }, request });
+  };
+  const petOg = async ({ request, params }: { request: Request; params: { seed: string } }) => {
+    const seed = String(params.seed ?? "").trim();
+    if (!seed) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = petOgEtag(seed);
+    const headers = { "cache-control": "public, max-age=86400", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderCached(etag, () => renderPetOgPng(seed)), { headers: { ...headers, "content-type": "image/png" } });
   };
   // --- per-repo leaderboard: page + README badge + OG card (mirrors the profile trio) ---
   const projKey = (params: { owner: string; repo: string }) => `${params.owner}/${params.repo}`.toLowerCase();
@@ -228,7 +245,9 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/profile/:login/badge.svg", profileBadge)
     .get("/profile/:login/pets.svg", profilePets)
     .get("/profile/:login", profile)
+    .get("/pet/:seed/og.png", petOg)
     .get("/pet/:seed/card.svg", petCard)
+    .get("/pet/:seed", petPage)
     .get("/project/:owner/:repo/og.png", projectOg)
     .get("/project/:owner/:repo/badge.svg", projectBadge)
     .get("/project/:owner/:repo/board.svg", projectBoard)
