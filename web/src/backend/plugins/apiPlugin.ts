@@ -21,6 +21,7 @@ import { loadProject, loadTopProjects, normalizeProjectSort, normalizeProjectWin
 import { loadOrg } from "../org.ts";
 import { loadAchievement } from "../achievement.ts";
 import { loadRivals } from "../rivals.ts";
+import { loadVersus } from "../versus.ts";
 import { getPushPublicKey, isPushConfigured, notifyNewcomerToBoard } from "../push.ts";
 import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } from "../petLooks.ts";
 import { resolvePetLookId } from "../../../../core/petLooks.ts";
@@ -215,6 +216,9 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const data = await loadRivals(String(params.login ?? "").toLowerCase());
       return data ?? { error: "not found" };
     })
+    // Head-to-head comparison of two devs across every renown dimension, with a verdict. (../versus.ts)
+    .get("/vs/:a/:b", async ({ params }) =>
+      loadVersus(String(params.a ?? "").toLowerCase(), String(params.b ?? "").toLowerCase()))
     // CI per-repo board sync — powers `renown ci-sync` (the GitHub Action). Given { repo, logins },
     // scores each LINKED contributor's commits in that repo from the GitHub API (the shared craft
     // formula, server's own token) and upserts player_projects. Monotonic: keeps the greatest of

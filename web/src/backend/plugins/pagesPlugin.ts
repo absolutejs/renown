@@ -17,6 +17,9 @@ import { RenownRivals } from "../../frontend/react/pages/RenownRivals";
 import { loadRivals } from "../rivals";
 import { RenownSeason } from "../../frontend/react/pages/RenownSeason";
 import { loadSeason } from "../season";
+import { RenownVersus } from "../../frontend/react/pages/RenownVersus";
+import { loadVersus } from "../versus";
+import { renderVersusOgPng, versusOgEtag } from "../versusOg";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { profilePetsEtag, renderProfilePets } from "../profilePets";
@@ -153,6 +156,19 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const season = await loadSeason(25);
     return handleReactPageRequest({ index: asset(manifest, "RenownSeasonIndex"), Page: RenownSeason, props: { cssPath, season, origin: originOf(request) }, request });
   };
+  const versusPage = async ({ request, params }: { request: Request; params: { a: string; b: string } }) => {
+    const a = String(params.a ?? "").toLowerCase(), b = String(params.b ?? "").toLowerCase();
+    const vs = await loadVersus(a, b);
+    return handleReactPageRequest({ index: asset(manifest, "RenownVersusIndex"), Page: RenownVersus, props: { cssPath, vs, a, b, origin: originOf(request) }, request });
+  };
+  const versusOg = async ({ request, params }: { request: Request; params: { a: string; b: string } }) => {
+    const vs = await loadVersus(String(params.a ?? "").toLowerCase(), String(params.b ?? "").toLowerCase());
+    if ("error" in vs) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = versusOgEtag(vs);
+    const headers = { "cache-control": "public, max-age=300", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderCached(etag, () => renderVersusOgPng(vs)), { headers: { ...headers, "content-type": "image/png" } });
+  };
   const petOg = async ({ request, params }: { request: Request; params: { seed: string } }) => {
     const seed = String(params.seed ?? "").trim();
     if (!seed) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
@@ -275,6 +291,8 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/profile/:login", profile)
     .get("/pets", petsPage)
     .get("/season", seasonPage)
+    .get("/vs/:a/:b/og.png", versusOg)
+    .get("/vs/:a/:b", versusPage)
     .get("/pet/:seed/og.png", petOg)
     .get("/pet/:seed/card.svg", petCard)
     .get("/pet/:seed", petPage)

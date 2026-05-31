@@ -137,6 +137,7 @@ export const ProfileModal = ({ login, onClose, me = null, following = [], onTogg
                 </button>
               )}
               <a href={`/rivals/${encodeURIComponent(profile.login)}`} className="muted" style={{ fontSize: 13, textDecoration: "none" }}>rivals →</a>
+              {canFollow && <a href={`/vs/${encodeURIComponent(me!)}/${encodeURIComponent(profile.login)}`} className="muted" style={{ fontSize: 13, textDecoration: "none" }}>compare with you →</a>}
             </div>
             <ProfileShareRow login={profile.login} />
             <div className="profileAvatar">
