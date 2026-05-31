@@ -78,6 +78,7 @@ const useViewerLogin = (): string | null => {
 const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: string }) => {
   const pageUrl = `${origin}/project/${project.key}`;
   const badgeMd = `[![renown](${origin}/project/${project.key}/badge.svg)](${pageUrl})`;
+  const boardMd = `[![renown leaderboard](${origin}/project/${project.key}/board.svg)](${pageUrl})`;
   const me = useViewerLogin();
   const myIndex = me ? project.contributors.findIndex((c) => c.login.toLowerCase() === me) : -1;
   return (
@@ -164,6 +165,10 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
         <p className="muted hint">Show your repo's renown leaderboard right where contributors look. Markdown:</p>
         <div style={{ marginTop: 8 }}><Copyable text={badgeMd} /></div>
         <p style={{ marginTop: 12 }}><img src={`${origin}/project/${project.key}/badge.svg`} alt="renown badge preview" /></p>
+        <h2 style={{ marginTop: 20 }}>…or embed the live leaderboard</h2>
+        <p className="muted hint">A top-5 board, right in your README — updates as contributors earn renown:</p>
+        <div style={{ marginTop: 8 }}><Copyable text={boardMd} /></div>
+        <p style={{ marginTop: 12 }}><img src={`${origin}/project/${project.key}/board.svg`} alt="renown leaderboard preview" style={{ maxWidth: "100%" }} /></p>
         <p className="muted" style={{ marginTop: 12 }}>Not earning renown yet? <code>npm install -g @absolutejs/renown</code> → <code>renown link</code>.</p>
       </section>
     </main>

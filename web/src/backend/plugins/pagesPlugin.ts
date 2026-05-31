@@ -13,6 +13,7 @@ import { loadProfile, profileShareSnippet } from "../profile";
 import { loadProject, normalizeProjectSort, projectShareSnippet } from "../project";
 import { projectOgEtag, renderProjectOgPng } from "../projectOg";
 import { projectBadgeEtag, renderProjectBadge } from "../projectBadge";
+import { projectBoardEtag, renderProjectBoardSvg } from "../projectBoardSvg";
 import { loadRecap, recapShareSnippet } from "../recap";
 import { recapOgEtag, renderRecapOgPng } from "../recapOg";
 import { loadOrg, orgShareSnippet } from "../org";
@@ -106,6 +107,15 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
       request,
     });
   };
+  const projectBoard = async ({ request, params, query }: { request: Request; params: { owner: string; repo: string }; query: Record<string, string | undefined> }) => {
+    const data = await loadProject(projKey(params));
+    if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const limit = Math.max(1, Math.min(10, Number(query.limit ?? 5)));
+    const etag = projectBoardEtag(data, limit);
+    const headers = { "cache-control": "public, max-age=300", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderProjectBoardSvg(data, limit), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+  };
   const projectOg = async ({ request, params }: { request: Request; params: { owner: string; repo: string } }) => {
     const data = await loadProject(projKey(params));
     if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
@@ -176,6 +186,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/profile/:login", profile)
     .get("/project/:owner/:repo/og.png", projectOg)
     .get("/project/:owner/:repo/badge.svg", projectBadge)
+    .get("/project/:owner/:repo/board.svg", projectBoard)
     .get("/project/:owner/:repo", projectPage)
     .get("/recap/:login/og.png", recapOg)
     .get("/recap/:login", recapPage)
