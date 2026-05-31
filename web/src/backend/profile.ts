@@ -35,10 +35,16 @@ export const loadProfile = async (login: string) => {
 
   // Top repos this player has renown on — links the profile back to the per-repo boards so
   // discovery flows both ways (badge → board → profile → their other repos → …).
-  const topProjects = await gameDb
-    .select({ key: playerProjects.projectKey, xp: playerProjects.xp, commits: playerProjects.commits, stars: projects.stars, oss: projects.oss })
+  // Verified-preferred (consistent with the /project board + trending): rank + show the
+  // GitHub-scored verified_xp when present, else self-reported, with a `verified` flag.
+  const topProjectRows = await gameDb
+    .select({ key: playerProjects.projectKey, xp: playerProjects.xp, commits: playerProjects.commits, vXp: playerProjects.verifiedXp, vCommits: playerProjects.verifiedCommits, stars: projects.stars, oss: projects.oss })
     .from(playerProjects).innerJoin(projects, eq(projects.key, playerProjects.projectKey))
-    .where(eq(playerProjects.playerId, p.id)).orderBy(desc(playerProjects.xp)).limit(6);
+    .where(eq(playerProjects.playerId, p.id)).orderBy(desc(playerProjects.verifiedXp), desc(playerProjects.xp)).limit(6);
+  const topProjects = topProjectRows.map((r) => {
+    const verified = Number(r.vXp) > 0;
+    return { key: r.key, stars: r.stars, oss: r.oss, verified, xp: verified ? Number(r.vXp) : Number(r.xp), commits: verified ? r.vCommits : r.commits };
+  });
 
   const wild = Array.isArray(p.wild) ? p.wild : [];
   const petLookAssignments: PetLookAssignments = wild.length > 0 && p.id
@@ -81,7 +87,7 @@ export const loadProfile = async (login: string) => {
     },
     achievements: ach,
     attestationEvents,
-    topProjects: topProjects.map((r) => ({ key: r.key, stars: r.stars, oss: r.oss, xp: Number(r.xp), commits: r.commits })),
+    topProjects,
   };
 };
 
