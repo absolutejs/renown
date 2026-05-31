@@ -174,6 +174,9 @@ export const playerProjects = pgTable("player_projects", {
   xp: bigint("xp", { mode: "number" }).notNull().default(0),
   commits: integer("commits").notNull().default(0),
   lines: bigint("lines", { mode: "number" }).notNull().default(0),
+  // NOTE: server-verified columns (verified_xp/commits/lines) are prepared in
+  // db/migrate-add-verified-xp.ts — added here once that migration is applied to the DB, so the
+  // /project board can rank by GitHub-scored XP instead of self-reported /submit XP.
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.projectKey] }) }));
 

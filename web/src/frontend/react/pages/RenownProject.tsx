@@ -124,6 +124,11 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
         {me && myIndex < 0 && project.contributors.length > 0 && (
           <p className="muted" style={{ marginTop: 6, fontSize: 13 }}>You haven't earned renown on {project.repo} yet — commit here to claim a spot.</p>
         )}
+        {project.contributors.length > 0 && (
+          <p className="muted" style={{ marginTop: 6, fontSize: 12.5 }}>
+            Per-repo XP is contributor-reported via the CLI. <a href="https://github.com/absolutejs/renown#github-action--auto-sync-from-ci" target="_blank" rel="noreferrer" style={{ color: "#c4b5fd" }}>Add the renown Action</a> for GitHub-verified scoring →
+          </p>
+        )}
         {project.contributors.length === 0
           ? <p className="muted">No verified contributors yet — link your account and commit to claim the top spot.</p>
           : (
