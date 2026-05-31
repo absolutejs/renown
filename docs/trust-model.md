@@ -70,9 +70,8 @@ rows) — a UX call, deferred so boards aren't empty pre-adoption.
 - **Skill boards (`/top?skill=<id>`)** — *fixed.* `players.verified_skill_xp` is recomputed server-side
   by running `core/skills.ts awardCraft` (the exact local routing) over the player's GitHub commits in
   `/api/verify` (cooldown-gated). The board ranks **verified-first** with a `verified` flag. 84/94 skills
-  are commit-derived (verifiable); the 10 `agent-*` skills stay self-reported (no GitHub signal), and
-  oss/foreign/stargazing aren't trained on the verified path (no per-commit repo-meta fetch) — both
-  documented, not ranked deceptively.
+  are commit-derived (verifiable, incl. opensource/foreign/stargazing — per-repo meta is fetched);
+  the 10 `agent-*` skills stay self-reported (no GitHub signal).
 
 ## What changed in this pass
 
