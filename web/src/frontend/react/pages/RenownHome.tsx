@@ -15,7 +15,7 @@ type SummonPet = { seed: string; lookId: PetLookId };
 type Entry = { id?: string; name: string; login?: string; score?: number; weekXp?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number; activePetLookId?: string; petLookAssignments?: PetLookMap };
 // Board ids: well-known fixed strings + a "quirk:<name>" dynamic family for the
 // cope leaderboards (one per registered quirk in web/src/backend/quirks.ts).
-type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | "merit" | `quirk:${string}` | `merit:${"reviews" | "crossRepo" | "shipper" | "downloads" | "substance"}`;
+type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | "achievements" | "merit" | `quirk:${string}` | `merit:${"reviews" | "crossRepo" | "shipper" | "downloads" | "substance"}`;
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
 type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
@@ -624,6 +624,7 @@ const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => st
   { id: "pets-count", label: "Most pets", hint: "Total unique 1/1 creatures collected from your attributed commits.", statOf: (e) => `${e.petsCount ?? 0} pets`, seedOf: (e) => e.avatarSeed },
   { id: "rarest-pet", label: "Rarest pet", hint: "OpenRarity score of the rarest pet in your menagerie.", statOf: (e) => `${(e.rarestPetScore ?? 0).toFixed(2)} rarity`, seedOf: (e) => e.rarestPetSeed ?? e.avatarSeed },
   { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
+  { id: "achievements", label: "Achievements", hint: "Total achievements unlocked — the trophy cabinet. Ranks the most decorated devs on renown.", statOf: (e) => `${(e.ach ?? 0).toLocaleString()} unlocked`, seedOf: (e) => e.avatarSeed },
   { id: "rate-limited", label: "🤖 Most rate-limited", hint: "Most lovingly throttled by their providers. The cope is the achievement; the achievement is real.", statOf: (e) => `${(e.rateLimitCount ?? 0).toLocaleString()} 429s`, seedOf: (e) => e.avatarSeed },
 ];
 

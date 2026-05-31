@@ -230,10 +230,10 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
                 <h3 className="achGroupName">{cat}</h3>
                 <div className="achList">
                   {arr.map((a) => (
-                    <div key={a.id} className={`achChip tier-${a.tier}`} title={`${a.description} · ${a.unlockCount.toLocaleString()} other${a.unlockCount === 1 ? "" : "s"} earned this`}>
+                    <a key={a.id} href={`/achievement/${encodeURIComponent(a.id)}`} className={`achChip tier-${a.tier}`} style={{ textDecoration: "none", color: "inherit" }} title={`${a.description} · ${a.unlockCount.toLocaleString()} other${a.unlockCount === 1 ? "" : "s"} earned this — open its page`}>
                       <span className="achName">{a.name}</span>
                       <span className="achTier">{a.tier}</span>
-                    </div>
+                    </a>
                   ))}
                 </div>
               </div>

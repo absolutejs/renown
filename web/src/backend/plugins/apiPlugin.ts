@@ -141,6 +141,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         : board === "rarest-pet" ? players.rarestPetScore
         : board === "biggest-pet" ? players.biggestPetSize
         : board === "rate-limited" ? players.rateLimitCount
+        : board === "achievements" ? players.achievements
         : sql<number>`${players.verifiedScore} + ${players.meritScore}`   // default "score" board: base + attribution + merit
       );
       // Audience filter — server-side WHERE so the top-N count stays stable per audience.
