@@ -3,8 +3,8 @@
 // can't drift). Aggregates a player's last N days: renown earned (attribution delta — the same
 // metric the weekly leaderboard ranks by), verified-score delta, and achievements unlocked.
 // Read-only by login; safe to serve publicly. Returns null for an unknown login.
-import { and, desc, eq, sql } from "drizzle-orm";
-import { achievements, playerAchievements, playerAttributionSnapshots } from "../../../db/schema.ts";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { achievements, playerAchievements, playerAttributionSnapshots, players } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
 import { resolvePlayerByGithubLogin } from "./resolvePlayer.ts";
 import { gameDb } from "./sync.ts";
@@ -47,6 +47,39 @@ export const loadRecap = async (login: string, days = 7) => {
     rarestPetSeed: p.rarestPetSeed,
     newAchievements,
     snapshots: snaps.length,
+  };
+};
+
+// Weekly digest — every player who EARNED renown (positive 7-day attribution delta) in the
+// window, with their weekly gain + achievements unlocked + a link to their recap card. Powers the
+// opt-in weekly-recap webhook (cronPlugin) and the /api/recap-digest preview. The webhook's
+// delivery format (email / Slack / Discord) is operator-owned, same as the attestation digest —
+// this just builds the data. `origin` (optional) makes the recap links fully-qualified.
+export type WeeklyDigest = Awaited<ReturnType<typeof buildWeeklyDigest>>;
+export const buildWeeklyDigest = async (origin?: string, days = 7, limit = 200) => {
+  const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const weeklyDelta = sql<number>`(${players.attributionScore} - coalesce((select ${playerAttributionSnapshots.attributionScore} from ${playerAttributionSnapshots} where ${playerAttributionSnapshots.playerId} = ${players.id} and ${playerAttributionSnapshots.snapshotDate} >= ${cutoffDate} order by ${playerAttributionSnapshots.snapshotDate} asc limit 1), ${players.attributionScore}))`;
+  const rows = await gameDb.select({ id: players.id, login: players.githubLogin, score: players.verifiedScore, totalLevel: players.totalLevel, weekXp: weeklyDelta })
+    .from(players).where(and(eq(players.githubVerified, true), sql`${players.githubLogin} is not null`))
+    .orderBy(desc(weeklyDelta)).limit(limit);
+  const active = rows.filter((r) => Number(r.weekXp) > 0);
+  if (active.length === 0) return { weekOf: cutoffDate, players: [] as Array<{ login: string; weekXp: number; score: number; totalLevel: number; newAchievements: number; recapUrl?: string }> };
+
+  // New achievements per active player in the window (one grouped query, filtered to the set).
+  const achRows = await gameDb.select({ playerId: playerAchievements.playerId, n: sql<number>`count(*)::int` })
+    .from(playerAchievements)
+    .where(and(inArray(playerAchievements.playerId, active.map((r) => r.id)), sql`${playerAchievements.unlockedAt} >= ${cutoff}`))
+    .groupBy(playerAchievements.playerId);
+  const achMap = new Map(achRows.map((r) => [r.playerId, r.n]));
+  const base = origin?.replace(/\/$/, "");
+  return {
+    weekOf: cutoffDate,
+    players: active.map((r) => ({
+      login: r.login as string, weekXp: Number(r.weekXp), score: Number(r.score), totalLevel: r.totalLevel,
+      newAchievements: achMap.get(r.id) ?? 0,
+      ...(base ? { recapUrl: `${base}/recap/${encodeURIComponent(r.login as string)}` } : {}),
+    })),
   };
 };
 

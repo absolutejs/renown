@@ -11,6 +11,7 @@ import { and, eq, isNotNull, lt, or, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { players, playerAccounts } from "../../../../db/schema.ts";
 import { buildStaleAttestationDigest, deliverWebhook } from "../attestation.ts";
+import { buildWeeklyDigest } from "../recap.ts";
 import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, meritAchievementsToGrant } from "../merit.ts";
 import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
 import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
@@ -57,6 +58,23 @@ const postDigestIfConfigured = async () => {
   });
 };
 
+// Weekly "your week on renown" recap digest. POST to RENOWN_RECAP_WEBHOOK if set — every player
+// who earned renown this week, with their weekly gain + new achievements + a link to their recap
+// card. Like the attestation digest, delivery (email / Slack / Discord) is operator-owned; this
+// builds + posts the data. RENOWN_PUBLIC_URL makes the recap links fully-qualified.
+const postWeeklyRecapIfConfigured = async () => {
+  const url = process.env.RENOWN_RECAP_WEBHOOK;
+  if (!url) return;
+  const digest = await buildWeeklyDigest(process.env.RENOWN_PUBLIC_URL);
+  if (digest.players.length === 0) return;   // quiet week — nobody to nudge
+  await deliverWebhook(url, "weekly-recap-digest", {
+    event: "weekly-recap-digest",
+    generatedAt: new Date().toISOString(),
+    weekOf: digest.weekOf,
+    players: digest.players,
+  });
+};
+
 export const cronPlugin = () =>
   new Elysia({ name: "renown-cron" })
     .use(cron({
@@ -79,6 +97,14 @@ export const cronPlugin = () =>
       run: async () => {
         try { await postDigestIfConfigured(); }
         catch (e) { console.error("[renown:cron] attestation-expiring-digest failed", e); }
+      },
+    }))
+    .use(cron({
+      name: "weekly-recap-digest",
+      pattern: "0 13 * * 1",   // Mondays 13:00 UTC (offset from the attestation digest)
+      run: async () => {
+        try { await postWeeklyRecapIfConfigured(); }
+        catch (e) { console.error("[renown:cron] weekly-recap-digest failed", e); }
       },
     }))
     .use(cron({

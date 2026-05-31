@@ -10,7 +10,7 @@ import { achievements, aiAttestationEvents, playerAccounts, playerAchievements, 
 import { resolvePlayerByGithubLogin } from "../resolvePlayer.ts";
 import { fetchRepoImportance, scoreRepoForLogin } from "../repoScore.ts";
 import { computeVerifiedSkillXp } from "../skillScore.ts";
-import { loadRecap } from "../recap.ts";
+import { buildWeeklyDigest, loadRecap } from "../recap.ts";
 import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import { authIdentities, users } from "../../../db/schema.ts";
 import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
@@ -995,6 +995,11 @@ ${items}
       const data = await loadRecap(params.login, Number(query.days ?? 7));
       return data ?? { error: "not found" };
     })
+    // Preview the weekly recap digest the RENOWN_RECAP_WEBHOOK cron posts (everyone who earned
+    // renown this week). Public, read-only — same shape the webhook sends; the CLI/operators can
+    // eyeball it before wiring delivery. Recap links use this request's origin.
+    .get("/recap-digest", async ({ request, query }) =>
+      buildWeeklyDigest(new URL(request.url).origin, Math.max(1, Math.min(90, Number(query.days ?? 7)))))
     // Per-player attribution delta over the past N days (default 7). Used by AccountView's
     // "your growth this week" stat and by anything else that wants a window-relative number
     // without rebuilding the snapshot query. Returns the absolute current attribution_score
