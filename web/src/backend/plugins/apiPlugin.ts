@@ -87,10 +87,15 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         return rows.map((r) => ({ id: r.id, name: r.name, skill, xp: r.xp, level: levelForXp(r.xp) }));
       }
       if (query.project) {
-        const rows = await gameDb.select({ name: players.handle, xp: playerProjects.xp, commits: playerProjects.commits, lines: playerProjects.lines })
+        // Verified-first: rank by GitHub-scored verified_xp, then self-reported as fallback, and
+        // surface the verified numbers when present so a forged /submit can't top the board.
+        const rows = await gameDb.select({ name: players.handle, xp: playerProjects.xp, commits: playerProjects.commits, lines: playerProjects.lines, vXp: playerProjects.verifiedXp, vCommits: playerProjects.verifiedCommits, vLines: playerProjects.verifiedLines })
           .from(playerProjects).innerJoin(players, eq(players.id, playerProjects.playerId))
-          .where(eq(playerProjects.projectKey, String(query.project))).orderBy(desc(playerProjects.xp)).limit(n);
-        return rows.map((r) => ({ key: query.project, ...r }));
+          .where(eq(playerProjects.projectKey, String(query.project))).orderBy(desc(playerProjects.verifiedXp), desc(playerProjects.xp)).limit(n);
+        return rows.map((r) => {
+          const verified = Number(r.vXp) > 0;
+          return { key: query.project, name: r.name, verified, xp: verified ? Number(r.vXp) : Number(r.xp), commits: verified ? r.vCommits : r.commits, lines: verified ? Number(r.vLines) : Number(r.lines) };
+        });
       }
       // Boarded leaderboards: same player pool (github_verified), different sort. Same formula
       // for everyone, no special carve-outs — just a different axis of "best."
@@ -199,8 +204,11 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         if (!sc || sc.commits === 0) { results.push({ login, status: "no-commits" }); continue; }
         await gameDb.insert(projects).values({ key, name: repo, stars: sc.stars, oss: sc.oss })
           .onConflictDoUpdate({ target: projects.key, set: { stars: sql`greatest(${projects.stars}, excluded.stars)`, oss: sql`${projects.oss} or excluded.oss` } });
-        await gameDb.insert(playerProjects).values({ playerId: player.id, projectKey: key, xp: sc.xp, commits: sc.commits, lines: sc.lines, updatedAt: new Date() })
-          .onConflictDoUpdate({ target: [playerProjects.playerId, playerProjects.projectKey], set: { xp: sql`greatest(${playerProjects.xp}, excluded.xp)`, commits: sql`greatest(${playerProjects.commits}, excluded.commits)`, lines: sql`greatest(${playerProjects.lines}, excluded.lines)`, updatedAt: sql`now()` } });
+        // Writes the VERIFIED columns (GitHub-scored, the rank source) monotonically. Also seeds
+        // the self-reported columns on first insert so a CI-only contributor still has xp/commits/
+        // lines, but never lowers a self-reported value a player already submitted.
+        await gameDb.insert(playerProjects).values({ playerId: player.id, projectKey: key, xp: sc.xp, commits: sc.commits, lines: sc.lines, verifiedXp: sc.xp, verifiedCommits: sc.commits, verifiedLines: sc.lines, updatedAt: new Date() })
+          .onConflictDoUpdate({ target: [playerProjects.playerId, playerProjects.projectKey], set: { verifiedXp: sql`greatest(${playerProjects.verifiedXp}, excluded.verified_xp)`, verifiedCommits: sql`greatest(${playerProjects.verifiedCommits}, excluded.verified_commits)`, verifiedLines: sql`greatest(${playerProjects.verifiedLines}, excluded.verified_lines)`, updatedAt: sql`now()` } });
         results.push({ login, status: "scored", xp: sc.xp, commits: sc.commits, lines: sc.lines });
       }
       return { ok: true, repo: key, results };

@@ -22,12 +22,12 @@ const PetSprite = ({ seed, box }: { seed: string; box: number }) => (
   <span style={{ width: box, height: box, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: petSvgHtml(seed, box) }} />
 );
 
-type Contributor = { login: string; handle: string; avatarSeed: string | null; isAi: boolean; tier: string; xp: number; commits: number; lines: number };
+type Contributor = { login: string; handle: string; avatarSeed: string | null; isAi: boolean; tier: string; xp: number; commits: number; lines: number; verified: boolean };
 type ProjectForUI = {
   key: string; owner: string; repo: string; name: string; stars: number; oss: boolean;
   sort: "xp" | "commits" | "lines";
   contributors: Contributor[]; topContributor: Contributor | null;
-  totals: { devs: number; xp: number; commits: number; lines: number };
+  totals: { devs: number; verifiedDevs: number; xp: number; commits: number; lines: number };
 };
 
 const fmt = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 10_000 ? `${Math.round(n / 1_000)}k` : n.toLocaleString("en-US"));
@@ -126,7 +126,11 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
         )}
         {project.contributors.length > 0 && (
           <p className="muted" style={{ marginTop: 6, fontSize: 12.5 }}>
-            Per-repo XP is contributor-reported via the CLI. <a href="https://github.com/absolutejs/renown#github-action--auto-sync-from-ci" target="_blank" rel="noreferrer" style={{ color: "#c4b5fd" }}>Add the renown Action</a> for GitHub-verified scoring →
+            {project.totals.verifiedDevs === project.contributors.length
+              ? <><span style={{ color: "#86efac" }}>✓</span> GitHub-verified via the renown Action.</>
+              : project.totals.verifiedDevs > 0
+                ? <><span style={{ color: "#86efac" }}>✓</span> = GitHub-verified via CI · others self-reported. <a href="https://github.com/absolutejs/renown#github-action--auto-sync-from-ci" target="_blank" rel="noreferrer" style={{ color: "#c4b5fd" }}>Add the renown Action</a> →</>
+                : <>Per-repo XP is contributor-reported via the CLI. <a href="https://github.com/absolutejs/renown#github-action--auto-sync-from-ci" target="_blank" rel="noreferrer" style={{ color: "#c4b5fd" }}>Add the renown Action</a> for GitHub-verified scoring →</>}
           </p>
         )}
         {project.contributors.length === 0
@@ -139,7 +143,7 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
                 <a key={c.login} href={`/profile/${encodeURIComponent(c.login)}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderRadius: 8, textDecoration: "none", color: "inherit", background: mine ? "rgba(134,239,172,.10)" : "rgba(255,255,255,.03)", border: `1px solid ${mine ? "rgba(134,239,172,.4)" : "rgba(255,255,255,.06)"}` }}>
                   <span style={{ width: 28, textAlign: "right", fontWeight: 700, opacity: 0.8 }}>{["🥇", "🥈", "🥉"][i] ?? i + 1}</span>
                   {c.avatarSeed && <PetSprite seed={c.avatarSeed} box={40} />}
-                  <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{c.login}{c.isAi && <span style={{ fontSize: 11, opacity: 0.7 }}> 🤖</span>}{mine && <span style={{ color: "#86efac", fontSize: 12, fontWeight: 700 }}> ← you</span>}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>@{c.login}{c.verified && <span title="GitHub-verified via CI" style={{ color: "#86efac", fontSize: 12 }}> ✓</span>}{c.isAi && <span style={{ fontSize: 11, opacity: 0.7 }}> 🤖</span>}{mine && <span style={{ color: "#86efac", fontSize: 12, fontWeight: 700 }}> ← you</span>}</span>
                   {(() => {
                     const stat = { xp: `${fmt(c.xp)} XP`, commits: `${fmt(c.commits)} commits`, lines: `${fmt(c.lines)} lines` } as const;
                     const rest = (["xp", "commits", "lines"] as const).filter((s) => s !== project.sort);

@@ -54,19 +54,20 @@ These are labelled as self-reported in the UI and never feed the headline score.
 
 ## Known residual launch blockers
 
-These rank **publicly off self-reported data** and are the real "before public launch" work. They
-are bounded (clamps above) but not yet server-verified:
-
 1. **Skill boards (`/top?skill=<id>`)** rank by `players.skillXp[skill]`, which comes from
    `/api/submit`. A determined client can still top a single skill board (within the clamp ceiling).
    *Fix:* recompute skill XP server-side (from GitHub language stats / commit analysis), or drop the
    public skill board until then. Until fixed, the UI should label it "your reported practice," not a
-   ranking.
-2. **Project boards (`/top?project=` and the `/project/:owner/:repo` page)** rank `player_projects.xp`.
-   The CI path (`/api/ci/repo-sync`) writes *verified* xp, but `/api/submit` can still seed a
-   (player, repo) row with self-reported xp (bounded by `commits × 300`). *Fix:* split
-   `verified_xp` from self-reported in `player_projects` and rank by verified; or make project boards
-   CI-only. Tracked as the next hardening step.
+   ranking. **← the last remaining spoofable-and-ranked surface.**
+
+## Resolved
+
+- **Project boards (`/top?project=` and the `/project/:owner/:repo` page)** — *fixed.* `player_projects`
+  now has GitHub-scored `verified_{xp,commits,lines}` columns (written only by `/api/ci/repo-sync`,
+  monotonic). Both boards rank **verified-first** (verified column desc, self-reported as fallback) and
+  surface the verified numbers with a ✓, so a forged `/submit` can never outrank a CI-verified
+  contributor. Self-reported `/submit` xp still shows for contributors a CI sync hasn't covered yet,
+  clearly marked, and is bounded by `commits × 300`.
 
 ## What changed in this pass
 

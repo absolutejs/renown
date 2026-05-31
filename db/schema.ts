@@ -171,12 +171,15 @@ export const projects = pgTable("projects", {
 export const playerProjects = pgTable("player_projects", {
   playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
   projectKey: text("project_key").notNull().references(() => projects.key, { onDelete: "cascade" }),
+  // Self-reported (from POST /api/submit) — advisory, NOT trusted for public ranking.
   xp: bigint("xp", { mode: "number" }).notNull().default(0),
   commits: integer("commits").notNull().default(0),
   lines: bigint("lines", { mode: "number" }).notNull().default(0),
-  // NOTE: server-verified columns (verified_xp/commits/lines) are prepared in
-  // db/migrate-add-verified-xp.ts — added here once that migration is applied to the DB, so the
-  // /project board can rank by GitHub-scored XP instead of self-reported /submit XP.
+  // Server-verified (from POST /api/ci/repo-sync — scored from real GitHub commits). The
+  // /project board ranks by these so a forged /submit can't top a repo. Monotonic (greatest).
+  verifiedXp: bigint("verified_xp", { mode: "number" }).notNull().default(0),
+  verifiedCommits: integer("verified_commits").notNull().default(0),
+  verifiedLines: bigint("verified_lines", { mode: "number" }).notNull().default(0),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.projectKey] }) }));
 

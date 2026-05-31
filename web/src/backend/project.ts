@@ -10,6 +10,7 @@ import { gameDb } from "./sync.ts";
 export type ProjectData = Awaited<ReturnType<typeof loadProject>>;
 export type ProjectSort = "xp" | "commits" | "lines";
 const SORT_COL = { xp: playerProjects.xp, commits: playerProjects.commits, lines: playerProjects.lines } as const;
+const VERIFIED_COL = { xp: playerProjects.verifiedXp, commits: playerProjects.verifiedCommits, lines: playerProjects.verifiedLines } as const;
 export const normalizeProjectSort = (v: unknown): ProjectSort => (v === "commits" || v === "lines" ? v : "xp");
 
 export const loadProject = async (key: string, sort: ProjectSort = "xp") => {
@@ -17,29 +18,43 @@ export const loadProject = async (key: string, sort: ProjectSort = "xp") => {
   const proj = (await gameDb.select().from(projects).where(sql`lower(${projects.key}) = ${k}`).limit(1))[0];
   if (!proj) return null;
 
-  // Contributors to THIS repo, ranked by the chosen metric (default per-project XP, the craft
-  // score). Verified players only.
+  // Contributors to THIS repo. Ranked VERIFIED-FIRST: by the chosen metric's GitHub-scored
+  // (verified_*) column, then self-reported as a fallback — so a CI-verified contributor always
+  // outranks a self-reported /submit, no matter how inflated the self-report. Verified players only.
   const rows = await gameDb.select({
     login: players.githubLogin, handle: players.handle, avatarSeed: players.avatarSeed,
     isAi: players.isAi, tier: players.tier,
     xp: playerProjects.xp, commits: playerProjects.commits, lines: playerProjects.lines,
+    vXp: playerProjects.verifiedXp, vCommits: playerProjects.verifiedCommits, vLines: playerProjects.verifiedLines,
   }).from(playerProjects).innerJoin(players, eq(players.id, playerProjects.playerId))
     .where(and(sql`lower(${playerProjects.projectKey}) = ${k}`, eq(players.githubVerified, true)))
-    .orderBy(desc(SORT_COL[sort])).limit(50);
+    .orderBy(desc(VERIFIED_COL[sort]), desc(SORT_COL[sort])).limit(50);
 
+  // Effective per-contributor numbers: prefer the verified (GitHub-scored) values; fall back to
+  // self-reported for contributors a CI sync hasn't covered yet. `verified` flags which is which.
+  const eff = (r: typeof rows[number]) => {
+    const verified = Number(r.vXp) > 0;
+    return {
+      verified,
+      xp: verified ? Number(r.vXp) : Number(r.xp),
+      commits: verified ? r.vCommits : r.commits,
+      lines: verified ? Number(r.vLines) : Number(r.lines),
+    };
+  };
   // Ranked list = contributors with a github login (so each row links to a real profile);
   // totals count every verified contributor (incl. login-less rows) so the headcount is honest.
-  const contributors = rows.filter((r) => r.login).map((r) => ({
-    login: r.login!, handle: r.handle, avatarSeed: r.avatarSeed, isAi: r.isAi,
-    tier: normalizeTier(r.tier), xp: Number(r.xp), commits: r.commits, lines: Number(r.lines),
-  }));
+  const contributors = rows.filter((r) => r.login).map((r) => {
+    const e = eff(r);
+    return { login: r.login!, handle: r.handle, avatarSeed: r.avatarSeed, isAi: r.isAi, tier: normalizeTier(r.tier), ...e };
+  });
   const [owner, ...rest] = proj.key.split("/");
   const repo = rest.join("/") || proj.key;
   const totals = {
     devs: rows.length,
-    xp: rows.reduce((s, r) => s + Number(r.xp), 0),
-    commits: rows.reduce((s, r) => s + r.commits, 0),
-    lines: rows.reduce((s, r) => s + Number(r.lines), 0),
+    verifiedDevs: rows.filter((r) => Number(r.vXp) > 0).length,
+    xp: rows.reduce((s, r) => s + eff(r).xp, 0),
+    commits: rows.reduce((s, r) => s + eff(r).commits, 0),
+    lines: rows.reduce((s, r) => s + eff(r).lines, 0),
   };
   return {
     key: proj.key, owner, repo, name: proj.name, stars: proj.stars, oss: proj.oss, sort,
