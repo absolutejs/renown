@@ -252,7 +252,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     // no explicit prefs still gets the canonical events without an extra round-trip.
     .post("/push-prefs", ({ body, protectRoute, status }) =>
       protectRoute(async (user) => {
-        const b = (body ?? {}) as { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean };
+        const b = (body ?? {}) as { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean };
         const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
         const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
         if (!ghLogin) return status("Bad Request", "link GitHub first");

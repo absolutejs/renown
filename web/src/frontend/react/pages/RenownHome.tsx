@@ -24,7 +24,7 @@ type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | n
 type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean; expiresAt?: string };
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
 type WebauthnCredential = { id: string; label: string; transports: string[]; createdAt: string; lastUsedAt: string | null };
-type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean };
+type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean };
 type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; activePetLookId?: string; petLookAssignments?: PetLookMap; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[]; rateLimitCount?: number; quirks?: Record<string, number> };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievements?: AchievementRow[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
@@ -1371,6 +1371,8 @@ const WeeklyGrowthStat = ({ login }: { login: string }) => {
 // so flipping these is opting OUT of specific event kinds — most users won't touch it.
 type PushPrefRow = { key: keyof PushPrefs; label: string; desc: string };
 const PUSH_PREF_ROWS: PushPrefRow[] = [
+  { key: "levelUp", label: "Level up", desc: "Push when your total level climbs — your progression, the moment it lands." },
+  { key: "achievement", label: "Achievement unlocked", desc: "Push when you earn a new achievement." },
   { key: "verifiedAttestation", label: "Verified AI attestation", desc: "Push when any account on renown becomes cryptographically-verified AI." },
   { key: "newcomerToBoard", label: "New leaderboard entry", desc: "Push when a fresh login lands in the top 10 (future event)." },
   { key: "mention", label: "Profile mention", desc: "Push when someone interacts with your profile (future event)." },

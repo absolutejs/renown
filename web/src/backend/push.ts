@@ -8,19 +8,21 @@
 // delete the row, so the table self-prunes; transient errors leave the row alone for
 // the next event to retry.
 
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import webpush from "web-push";
-import { players, pushSubscriptions } from "../../../db/schema.ts";
+import { achievements, players, pushSubscriptions } from "../../../db/schema.ts";
 import { gameDb } from "./sync.ts";
 
 // Push event kinds → matching field on players.push_prefs. Absence in prefs reads as
 // opted-in (default-true semantic). Adding a new event kind = add a tuple here + the
 // matching field in the schema's push_prefs type.
-export type PushEventKind = "verified-attestation" | "newcomer-to-board" | "mention";
+export type PushEventKind = "verified-attestation" | "newcomer-to-board" | "mention" | "level-up" | "achievement";
 const PREF_FIELD: Record<PushEventKind, string> = {
   "verified-attestation": "verifiedAttestation",
   "newcomer-to-board": "newcomerToBoard",
   "mention": "mention",
+  "level-up": "levelUp",
+  "achievement": "achievement",
 };
 
 let configured = false;
@@ -66,6 +68,43 @@ export const sendPushToPlayer = async (playerId: string, payload: PushPayload): 
   if (!ensureConfigured()) return { sent: 0, pruned: 0 };
   const subs = await gameDb.select().from(pushSubscriptions).where(eq(pushSubscriptions.playerId, playerId));
   return sendPushToSubscriptions(subs, payload);
+};
+
+// Like sendPushToPlayer, but only if the player hasn't opted out of this event kind
+// (default opted-in). Used for the per-player celebration events below.
+export const sendPushToPlayerGated = async (playerId: string, event: PushEventKind, payload: PushPayload): Promise<{ sent: number; pruned: number }> => {
+  if (!ensureConfigured()) return { sent: 0, pruned: 0 };
+  const field = PREF_FIELD[event];
+  const subs = await gameDb.select({ id: pushSubscriptions.id, endpoint: pushSubscriptions.endpoint, p256dh: pushSubscriptions.p256dh, auth: pushSubscriptions.auth })
+    .from(pushSubscriptions)
+    .innerJoin(players, eq(players.id, pushSubscriptions.playerId))
+    .where(and(eq(pushSubscriptions.playerId, playerId), sql`coalesce((${players.pushPrefs} ->> ${field})::boolean, true)`));
+  return sendPushToSubscriptions(subs, payload);
+};
+
+// --- celebration notifiers: called from the sync layer when progression actually lands ---
+
+// "You reached level N." Fired from persistPlayer when a player's total level crosses up.
+export const notifyLevelUp = async (playerId: string, totalLevel: number): Promise<void> => {
+  if (!isPushConfigured()) return;
+  await sendPushToPlayerGated(playerId, "level-up", {
+    title: "Level up! 🎉",
+    body: `You reached total level ${totalLevel}.`,
+    url: "/",
+    tag: `level-${playerId}`,   // a burst of submits collapses to one notification
+  }).catch((e) => console.error("renown: level-up push failed", e));
+};
+
+// "Achievement unlocked: X" (or "+N achievements" for a burst). Fired wherever new
+// achievement rows are inserted for a player. Looks up names/tiers for the message.
+export const notifyAchievementUnlock = async (playerId: string, ids: string[]): Promise<void> => {
+  if (!isPushConfigured() || ids.length === 0) return;
+  const rows = await gameDb.select({ id: achievements.id, name: achievements.name, tier: achievements.tier }).from(achievements).where(inArray(achievements.id, ids));
+  if (rows.length === 0) return;
+  const payload: PushPayload = rows.length === 1
+    ? { title: "Achievement unlocked 🏆", body: rows[0].name, url: `/achievement/${encodeURIComponent(rows[0].id)}`, tag: `ach-${rows[0].id}` }
+    : { title: `+${rows.length} achievements 🏆`, body: rows.slice(0, 3).map((r) => r.name).join(", ") + (rows.length > 3 ? `, +${rows.length - 3} more` : ""), url: "/", tag: `ach-burst-${playerId}` };
+  await sendPushToPlayerGated(playerId, "achievement", payload).catch((e) => console.error("renown: achievement push failed", e));
 };
 
 const sendPushToSubscriptions = async (subs: { id: string; endpoint: string; p256dh: string; auth: string }[], payload: PushPayload): Promise<{ sent: number; pruned: number }> => {

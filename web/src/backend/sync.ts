@@ -12,6 +12,9 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { createReactiveHub, createWriteBehindCache } from "@absolutejs/sync";
 import { achievements, playerAchievements, playerProjects, players, projects } from "../../../db/schema.ts";
+// Celebration push notifiers. push.ts imports gameDb from here too; the cycle is safe because
+// both sides only touch the other's exports at call time (ESM live bindings), never at init.
+import { notifyAchievementUnlock, notifyLevelUp } from "./push.ts";
 
 export const gameDb = drizzle(neon(process.env.DATABASE_URL!));
 export const hub = createReactiveHub();
@@ -38,6 +41,9 @@ const sanitizeSkillXp = (m: Record<string, number> | undefined) =>
 
 // the real Neon write — runs in the background, coalesced to once per player per window
 const persistPlayer = async (id: string, e: PlayerSnapshot) => {
+  // Snapshot the prior total level so we can fire a level-up push when it crosses up. undefined
+  // for a brand-new player → no push on first import (we'd otherwise "congratulate" their backlog).
+  const prevTotalLevel = (await gameDb.select({ totalLevel: players.totalLevel }).from(players).where(eq(players.id, id)).limit(1))[0]?.totalLevel;
   await gameDb.insert(players).values({
     id, handle: String(e.name || "anon").slice(0, MAX_HANDLE), level: clampInt(e.level, 100_000), xp: clampInt(e.xp, 5_000_000_000),
     streak: clampInt(e.streak, 100_000), activeSec: clampInt(e.active, 4_000_000_000), achievements: clampInt(e.ach, 50_000), ossCommits: clampInt(e.oss, 5_000_000),
@@ -74,9 +80,15 @@ const persistPlayer = async (id: string, e: PlayerSnapshot) => {
       if (ins.length) {
         const v = (await gameDb.select({ ok: players.githubVerified }).from(players).where(eq(players.id, id)).limit(1))[0];
         if (v?.ok) await gameDb.update(achievements).set({ unlockCount: sql`${achievements.unlockCount} + 1` }).where(inArray(achievements.id, ins.map((r) => r.id)));
+        // Celebrate the newly-earned ones (only on an incremental submit, not a first-ever import:
+        // prevTotalLevel===undefined means the player row didn't exist before this persist).
+        if (prevTotalLevel !== undefined) void notifyAchievementUnlock(id, ins.map((r) => r.id));
       }
     }
   }
+  // Level-up push — only when an existing player's total level actually crossed up.
+  const newTotalLevel = clampInt(e.totalLevel, 1_000_000);
+  if (prevTotalLevel !== undefined && newTotalLevel > prevTotalLevel) void notifyLevelUp(id, newTotalLevel);
 };
 
 export const playerCache = createWriteBehindCache<string, PlayerSnapshot>({
@@ -119,5 +131,6 @@ export const grantAchievements = async (playerId: string, ids: string[]): Promis
   // /api/recent-unlocks to get the display fields. Re-fetch is cheap (one
   // indexed query, capped at 50 rows).
   hub.publish("unlock", { playerId, ids: inserted.map((r) => r.id), at: new Date().toISOString() });
+  void notifyAchievementUnlock(playerId, inserted.map((r) => r.id));   // celebration push (pref-gated, no-ops without VAPID)
   return inserted.map((r) => r.id);
 };
