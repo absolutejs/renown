@@ -79,19 +79,21 @@ export const loadTopProjects = async (limit = 12, window: ProjectWindow = "all")
   const where = recent
     ? and(eq(players.githubVerified, true), gte(playerProjects.updatedAt, new Date(Date.now() - WEEK_MS)))
     : eq(players.githubVerified, true);
-  const xpSum = sql`sum(${playerProjects.xp})`;
+  // Effective XP = the verified (GitHub-scored) value when present, else self-reported — the same
+  // verified-preferred rule the /project board uses, so trending reflects trustworthy renown.
+  const effXpSum = sql<number>`coalesce(sum(case when ${playerProjects.verifiedXp} > 0 then ${playerProjects.verifiedXp} else ${playerProjects.xp} end), 0)`;
   const devCount = sql`count(distinct ${playerProjects.playerId})`;
   const agg = await gameDb.select({
     key: playerProjects.projectKey, name: projects.name, stars: projects.stars, oss: projects.oss,
     devs: sql<number>`count(distinct ${playerProjects.playerId})::int`,
-    xp: sql<number>`coalesce(sum(${playerProjects.xp}), 0)`,
-    commits: sql<number>`coalesce(sum(${playerProjects.commits}), 0)::int`,
+    xp: effXpSum,
+    commits: sql<number>`coalesce(sum(case when ${playerProjects.verifiedCommits} > 0 then ${playerProjects.verifiedCommits} else ${playerProjects.commits} end), 0)::int`,
   }).from(playerProjects)
     .innerJoin(projects, eq(projects.key, playerProjects.projectKey))
     .innerJoin(players, eq(players.id, playerProjects.playerId))
     .where(where)
     .groupBy(playerProjects.projectKey, projects.name, projects.stars, projects.oss)
-    .orderBy(...(recent ? [desc(devCount), desc(xpSum)] : [desc(xpSum)]))
+    .orderBy(...(recent ? [desc(devCount), desc(effXpSum)] : [desc(effXpSum)]))
     .limit(limit);
   if (agg.length === 0) return [];
 
