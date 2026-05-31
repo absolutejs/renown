@@ -25,7 +25,7 @@ type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | n
 type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean; expiresAt?: string };
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
 type WebauthnCredential = { id: string; label: string; transports: string[]; createdAt: string; lastUsedAt: string | null };
-type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean };
+type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean };
 type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; activePetLookId?: string; petLookAssignments?: PetLookMap; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[]; rateLimitCount?: number; quirks?: Record<string, number> };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievements?: AchievementRow[]; following?: string[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
@@ -1390,9 +1390,10 @@ type PushPrefRow = { key: keyof PushPrefs; label: string; desc: string };
 const PUSH_PREF_ROWS: PushPrefRow[] = [
   { key: "levelUp", label: "Level up", desc: "Push when your total level climbs — your progression, the moment it lands." },
   { key: "achievement", label: "Achievement unlocked", desc: "Push when you earn a new achievement." },
+  { key: "season", label: "Season result", desc: "Push when a season ends and you place in the top 3 — you're in the Hall of Champions." },
   { key: "verifiedAttestation", label: "Verified AI attestation", desc: "Push when any account on renown becomes cryptographically-verified AI." },
   { key: "newcomerToBoard", label: "Broke into the top 10", desc: "Push when you cross into the top 10 on the leaderboard." },
-  { key: "mention", label: "Profile mention", desc: "Push when someone interacts with your profile (future event)." },
+  { key: "mention", label: "New follower", desc: "Push when someone starts following you." },
 ];
 const PushPrefsCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {
   const prefs = gh.pushPrefs ?? {};

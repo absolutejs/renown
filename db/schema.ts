@@ -83,7 +83,7 @@ export const players = pgTable("players", {
   // off; server filters fan-outs accordingly. Adding new event kinds is just a new
   // field here + a check at the relevant publish site — existing users default to
   // opted-in for the new event (acceptable for a small notification surface).
-  pushPrefs: jsonb("push_prefs").$type<{ verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean }>().notNull().default({}),
+  pushPrefs: jsonb("push_prefs").$type<{ verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean }>().notNull().default({}),
   // Merit signals — the "real, meritorious dev work" half of the pitch. Unlike the
   // commit-count-driven attribution_score (which is real but easy to inflate with
   // co-author spam), these signals are observably hard to game: PR reviews require

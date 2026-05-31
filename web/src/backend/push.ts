@@ -16,13 +16,14 @@ import { gameDb } from "./sync.ts";
 // Push event kinds → matching field on players.push_prefs. Absence in prefs reads as
 // opted-in (default-true semantic). Adding a new event kind = add a tuple here + the
 // matching field in the schema's push_prefs type.
-export type PushEventKind = "verified-attestation" | "newcomer-to-board" | "mention" | "level-up" | "achievement";
+export type PushEventKind = "verified-attestation" | "newcomer-to-board" | "mention" | "level-up" | "achievement" | "season";
 const PREF_FIELD: Record<PushEventKind, string> = {
   "verified-attestation": "verifiedAttestation",
   "newcomer-to-board": "newcomerToBoard",
   "mention": "mention",
   "level-up": "levelUp",
   "achievement": "achievement",
+  "season": "season",
 };
 
 let configured = false;
@@ -127,6 +128,29 @@ export const notifyNewcomerToBoard = async (playerId: string, prevCombined: numb
     url: "/",
     tag: `newcomer-${playerId}`,
   }).catch((e) => console.error("renown: newcomer push failed", e));
+};
+
+// "@x followed you." Fired from the /follow route; gated on the 'mention' pref (someone
+// interacting with you). Links to the new follower's circle.
+export const notifyFollowed = async (followeePlayerId: string, followerLogin: string): Promise<void> => {
+  if (!isPushConfigured()) return;
+  await sendPushToPlayerGated(followeePlayerId, "mention", {
+    title: "New follower 👀",
+    body: `@${followerLogin} is now following you on renown.`,
+    url: `/rivals/${encodeURIComponent(followerLogin)}`,
+    tag: `follow-${followerLogin}-${followeePlayerId}`,
+  }).catch((e) => console.error("renown: follow push failed", e));
+};
+
+// "🏆 You won {month}!" Fired from finalizeSeason when a season's champions are crowned.
+export const notifySeasonWon = async (playerId: string, label: string, rank: number): Promise<void> => {
+  if (!isPushConfigured()) return;
+  await sendPushToPlayerGated(playerId, "season", {
+    title: rank === 1 ? `🏆 You won ${label}!` : `Season ${label} — #${rank}!`,
+    body: rank === 1 ? "You topped the renown season — enshrined in the Hall of Champions." : `You placed #${rank} this season. In the Hall of Champions.`,
+    url: "/season",
+    tag: `season-${label}-${playerId}`,
+  }).catch((e) => console.error("renown: season push failed", e));
 };
 
 const sendPushToSubscriptions = async (subs: { id: string; endpoint: string; p256dh: string; auth: string }[], payload: PushPayload): Promise<{ sent: number; pruned: number }> => {

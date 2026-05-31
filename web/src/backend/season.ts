@@ -6,6 +6,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { players, seasonChampions } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
+import { notifySeasonWon } from "./push.ts";
 import { gameDb } from "./sync.ts";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -48,9 +49,12 @@ const finalizeSeason = async (seasonId: string, start: string, endExclusive: str
     LIMIT 3
   `)).rows as unknown as { player_id: string; gain: number; login: string | null; handle: string }[];
   if (rows.length === 0) return;
-  await gameDb.insert(seasonChampions)
+  const inserted = await gameDb.insert(seasonChampions)
     .values(rows.map((r, i) => ({ season: seasonId, rank: i + 1, playerId: r.player_id, login: r.login, handle: r.handle, gain: Number(r.gain) })))
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ playerId: seasonChampions.playerId, rank: seasonChampions.rank });
+  const label = labelFor(seasonId);
+  for (const c of inserted) void notifySeasonWon(c.playerId, label, c.rank);   // crown the champions
 };
 
 export const loadSeason = async (n = 25): Promise<Season> => {

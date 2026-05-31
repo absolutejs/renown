@@ -9,6 +9,7 @@ import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
 import { achievements as achievementsTable, follows, playerAchievements, players, pushSubscriptions, webauthnCredentials } from "../../../../db/schema.ts";
 import { getFollowingLogins } from "../rivals.ts";
+import { notifyFollowed } from "../push.ts";
 import { authIdentities } from "../../../db/schema";
 import type { SchemaType, User } from "../../../db/schema";
 import { SignJWT } from "jose";
@@ -255,7 +256,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     // no explicit prefs still gets the canonical events without an extra round-trip.
     .post("/push-prefs", ({ body, protectRoute, status }) =>
       protectRoute(async (user) => {
-        const b = (body ?? {}) as { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean };
+        const b = (body ?? {}) as { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean };
         const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
         const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
         if (!ghLogin) return status("Bad Request", "link GitHub first");
@@ -279,7 +280,8 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const target = await resolvePlayerByGithubLogin(login);
         if (!target) return status("Not Found", "no such dev on renown");
         if (target.id === me.id) return status("Bad Request", "can't follow yourself");
-        await gameDb.insert(follows).values({ followerId: me.id, followeeId: target.id }).onConflictDoNothing();
+        const ins = await gameDb.insert(follows).values({ followerId: me.id, followeeId: target.id }).onConflictDoNothing().returning({ f: follows.followerId });
+        if (ins.length > 0) void notifyFollowed(target.id, me.githubLogin ?? "someone");   // push only on a NEW follow
         return { ok: true, following: true, login };
       }),
     )
