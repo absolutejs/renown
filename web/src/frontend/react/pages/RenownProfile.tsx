@@ -159,6 +159,7 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
             ? <SinglePet seed={profile.avatarSeed} hero lookId={resolveProfilePetLook(profile.avatarSeed, profile.activePetLookId, profile.petLookAssignments ?? {})} />
             : <div className="petCanvas profileAvatarEmpty"><span className="muted">no avatar pet yet</span></div>}
         </div>
+        {profile.avatarSeed && <p style={{ textAlign: "center", marginTop: 6 }}><a href={`/pet/${profile.avatarSeed}`} className="muted" style={{ fontSize: 12, textDecoration: "none" }}>View this pet →</a></p>}
         <div className="profileStats">
           <div className="stat"><span className="num">{profile.petsCount.toLocaleString()}</span><span className="lbl">pets owned</span></div>
           <div className="stat"><span className="num">{profile.rarestPetScore.toFixed(2)}</span><span className="lbl">rarest pet</span></div>
@@ -211,7 +212,10 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
           <h2>Showcase <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {profile.showcaseSeeds.length} {profile.showcaseSeeds.length === 1 ? "pet" : "pets"}</span></h2>
           <div className="profileShowcase">
             {profile.showcaseSeeds.map((seed) => (
-              <div className="petCard" key={seed}><SinglePet seed={seed} lookId={resolveProfilePetLook(seed, profile.activePetLookId, profile.petLookAssignments ?? {})} /></div>
+              <div className="petCard" key={seed}>
+                <SinglePet seed={seed} lookId={resolveProfilePetLook(seed, profile.activePetLookId, profile.petLookAssignments ?? {})} />
+                <a href={`/pet/${seed}`} className="muted" style={{ display: "block", textAlign: "center", fontSize: 12, marginTop: 6, textDecoration: "none" }}>View pet →</a>
+              </div>
             ))}
           </div>
         </section>

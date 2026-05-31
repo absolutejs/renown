@@ -18,9 +18,10 @@ const petSvgHtml = (seed: string, box: number) => {
   const { svg, width, height } = spriteToSvg(generate(seed), { box });
   return `<svg width="${width.toFixed(0)}" height="${height.toFixed(0)}" viewBox="0 0 ${width.toFixed(1)} ${height.toFixed(1)}" xmlns="http://www.w3.org/2000/svg" style="display:block">${svg}</svg>`;
 };
-const PetSprite = ({ seed, box }: { seed: string; box: number }) => (
-  <span style={{ width: box, height: box, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: petSvgHtml(seed, box) }} />
-);
+const PetSprite = ({ seed, box, href }: { seed: string; box: number; href?: string }) => {
+  const sprite = <span style={{ width: box, height: box, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: petSvgHtml(seed, box) }} />;
+  return href ? <a href={href} title="Open this pet's page" style={{ display: "inline-flex" }}>{sprite}</a> : sprite;
+};
 
 type Contributor = { login: string; handle: string; avatarSeed: string | null; isAi: boolean; tier: string; xp: number; commits: number; lines: number; verified: boolean };
 type ProjectForUI = {
@@ -96,7 +97,7 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
         </div>
         {project.topContributor?.avatarSeed && (
           <div style={{ textAlign: "center", flexShrink: 0 }}>
-            <PetSprite seed={project.topContributor.avatarSeed} box={96} />
+            <PetSprite seed={project.topContributor.avatarSeed} box={96} href={`/pet/${project.topContributor.avatarSeed}`} />
             <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>top · @{project.topContributor.login}</div>
           </div>
         )}
