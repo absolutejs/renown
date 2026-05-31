@@ -40,8 +40,11 @@ const sessionGenerator = (request: Request, server: Parameters<typeof ipGenerato
 const path = (request: Request) => new URL(request.url).pathname;
 
 // The expensive GitHub-API / identity paths (cost real money / GitHub quota).
-const EXPENSIVE = ["/api/verify", "/api/cli/link", "/api/m2m/recompute"];
+const EXPENSIVE = ["/api/verify", "/api/cli/link", "/api/m2m/recompute", "/api/ci/repo-sync"];
 const isExpensive = (p: string) => EXPENSIVE.some((e) => p === e);
+// Unauthenticated self-report writes — gameplay submits land here. Bounded so a single source
+// can't spam-farm fake players / rapid achievement claims (see docs/trust-model.md).
+const isWrite = (p: string) => p === "/api/submit";
 // OAuth + token entry points (credential surface bots probe).
 const isAuthEntry = (p: string) => p.startsWith("/oauth2/");
 
@@ -61,6 +64,13 @@ const anonRateLimit = rateLimit({
 const expensiveRateLimit = rateLimit({
   duration: FIFTEEN_MIN, max: 30, generator: sessionGenerator, scoping: "global",
   skip: (request) => !isExpensive(path(request)),
+});
+
+// Gameplay submit bucket — generous enough for legit heartbeats (well under 2/s) but bounds a
+// single session/IP from spam-creating players or hammering the rarity counter.
+const writeRateLimit = rateLimit({
+  duration: MIN, max: 120, generator: sessionGenerator, scoping: "global",
+  skip: (request) => !isWrite(path(request)),
 });
 
 // OAuth / token entry points: small per-IP bucket.
@@ -92,6 +102,7 @@ export const rateLimiting = () =>
     .use(authedRateLimit)
     .use(anonRateLimit)
     .use(expensiveRateLimit)
+    .use(writeRateLimit)
     .use(authEntryRateLimit)
     .onRequest(async ({ request, status }) => {
       if (!GUARDED(path(request))) return;

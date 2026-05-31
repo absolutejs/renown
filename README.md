@@ -96,6 +96,8 @@ Locally, `renown ci-sync --endpoint <url>` does the same against a `GITHUB_*`-po
 - [x] GitHub Action — auto-sync contributors' renown from CI (`renown ci-sync`)
 - [x] CI workflow — typecheck + tests gate every PR; renown dogfoods its own sync
 - [x] Shareable "your week" recap card + page (`/recap/:login`) with an OG image
+- [x] Per-user README badge (`/profile/:login/badge.svg`) with your pet
+- [x] Trust model documented + hardened ([docs/trust-model.md](docs/trust-model.md)): submit clamps, monotonic boards, verified-gated rarity, rate limits
 - [ ] Wire the TUI to show live rarity % from the server
 - [ ] Editor plugins (VS Code first — we already ship `absolutejs-vscode-extension`)
-- [ ] Auth / anti-cheat on the server before public launch
+- [ ] Anti-cheat: server-verify the skill + project boards (the last self-reported ranked surfaces)

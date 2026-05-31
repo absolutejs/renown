@@ -26,12 +26,22 @@ const COALESCE_MS = 4000;
 const MAX_HANDLE = 40;
 const MAX_UNLOCKS = 12000;
 
+// Anti-cheat clamps — /api/submit is an unauthenticated self-report, so bound every numeric to a
+// plausible ceiling before it touches the DB. This kills the trivial "set xp to MAX_INT" attack
+// and bounds per-project xp to what the craft engine could ever award for the claimed commits.
+// It does NOT make these fields rank-trustworthy — see docs/trust-model.md for what's
+// server-verified (ranks) vs self-reported (these fields, advisory).
+const PER_COMMIT_XP_CAP = 300;   // mirrors core/craftScore.ts's hard per-commit cap
+const clampInt = (v: unknown, max: number) => Math.max(0, Math.min(max, Math.floor(Number(v) || 0)));
+const sanitizeSkillXp = (m: Record<string, number> | undefined) =>
+  Object.fromEntries(Object.entries(m ?? {}).slice(0, 500).map(([k, v]) => [String(k).slice(0, 64), clampInt(v, 100_000_000)]));
+
 // the real Neon write — runs in the background, coalesced to once per player per window
 const persistPlayer = async (id: string, e: PlayerSnapshot) => {
   await gameDb.insert(players).values({
-    id, handle: String(e.name || "anon").slice(0, MAX_HANDLE), level: (e.level ?? 0) | 0, xp: (e.xp ?? 0) | 0,
-    streak: (e.streak ?? 0) | 0, activeSec: (e.active ?? 0) | 0, achievements: (e.ach ?? 0) | 0, ossCommits: (e.oss ?? 0) | 0,
-    totalLevel: (e.totalLevel ?? 0) | 0, skillXp: e.skillXp ?? {}, updatedAt: new Date()
+    id, handle: String(e.name || "anon").slice(0, MAX_HANDLE), level: clampInt(e.level, 100_000), xp: clampInt(e.xp, 5_000_000_000),
+    streak: clampInt(e.streak, 100_000), activeSec: clampInt(e.active, 4_000_000_000), achievements: clampInt(e.ach, 50_000), ossCommits: clampInt(e.oss, 5_000_000),
+    totalLevel: clampInt(e.totalLevel, 1_000_000), skillXp: sanitizeSkillXp(e.skillXp), updatedAt: new Date()
   }).onConflictDoUpdate({
     target: players.id,
     set: {
@@ -42,17 +52,29 @@ const persistPlayer = async (id: string, e: PlayerSnapshot) => {
   });
   for (const p of Array.isArray(e.projects) ? e.projects : []) {
     if (!p?.key) continue;
-    await gameDb.insert(projects).values({ key: p.key, name: p.name || p.key, stars: (p.stars ?? 0) | 0, oss: !!p.oss })
-      .onConflictDoUpdate({ target: projects.key, set: { name: sql`excluded.name`, stars: sql`excluded.stars`, oss: sql`excluded.oss` } });
-    await gameDb.insert(playerProjects).values({ playerId: id, projectKey: p.key, xp: (p.xp ?? 0) | 0, commits: (p.commits ?? 0) | 0, lines: (p.lines ?? 0) | 0, updatedAt: new Date() })
-      .onConflictDoUpdate({ target: [playerProjects.playerId, playerProjects.projectKey], set: { xp: sql`greatest(${playerProjects.xp}, excluded.xp)`, commits: sql`excluded.commits`, lines: sql`excluded.lines`, updatedAt: sql`now()` } });
+    const commits = clampInt(p.commits, 500_000);
+    const lines = clampInt(p.lines, 100_000_000);
+    // Bound submitted xp to what the craft engine could ever award for the claimed commits.
+    const xp = Math.min(clampInt(p.xp, 2_000_000_000), commits * PER_COMMIT_XP_CAP);
+    await gameDb.insert(projects).values({ key: p.key, name: p.name || p.key, stars: clampInt(p.stars, 5_000_000), oss: !!p.oss })
+      .onConflictDoUpdate({ target: projects.key, set: { name: sql`excluded.name`, stars: sql`greatest(${projects.stars}, excluded.stars)`, oss: sql`${projects.oss} or excluded.oss` } });
+    // Monotonic on all three (matches /api/ci/repo-sync) — a submit can raise a board stat but
+    // never lower it, so neither a buggy resubmit nor a malicious one can regress real numbers.
+    await gameDb.insert(playerProjects).values({ playerId: id, projectKey: p.key, xp, commits, lines, updatedAt: new Date() })
+      .onConflictDoUpdate({ target: [playerProjects.playerId, playerProjects.projectKey], set: { xp: sql`greatest(${playerProjects.xp}, excluded.xp)`, commits: sql`greatest(${playerProjects.commits}, excluded.commits)`, lines: sql`greatest(${playerProjects.lines}, excluded.lines)`, updatedAt: sql`now()` } });
   }
   const unlocked = (Array.isArray(e.unlocked) ? e.unlocked : []).filter((x): x is string => typeof x === "string").slice(0, MAX_UNLOCKS);
   if (unlocked.length) {
     const valid = await gameDb.select({ id: achievements.id }).from(achievements).where(inArray(achievements.id, unlocked));
     if (valid.length) {
       const ins = await gameDb.insert(playerAchievements).values(valid.map((v) => ({ playerId: id, achievementId: v.id }))).onConflictDoNothing().returning({ id: playerAchievements.achievementId });
-      if (ins.length) await gameDb.update(achievements).set({ unlockCount: sql`${achievements.unlockCount} + 1` }).where(inArray(achievements.id, ins.map((r) => r.id)));
+      // Only a github-VERIFIED player may move the PUBLIC rarity counter (unlock_count), so a
+      // throwaway/unverified account mass-claiming achievement ids can't distort the rarity %
+      // everyone sees. The player still gets their unlocks recorded either way.
+      if (ins.length) {
+        const v = (await gameDb.select({ ok: players.githubVerified }).from(players).where(eq(players.id, id)).limit(1))[0];
+        if (v?.ok) await gameDb.update(achievements).set({ unlockCount: sql`${achievements.unlockCount} + 1` }).where(inArray(achievements.id, ins.map((r) => r.id)));
+      }
     }
   }
 };
