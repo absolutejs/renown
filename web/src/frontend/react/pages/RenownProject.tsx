@@ -86,7 +86,7 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
 
       <section className="card" style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ marginBottom: 4 }}>{project.key}</h1>
+          <h1 style={{ marginBottom: 4 }}><a href={`/org/${project.owner}`} style={{ color: "inherit", textDecoration: "none" }} title={`${project.owner} on Renown`}>{project.owner}</a><span className="muted">/{project.repo}</span></h1>
           <p className="muted">
             {project.stars > 0 && <>★ {fmt(project.stars)} · </>}
             {project.oss ? "open source · " : ""}

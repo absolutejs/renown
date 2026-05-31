@@ -6,6 +6,7 @@ import { RenownHome } from "../../frontend/react/pages/RenownHome";
 import { RenownProfile } from "../../frontend/react/pages/RenownProfile";
 import { RenownProject } from "../../frontend/react/pages/RenownProject";
 import { RenownRecap } from "../../frontend/react/pages/RenownRecap";
+import { RenownOrg } from "../../frontend/react/pages/RenownOrg";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { loadProfile, profileShareSnippet } from "../profile";
@@ -14,6 +15,9 @@ import { projectOgEtag, renderProjectOgPng } from "../projectOg";
 import { projectBadgeEtag, renderProjectBadge } from "../projectBadge";
 import { loadRecap, recapShareSnippet } from "../recap";
 import { recapOgEtag, renderRecapOgPng } from "../recapOg";
+import { loadOrg, orgShareSnippet } from "../org";
+import { orgBadgeEtag, renderOrgBadge } from "../orgBadge";
+import { orgOgEtag, renderOrgOgPng } from "../orgOg";
 
 // Resolve the absolute origin (https://host) the request was made to. Used
 // for OG/canonical URL tags so shared profile links produce fully-qualified
@@ -137,6 +141,33 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
     return new Response(renderRecapOgPng(data), { headers: { ...headers, "content-type": "image/png" } });
   };
+  // --- org: a whole owner's renown — page + README badge + OG card (mirrors the project trio) ---
+  const orgPage = async ({ request, params }: { request: Request; params: { owner: string } }) => {
+    const owner = String(params.owner ?? "");
+    const data = await loadOrg(owner);
+    return handleReactPageRequest({
+      index: asset(manifest, "RenownOrgIndex"),
+      Page: RenownOrg,
+      props: { cssPath, org: data, owner, origin: originOf(request), shareSnippet: data ? orgShareSnippet(data) : "Not on Renown yet." },
+      request,
+    });
+  };
+  const orgOg = async ({ request, params }: { request: Request; params: { owner: string } }) => {
+    const data = await loadOrg(String(params.owner ?? ""));
+    if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = orgOgEtag(data);
+    const headers = { "cache-control": "public, max-age=300", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderOrgOgPng(data), { headers: { ...headers, "content-type": "image/png" } });
+  };
+  const orgBadge = async ({ request, params }: { request: Request; params: { owner: string } }) => {
+    const data = await loadOrg(String(params.owner ?? ""));
+    if (!data) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
+    const etag = orgBadgeEtag(data);
+    const headers = { "cache-control": "public, max-age=300", etag };
+    if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+    return new Response(renderOrgBadge(data), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+  };
   return new Elysia()
     .get("/", home)
     .get("/admin", admin)
@@ -147,5 +178,8 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/project/:owner/:repo/badge.svg", projectBadge)
     .get("/project/:owner/:repo", projectPage)
     .get("/recap/:login/og.png", recapOg)
-    .get("/recap/:login", recapPage);
+    .get("/recap/:login", recapPage)
+    .get("/org/:owner/og.png", orgOg)
+    .get("/org/:owner/badge.svg", orgBadge)
+    .get("/org/:owner", orgPage);
 };

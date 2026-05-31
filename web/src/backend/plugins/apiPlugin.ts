@@ -18,6 +18,7 @@ import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
 import { loadProfile } from "../profile.ts";
 import { loadProject, loadTopProjects, normalizeProjectSort, normalizeProjectWindow } from "../project.ts";
+import { loadOrg } from "../org.ts";
 import { getPushPublicKey, isPushConfigured } from "../push.ts";
 import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } from "../petLooks.ts";
 import { resolvePetLookId } from "../../../../core/petLooks.ts";
@@ -182,6 +183,11 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     .get("/projects/top", async ({ query }) => {
       const n = Math.min(24, Math.max(1, Number(query.n ?? 12)));
       return loadTopProjects(n, normalizeProjectWindow(query.window));
+    })
+    // A whole org's renown — its repos + top contributors across them. Shared loader (../org.ts).
+    .get("/org/:owner", async ({ params }) => {
+      const data = await loadOrg(params.owner);
+      return data ?? { error: "not found" };
     })
     // CI per-repo board sync — powers `renown ci-sync` (the GitHub Action). Given { repo, logins },
     // scores each LINKED contributor's commits in that repo from the GitHub API (the shared craft
