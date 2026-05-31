@@ -22,6 +22,7 @@ import { orgBadgeEtag, renderOrgBadge } from "../orgBadge";
 import { orgOgEtag, renderOrgOgPng } from "../orgOg";
 import { achievementShareSnippet, loadAchievement } from "../achievement";
 import { achievementOgEtag, renderAchievementOgPng } from "../achievementOg";
+import { renderCached } from "../renderCache";
 
 // Resolve the absolute origin (https://host) the request was made to. Used
 // for OG/canonical URL tags so shared profile links produce fully-qualified
@@ -82,7 +83,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
 
-    const png = renderProfileOgPng(data);
+    const png = renderCached(etag, () => renderProfileOgPng(data));
     return new Response(png, {
       headers: {
         ...headers,
@@ -96,7 +97,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const etag = profileBadgeEtag(data);
     const headers = { "cache-control": "public, max-age=300", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-    return new Response(renderProfileBadge(data), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+    return new Response(renderCached(etag, () => renderProfileBadge(data)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
   // --- per-repo leaderboard: page + README badge + OG card (mirrors the profile trio) ---
   const projKey = (params: { owner: string; repo: string }) => `${params.owner}/${params.repo}`.toLowerCase();
@@ -117,7 +118,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const etag = projectBoardEtag(data, limit);
     const headers = { "cache-control": "public, max-age=300", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-    return new Response(renderProjectBoardSvg(data, limit), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+    return new Response(renderCached(etag, () => renderProjectBoardSvg(data, limit)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
   const projectOg = async ({ request, params }: { request: Request; params: { owner: string; repo: string } }) => {
     const data = await loadProject(projKey(params));
@@ -125,7 +126,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const etag = projectOgEtag(data);
     const headers = { "cache-control": "public, max-age=300", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-    return new Response(renderProjectOgPng(data), { headers: { ...headers, "content-type": "image/png" } });
+    return new Response(renderCached(etag, () => renderProjectOgPng(data)), { headers: { ...headers, "content-type": "image/png" } });
   };
   const projectBadge = async ({ request, params }: { request: Request; params: { owner: string; repo: string } }) => {
     const data = await loadProject(projKey(params));
@@ -133,7 +134,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const etag = projectBadgeEtag(data);
     const headers = { "cache-control": "public, max-age=300", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-    return new Response(renderProjectBadge(data), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+    return new Response(renderCached(etag, () => renderProjectBadge(data)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
   // --- "your week" recap: shareable page + OG card (mirrors the profile/project trio) ---
   const recapPage = async ({ request, params }: { request: Request; params: { login: string } }) => {
@@ -152,7 +153,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const etag = recapOgEtag(data);
     const headers = { "cache-control": "public, max-age=300", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-    return new Response(renderRecapOgPng(data), { headers: { ...headers, "content-type": "image/png" } });
+    return new Response(renderCached(etag, () => renderRecapOgPng(data)), { headers: { ...headers, "content-type": "image/png" } });
   };
   // --- org: a whole owner's renown — page + README badge + OG card (mirrors the project trio) ---
   const orgPage = async ({ request, params }: { request: Request; params: { owner: string } }) => {
@@ -171,7 +172,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const etag = orgOgEtag(data);
     const headers = { "cache-control": "public, max-age=300", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-    return new Response(renderOrgOgPng(data), { headers: { ...headers, "content-type": "image/png" } });
+    return new Response(renderCached(etag, () => renderOrgOgPng(data)), { headers: { ...headers, "content-type": "image/png" } });
   };
   const orgBadge = async ({ request, params }: { request: Request; params: { owner: string } }) => {
     const data = await loadOrg(String(params.owner ?? ""));
@@ -179,7 +180,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const etag = orgBadgeEtag(data);
     const headers = { "cache-control": "public, max-age=300", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-    return new Response(renderOrgBadge(data), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+    return new Response(renderCached(etag, () => renderOrgBadge(data)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
   // --- achievement share page + OG card ---
   const achievementPage = async ({ request, params }: { request: Request; params: { id: string } }) => {
@@ -198,7 +199,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const etag = achievementOgEtag(data);
     const headers = { "cache-control": "public, max-age=300", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-    return new Response(renderAchievementOgPng(data), { headers: { ...headers, "content-type": "image/png" } });
+    return new Response(renderCached(etag, () => renderAchievementOgPng(data)), { headers: { ...headers, "content-type": "image/png" } });
   };
   return new Elysia()
     .get("/", home)
