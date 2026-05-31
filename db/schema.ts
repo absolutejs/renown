@@ -149,6 +149,18 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   githubLogin: text("github_login").notNull(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.petSeed] }) }));
 
+// Hall of Champions — the finalized top finishers of each past monthly season. Written lazily
+// when the season board is loaded after a month rolls over (no cron). season = "YYYY-MM".
+export const seasonChampions = pgTable("season_champions", {
+  season: text("season").notNull(),
+  rank: integer("rank").notNull(),
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  login: text("login"),
+  handle: text("handle").notNull(),
+  gain: bigint("gain", { mode: "number" }).notNull(),
+  finalizedAt: timestamp("finalized_at").notNull().defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.season, t.rank] }) }));
+
 // Social graph — who follows whom. Following is public (a dev's "circle"), so it powers both
 // the personal /rivals board+feed and a discovery surface. Directed: (follower, followee).
 export const follows = pgTable("follows", {

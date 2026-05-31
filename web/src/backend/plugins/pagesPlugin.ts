@@ -15,6 +15,8 @@ import { RenownAchievements } from "../../frontend/react/pages/RenownAchievement
 import { loadAchievementsIndex } from "../achievementsIndex";
 import { RenownRivals } from "../../frontend/react/pages/RenownRivals";
 import { loadRivals } from "../rivals";
+import { RenownSeason } from "../../frontend/react/pages/RenownSeason";
+import { loadSeason } from "../season";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { profilePetsEtag, renderProfilePets } from "../profilePets";
@@ -147,6 +149,10 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const rivals = await loadRivals(login);
     return handleReactPageRequest({ index: asset(manifest, "RenownRivalsIndex"), Page: RenownRivals, props: { cssPath, rivals, login, origin: originOf(request) }, request });
   };
+  const seasonPage = async ({ request }: { request: Request }) => {
+    const season = await loadSeason(25);
+    return handleReactPageRequest({ index: asset(manifest, "RenownSeasonIndex"), Page: RenownSeason, props: { cssPath, season, origin: originOf(request) }, request });
+  };
   const petOg = async ({ request, params }: { request: Request; params: { seed: string } }) => {
     const seed = String(params.seed ?? "").trim();
     if (!seed) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
@@ -268,6 +274,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/profile/:login/pets.svg", profilePets)
     .get("/profile/:login", profile)
     .get("/pets", petsPage)
+    .get("/season", seasonPage)
     .get("/pet/:seed/og.png", petOg)
     .get("/pet/:seed/card.svg", petCard)
     .get("/pet/:seed", petPage)

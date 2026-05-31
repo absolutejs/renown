@@ -2018,6 +2018,7 @@ const App = () => {
         <nav className="nav">
           <button className={view === "board" ? "on" : ""} onClick={() => setView("board")}>Leaderboard</button>
           <button className={view === "catalog" ? "on" : ""} onClick={() => setView("catalog")}>Catalog</button>
+          <button onClick={() => { window.location.href = "/season"; }}>Season</button>
           <button onClick={() => { window.location.href = "/pets"; }}>Pets</button>
           <button onClick={() => { window.location.href = "/achievements"; }}>Achievements</button>
           {account?.github?.login && <button onClick={() => { window.location.href = `/rivals/${account.github!.login}`; }}>Rivals</button>}
