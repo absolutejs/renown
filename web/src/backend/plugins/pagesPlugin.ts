@@ -11,6 +11,8 @@ import { RenownAchievement } from "../../frontend/react/pages/RenownAchievement"
 import { RenownPet } from "../../frontend/react/pages/RenownPet";
 import { RenownPets } from "../../frontend/react/pages/RenownPets";
 import { loadRecentPets } from "../petGallery";
+import { RenownAchievements } from "../../frontend/react/pages/RenownAchievements";
+import { loadAchievementsIndex } from "../achievementsIndex";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { profilePetsEtag, renderProfilePets } from "../profilePets";
@@ -134,6 +136,10 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const pets = await loadRecentPets(48);
     return handleReactPageRequest({ index: asset(manifest, "RenownPetsIndex"), Page: RenownPets, props: { cssPath, pets, origin: originOf(request) }, request });
   };
+  const achievementsPage = async ({ request }: { request: Request }) => {
+    const index = await loadAchievementsIndex();
+    return handleReactPageRequest({ index: asset(manifest, "RenownAchievementsIndex"), Page: RenownAchievements, props: { cssPath, index, origin: originOf(request) }, request });
+  };
   const petOg = async ({ request, params }: { request: Request; params: { seed: string } }) => {
     const seed = String(params.seed ?? "").trim();
     if (!seed) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
@@ -247,6 +253,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   return new Elysia()
     .get("/", home)
     .get("/admin", admin)
+    .get("/achievements", achievementsPage)
     .get("/achievement/:id/og.png", achievementOg)
     .get("/achievement/:id", achievementPage)
     .get("/profile/:login/og.png", profileOg)

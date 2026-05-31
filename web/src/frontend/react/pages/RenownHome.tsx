@@ -2019,6 +2019,7 @@ const App = () => {
           <button className={view === "board" ? "on" : ""} onClick={() => setView("board")}>Leaderboard</button>
           <button className={view === "catalog" ? "on" : ""} onClick={() => setView("catalog")}>Catalog</button>
           <button onClick={() => { window.location.href = "/pets"; }}>Pets</button>
+          <button onClick={() => { window.location.href = "/achievements"; }}>Achievements</button>
           <button className={view === "pricing" ? "on" : ""} onClick={() => setView("pricing")}>Plans</button>
           {signedIn && <button className={view === "account" ? "on" : ""} onClick={() => setView("account")}>Account</button>}
         </nav>
