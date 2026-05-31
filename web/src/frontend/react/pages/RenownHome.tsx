@@ -1391,7 +1391,7 @@ const PUSH_PREF_ROWS: PushPrefRow[] = [
   { key: "levelUp", label: "Level up", desc: "Push when your total level climbs — your progression, the moment it lands." },
   { key: "achievement", label: "Achievement unlocked", desc: "Push when you earn a new achievement." },
   { key: "verifiedAttestation", label: "Verified AI attestation", desc: "Push when any account on renown becomes cryptographically-verified AI." },
-  { key: "newcomerToBoard", label: "New leaderboard entry", desc: "Push when a fresh login lands in the top 10 (future event)." },
+  { key: "newcomerToBoard", label: "Broke into the top 10", desc: "Push when you cross into the top 10 on the leaderboard." },
   { key: "mention", label: "Profile mention", desc: "Push when someone interacts with your profile (future event)." },
 ];
 const PushPrefsCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {

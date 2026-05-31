@@ -20,7 +20,7 @@ import { loadProfile } from "../profile.ts";
 import { loadProject, loadTopProjects, normalizeProjectSort, normalizeProjectWindow } from "../project.ts";
 import { loadOrg } from "../org.ts";
 import { loadAchievement } from "../achievement.ts";
-import { getPushPublicKey, isPushConfigured } from "../push.ts";
+import { getPushPublicKey, isPushConfigured, notifyNewcomerToBoard } from "../push.ts";
 import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } from "../petLooks.ts";
 import { resolvePetLookId } from "../../../../core/petLooks.ts";
 import { QUIRKS } from "../quirks.ts";
@@ -373,6 +373,10 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const agg = await rollupPlayerFromAccounts(row.id);
       const aggAttribution = agg?.attributionScore ?? acctAttribution;
       const aggScore = agg?.verifiedScore ?? acctScore;
+      // Newcomer-to-board push: did this rollup push the player into the top 10? (default-board
+      // metric = verified_score + merit_score; merit is unchanged by this verify). No-ops without
+      // VAPID and unless the score actually rose into the top N.
+      void notifyNewcomerToBoard(row.id, Number(row.verifiedScore) + Number(row.meritScore), Number(aggScore) + Number(row.meritScore));
       // Lazy daily snapshot — one row per (player, calendar day). onConflictDoNothing
       // means we only write the FIRST verify of a day; subsequent verifies don't
       // overwrite it (so the day's baseline stays the day's first reading, and weekly

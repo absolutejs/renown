@@ -107,6 +107,28 @@ export const notifyAchievementUnlock = async (playerId: string, ids: string[]): 
   await sendPushToPlayerGated(playerId, "achievement", payload).catch((e) => console.error("renown: achievement push failed", e));
 };
 
+// "You broke into the top N." Fired from /verify after a score rollup. Ranks by the default
+// board metric (verified_score + merit_score); fires only when the player crossed from outside
+// the top N into it. Two cheap COUNT(*)s, gated on the score actually rising.
+export const notifyNewcomerToBoard = async (playerId: string, prevCombined: number, newCombined: number, topN = 10): Promise<void> => {
+  if (!isPushConfigured() || newCombined <= prevCombined) return;
+  const combined = sql<number>`${players.verifiedScore} + ${players.meritScore}`;
+  // How many OTHER verified players sit strictly above a score threshold → rank = that + 1.
+  const above = async (threshold: number): Promise<number> =>
+    Number((await gameDb.select({ c: sql<number>`count(*)` }).from(players)
+      .where(and(eq(players.githubVerified, true), sql`${players.id} <> ${playerId}`, sql`${combined} > ${threshold}`)))[0]?.c ?? 0);
+  const newRank = (await above(newCombined)) + 1;
+  if (newRank > topN) return;                     // not in the top N now
+  const oldRank = (await above(prevCombined)) + 1;
+  if (oldRank <= topN) return;                     // was already in the top N → not a newcomer
+  await sendPushToPlayerGated(playerId, "newcomer-to-board", {
+    title: `Top ${topN}! 🎉`,
+    body: `You broke into the top ${topN} on the renown leaderboard — now #${newRank}.`,
+    url: "/",
+    tag: `newcomer-${playerId}`,
+  }).catch((e) => console.error("renown: newcomer push failed", e));
+};
+
 const sendPushToSubscriptions = async (subs: { id: string; endpoint: string; p256dh: string; auth: string }[], payload: PushPayload): Promise<{ sent: number; pruned: number }> => {
   if (subs.length === 0) return { sent: 0, pruned: 0 };
   const body = JSON.stringify(payload);
