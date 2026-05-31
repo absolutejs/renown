@@ -149,6 +149,14 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   githubLogin: text("github_login").notNull(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.petSeed] }) }));
 
+// Social graph — who follows whom. Following is public (a dev's "circle"), so it powers both
+// the personal /rivals board+feed and a discovery surface. Directed: (follower, followee).
+export const follows = pgTable("follows", {
+  followerId: text("follower_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  followeeId: text("followee_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.followerId, t.followeeId] }) }));
+
 // the achievement catalog (curated + the 10k generated). unlockCount powers rarity %.
 export const achievements = pgTable("achievements", {
   id: text("id").primaryKey(),

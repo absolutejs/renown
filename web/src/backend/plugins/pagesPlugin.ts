@@ -13,6 +13,8 @@ import { RenownPets } from "../../frontend/react/pages/RenownPets";
 import { loadRecentPets } from "../petGallery";
 import { RenownAchievements } from "../../frontend/react/pages/RenownAchievements";
 import { loadAchievementsIndex } from "../achievementsIndex";
+import { RenownRivals } from "../../frontend/react/pages/RenownRivals";
+import { loadRivals } from "../rivals";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { profilePetsEtag, renderProfilePets } from "../profilePets";
@@ -139,6 +141,11 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   const achievementsPage = async ({ request }: { request: Request }) => {
     const index = await loadAchievementsIndex();
     return handleReactPageRequest({ index: asset(manifest, "RenownAchievementsIndex"), Page: RenownAchievements, props: { cssPath, index, origin: originOf(request) }, request });
+  };
+  const rivalsPage = async ({ request, params }: { request: Request; params: { login: string } }) => {
+    const login = String(params.login ?? "").toLowerCase();
+    const rivals = await loadRivals(login);
+    return handleReactPageRequest({ index: asset(manifest, "RenownRivalsIndex"), Page: RenownRivals, props: { cssPath, rivals, login, origin: originOf(request) }, request });
   };
   const petOg = async ({ request, params }: { request: Request; params: { seed: string } }) => {
     const seed = String(params.seed ?? "").trim();
@@ -270,6 +277,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/project/:owner/:repo", projectPage)
     .get("/recap/:login/og.png", recapOg)
     .get("/recap/:login", recapPage)
+    .get("/rivals/:login", rivalsPage)
     .get("/org/:owner/og.png", orgOg)
     .get("/org/:owner/badge.svg", orgBadge)
     .get("/org/:owner", orgPage);

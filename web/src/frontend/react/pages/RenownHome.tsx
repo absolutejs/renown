@@ -27,7 +27,7 @@ type AchievementRow = { id: string; name: string; description: string; tier: str
 type WebauthnCredential = { id: string; label: string; transports: string[]; createdAt: string; lastUsedAt: string | null };
 type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean };
 type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; activePetLookId?: string; petLookAssignments?: PetLookMap; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[]; rateLimitCount?: number; quirks?: Record<string, number> };
-type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievements?: AchievementRow[] };
+type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievements?: AchievementRow[]; following?: string[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
 type StripeConfig = { configured: boolean; tiers: Record<Tier, TierInfo>; prices: Record<string, string | null>; amounts: Record<string, Amount> };
@@ -2020,6 +2020,7 @@ const App = () => {
           <button className={view === "catalog" ? "on" : ""} onClick={() => setView("catalog")}>Catalog</button>
           <button onClick={() => { window.location.href = "/pets"; }}>Pets</button>
           <button onClick={() => { window.location.href = "/achievements"; }}>Achievements</button>
+          {account?.github?.login && <button onClick={() => { window.location.href = `/rivals/${account.github!.login}`; }}>Rivals</button>}
           <button className={view === "pricing" ? "on" : ""} onClick={() => setView("pricing")}>Plans</button>
           {signedIn && <button className={view === "account" ? "on" : ""} onClick={() => setView("account")}>Account</button>}
         </nav>
@@ -2065,7 +2066,10 @@ const App = () => {
         : <section className="card"><h2>Account</h2><p className="muted">Log in to manage your account and subscription.</p><div className="cta"><button className="btn solid" onClick={() => { setAuthMode("login"); setView("auth"); }}>Log in</button><button className="btn ghost" onClick={() => { setAuthMode("register"); setView("auth"); }}>Sign up</button></div></section>)}
       {view === "auth" && <AuthView initial={authMode} onAuthed={() => { loadAccount(); setView("account"); setBanner({ kind: "ok", text: "Welcome back." }); }} onBanner={setBanner} />}
       {view === "reset" && resetToken && <ResetView token={resetToken} onDone={(ok, msg) => { setBanner({ kind: ok ? "ok" : "warn", text: msg }); setView("auth"); setResetToken(null); }} />}
-      {profileLogin && <ProfileModal login={profileLogin} onClose={() => setProfileLogin(null)} />}
+      {profileLogin && <ProfileModal login={profileLogin} onClose={() => setProfileLogin(null)}
+        me={account?.github?.login ?? null}
+        following={account?.following ?? []}
+        onToggleFollow={async (l, follow) => { await post(`/api/account/${follow ? "follow" : "unfollow"}`, { login: l }); loadAccount(); }} />}
       {summonPets && summonPets.length > 0 && <SummonCinematic summons={summonPets} onClose={() => setSummonPets(null)} />}
       {/* One shared WebGL context for all <View>-based pets on the page: the Board view (one
           mini-pet per row), the Account view (menagerie grid), or the ProfileModal (showcase

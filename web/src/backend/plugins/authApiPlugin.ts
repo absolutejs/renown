@@ -7,7 +7,8 @@ import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
 import { and, desc, eq } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
-import { achievements as achievementsTable, playerAchievements, players, pushSubscriptions, webauthnCredentials } from "../../../../db/schema.ts";
+import { achievements as achievementsTable, follows, playerAchievements, players, pushSubscriptions, webauthnCredentials } from "../../../../db/schema.ts";
+import { getFollowingLogins } from "../rivals.ts";
 import { authIdentities } from "../../../db/schema";
 import type { SchemaType, User } from "../../../db/schema";
 import { SignJWT } from "jose";
@@ -111,6 +112,8 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       pushPrefs: (player as { pushPrefs?: { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean } } | undefined)?.pushPrefs ?? {},
       rateLimitCount: (player as { rateLimitCount?: number } | undefined)?.rateLimitCount ?? 0,
       quirks: (player as { quirks?: Record<string, number> } | undefined)?.quirks ?? {},
+      // Logins this user follows — drives the Follow button state + the Rivals view.
+      following: player ? await getFollowingLogins(player.id) : [],
       // Earned achievements — same join shape as /api/profile/:login so the panel
       // component can render from either endpoint with no client-side massaging.
       achievements: player
@@ -263,6 +266,33 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const next = { ...(cur.pushPrefs ?? {}), ...b };
         await gameDb.update(players).set({ pushPrefs: next }).where(eq(players.id, cur.id));
         return { ok: true, pushPrefs: next };
+      }),
+    )
+    // Follow / unfollow a dev (by github login). Following is public; powers the Rivals view +
+    // the Follow button on profiles. Self-follow and unknown logins are rejected.
+    .post("/follow", ({ body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const login = String((body as { login?: string })?.login ?? "").trim().toLowerCase();
+        if (!login) return status("Bad Request", "login required");
+        const me = await resolvePlayerByUserSub(user.sub);
+        if (!me) return status("Not Found", "your player not found");
+        const target = await resolvePlayerByGithubLogin(login);
+        if (!target) return status("Not Found", "no such dev on renown");
+        if (target.id === me.id) return status("Bad Request", "can't follow yourself");
+        await gameDb.insert(follows).values({ followerId: me.id, followeeId: target.id }).onConflictDoNothing();
+        return { ok: true, following: true, login };
+      }),
+    )
+    .post("/unfollow", ({ body, protectRoute, status }) =>
+      protectRoute(async (user) => {
+        const login = String((body as { login?: string })?.login ?? "").trim().toLowerCase();
+        if (!login) return status("Bad Request", "login required");
+        const me = await resolvePlayerByUserSub(user.sub);
+        if (!me) return status("Not Found", "your player not found");
+        const target = await resolvePlayerByGithubLogin(login);
+        if (!target) return status("Not Found", "no such dev");
+        await gameDb.delete(follows).where(and(eq(follows.followerId, me.id), eq(follows.followeeId, target.id)));
+        return { ok: true, following: false, login };
       }),
     )
     .post("/push-unsubscribe", ({ body, protectRoute, status }) =>

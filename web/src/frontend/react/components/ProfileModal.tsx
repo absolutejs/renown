@@ -74,9 +74,14 @@ const ProfileShareRow = ({ login }: { login: string }) => {
   );
 };
 
-export const ProfileModal = ({ login, onClose }: { login: string; onClose: () => void }) => {
+export const ProfileModal = ({ login, onClose, me = null, following = [], onToggleFollow }: { login: string; onClose: () => void; me?: string | null; following?: string[]; onToggleFollow?: (login: string, follow: boolean) => void | Promise<void> }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Follow state (optimistic). Visible only when signed in and viewing someone else.
+  const canFollow = !!me && me.toLowerCase() !== login.toLowerCase();
+  const [isFollowing, setIsFollowing] = useState(false);
+  useEffect(() => { setIsFollowing(following.some((l) => l.toLowerCase() === login.toLowerCase())); }, [following, login]);
+  const toggleFollow = async () => { const next = !isFollowing; setIsFollowing(next); try { await onToggleFollow?.(login, next); } catch { setIsFollowing(!next); } };
   useEffect(() => {
     fetch(`/api/profile/${encodeURIComponent(login)}`).then(async (r) => {
       if (!r.ok) { setErr("Profile not found."); return; }
@@ -122,6 +127,16 @@ export const ProfileModal = ({ login, onClose }: { login: string; onClose: () =>
                 <span className="num">{profile.score.toLocaleString()}</span>
                 <span className="lbl">score</span>
               </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "4px 0 2px" }}>
+              {canFollow && (
+                <button onClick={toggleFollow} style={{ padding: "6px 14px", borderRadius: 999, cursor: "pointer", fontWeight: 700, fontSize: 13,
+                  background: isFollowing ? "rgba(134,239,172,.16)" : "var(--accent, #8b5cf6)", color: isFollowing ? "#86efac" : "#fff",
+                  border: `1px solid ${isFollowing ? "rgba(134,239,172,.5)" : "transparent"}` }}>
+                  {isFollowing ? "✓ Following" : "+ Follow"}
+                </button>
+              )}
+              <a href={`/rivals/${encodeURIComponent(profile.login)}`} className="muted" style={{ fontSize: 13, textDecoration: "none" }}>rivals →</a>
             </div>
             <ProfileShareRow login={profile.login} />
             <div className="profileAvatar">

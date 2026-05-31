@@ -20,6 +20,7 @@ import { loadProfile } from "../profile.ts";
 import { loadProject, loadTopProjects, normalizeProjectSort, normalizeProjectWindow } from "../project.ts";
 import { loadOrg } from "../org.ts";
 import { loadAchievement } from "../achievement.ts";
+import { loadRivals } from "../rivals.ts";
 import { getPushPublicKey, isPushConfigured, notifyNewcomerToBoard } from "../push.ts";
 import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } from "../petLooks.ts";
 import { resolvePetLookId } from "../../../../core/petLooks.ts";
@@ -205,6 +206,13 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     // One achievement's public share data — catalog + live rarity + recent earners (../achievement.ts).
     .get("/achievement/:id", async ({ params }) => {
       const data = await loadAchievement(params.id);
+      return data ?? { error: "not found" };
+    })
+    // A dev's "rivals" circle — the people they follow + themselves as a mini-board, plus the
+    // recent-unlock activity feed among the people they follow. Public (following isn't secret);
+    // powers the home Rivals view and a circle-discovery surface. (../rivals.ts)
+    .get("/rivals/:login", async ({ params }) => {
+      const data = await loadRivals(String(params.login ?? "").toLowerCase());
       return data ?? { error: "not found" };
     })
     // CI per-repo board sync — powers `renown ci-sync` (the GitHub Action). Given { repo, logins },
