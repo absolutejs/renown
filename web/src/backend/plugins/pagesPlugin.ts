@@ -9,6 +9,8 @@ import { RenownRecap } from "../../frontend/react/pages/RenownRecap";
 import { RenownOrg } from "../../frontend/react/pages/RenownOrg";
 import { RenownAchievement } from "../../frontend/react/pages/RenownAchievement";
 import { RenownPet } from "../../frontend/react/pages/RenownPet";
+import { RenownPets } from "../../frontend/react/pages/RenownPets";
+import { loadRecentPets } from "../petGallery";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { profilePetsEtag, renderProfilePets } from "../profilePets";
@@ -127,6 +129,10 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const pet = c ? { seed, name: c.name, tier: c.tier, sizeN: c.sizeN, statRarity: c.statRarity, rarestTrait: c.rarestTrait, oneOfOne: c.oneOfOne, mythicAura: c.mythicAura, traits: c.traits } : null;
     const owner = c ? await findPetOwner(seed) : null;   // 1/1 → at most one owner; links back to their profile
     return handleReactPageRequest({ index: asset(manifest, "RenownPetIndex"), Page: RenownPet, props: { cssPath, pet, owner, origin: originOf(request) }, request });
+  };
+  const petsPage = async ({ request }: { request: Request }) => {
+    const pets = await loadRecentPets(48);
+    return handleReactPageRequest({ index: asset(manifest, "RenownPetsIndex"), Page: RenownPets, props: { cssPath, pets, origin: originOf(request) }, request });
   };
   const petOg = async ({ request, params }: { request: Request; params: { seed: string } }) => {
     const seed = String(params.seed ?? "").trim();
@@ -247,6 +253,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/profile/:login/badge.svg", profileBadge)
     .get("/profile/:login/pets.svg", profilePets)
     .get("/profile/:login", profile)
+    .get("/pets", petsPage)
     .get("/pet/:seed/og.png", petOg)
     .get("/pet/:seed/card.svg", petCard)
     .get("/pet/:seed", petPage)
