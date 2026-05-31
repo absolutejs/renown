@@ -11,3 +11,6 @@ build/
 .renown/
 state.json
 backups/
+
+# playwright-mcp scratch (screenshots / console logs)
+.playwright-mcp/
