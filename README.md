@@ -1,5 +1,7 @@
 # Renown
 
+[![CI](https://github.com/absolutejs/renown/actions/workflows/ci.yml/badge.svg)](https://github.com/absolutejs/renown/actions/workflows/ci.yml)
+
 **Earn XP and renown for real, meritorious dev work — in any editor.** A gamified,
 quantified-self layer for programming: XP is *earned* by the craft and importance of
 your work (never by commit-count), with thousands of achievements, deep activity
@@ -92,6 +94,7 @@ Locally, `renown ci-sync --endpoint <url>` does the same against a `GITHUB_*`-po
 - [x] Server API (`/submit`, `/top`, `/top?project`, `/achievements` + rarity %)
 - [x] Per-project leaderboards end-to-end
 - [x] GitHub Action — auto-sync contributors' renown from CI (`renown ci-sync`)
+- [x] CI workflow — typecheck + tests gate every PR; renown dogfoods its own sync
 - [ ] Wire the TUI to show live rarity % from the server
 - [ ] Editor plugins (VS Code first — we already ship `absolutejs-vscode-extension`)
 - [ ] Auth / anti-cheat on the server before public launch

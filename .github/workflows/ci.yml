@@ -1,0 +1,55 @@
+name: CI
+
+# Guards the codebase (typecheck + tests + CLI build) on every PR and push, and dogfoods the
+# renown CI sync on pushes to main. The typecheck job is what would have caught the ~770 errors
+# that once accumulated silently — it now fails the build instead.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck · test · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: Install (root)
+        run: bun install --frozen-lockfile
+      - name: Install (web)
+        run: bun install --frozen-lockfile
+        working-directory: web
+      - name: Typecheck (root + web)
+        run: bun run typecheck:all
+      - name: Test
+        run: bun test
+      - name: Build the published CLI
+        run: bun run build:cli
+
+  renown:
+    name: renown self-sync
+    needs: check
+    # Only on pushes to main (PRs from forks have no secrets, and we don't credit on PRs).
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      # Dogfood renown's own CI sync against renown's own /project board. We run the LOCAL
+      # ci-sync (not the published npm package, which predates the command). External repos use
+      # the published Action instead — `uses: absolutejs/renown@v1` with `endpoint:`.
+      # No-ops cleanly when the RENOWN_ENDPOINT secret isn't configured, so this never fails.
+      - name: Sync contributors to renown's board
+        run: bun run cli/api.ts ci-sync
+        env:
+          RENOWN_ENDPOINT: ${{ secrets.RENOWN_ENDPOINT }}
