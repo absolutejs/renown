@@ -149,6 +149,17 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   githubLogin: text("github_login").notNull(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.petSeed] }) }));
 
+// Weekly quest progress. Per (player, ISO-week, quest): the baseline signal value captured on
+// first view that week (so progress = current - baseline for "this week" goals) and the
+// completion timestamp. Completing a quest mints a deterministic quest pet into the player's wild.
+export const questProgress = pgTable("quest_progress", {
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  weekKey: text("week_key").notNull(),
+  questId: text("quest_id").notNull(),
+  baseline: bigint("baseline", { mode: "number" }).notNull().default(0),
+  completedAt: timestamp("completed_at"),
+}, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.weekKey, t.questId] }) }));
+
 // Hall of Champions — the finalized top finishers of each past monthly season. Written lazily
 // when the season board is loaded after a month rolls over (no cron). season = "YYYY-MM".
 export const seasonChampions = pgTable("season_champions", {

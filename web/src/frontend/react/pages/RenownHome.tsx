@@ -2021,6 +2021,7 @@ const App = () => {
           <button onClick={() => { window.location.href = "/season"; }}>Season</button>
           <button onClick={() => { window.location.href = "/pets"; }}>Pets</button>
           <button onClick={() => { window.location.href = "/achievements"; }}>Achievements</button>
+          {account?.github?.login && <button onClick={() => { window.location.href = `/quests/${account.github!.login}`; }}>Quests</button>}
           {account?.github?.login && <button onClick={() => { window.location.href = `/rivals/${account.github!.login}`; }}>Rivals</button>}
           <button className={view === "pricing" ? "on" : ""} onClick={() => setView("pricing")}>Plans</button>
           {signedIn && <button className={view === "account" ? "on" : ""} onClick={() => setView("account")}>Account</button>}

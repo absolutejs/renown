@@ -20,6 +20,8 @@ import { loadSeason } from "../season";
 import { RenownVersus } from "../../frontend/react/pages/RenownVersus";
 import { loadVersus } from "../versus";
 import { renderVersusOgPng, versusOgEtag } from "../versusOg";
+import { RenownQuests } from "../../frontend/react/pages/RenownQuests";
+import { loadQuests } from "../quests";
 import { profileOgEtag, renderProfileOgPng } from "../ogImage";
 import { profileBadgeEtag, renderProfileBadge } from "../profileBadge";
 import { profilePetsEtag, renderProfilePets } from "../profilePets";
@@ -161,6 +163,11 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const vs = await loadVersus(a, b);
     return handleReactPageRequest({ index: asset(manifest, "RenownVersusIndex"), Page: RenownVersus, props: { cssPath, vs, a, b, origin: originOf(request) }, request });
   };
+  const questsPage = async ({ request, params }: { request: Request; params: { login: string } }) => {
+    const login = String(params.login ?? "").toLowerCase();
+    const quests = await loadQuests(login);
+    return handleReactPageRequest({ index: asset(manifest, "RenownQuestsIndex"), Page: RenownQuests, props: { cssPath, quests, login, origin: originOf(request) }, request });
+  };
   const versusOg = async ({ request, params }: { request: Request; params: { a: string; b: string } }) => {
     const vs = await loadVersus(String(params.a ?? "").toLowerCase(), String(params.b ?? "").toLowerCase());
     if ("error" in vs) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
@@ -293,6 +300,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/season", seasonPage)
     .get("/vs/:a/:b/og.png", versusOg)
     .get("/vs/:a/:b", versusPage)
+    .get("/quests/:login", questsPage)
     .get("/pet/:seed/og.png", petOg)
     .get("/pet/:seed/card.svg", petCard)
     .get("/pet/:seed", petPage)
