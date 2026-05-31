@@ -5,8 +5,8 @@
 //
 // Returns null when the login isn't a verified player (caller decides whether
 // to 404 or render an empty state).
-import { and, desc, eq } from "drizzle-orm";
-import { achievements, aiAttestationEvents, playerAchievements, playerProjects, players, projects } from "../../../db/schema.ts";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { achievements, aiAttestationEvents, follows, playerAchievements, playerProjects, players, projects } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
 import { getPlayerPetLookAssignments, type PetLookAssignments } from "./petLooks.ts";
 import { resolvePlayerByGithubLogin } from "./resolvePlayer.ts";
@@ -51,9 +51,17 @@ export const loadProfile = async (login: string) => {
     ? await getPlayerPetLookAssignments(p.id, wild)
     : {};
 
+  // Social-graph counts (followers / following) — social proof on the profile.
+  const [followerRows, followingRows] = await Promise.all([
+    gameDb.select({ c: sql<number>`count(*)::int` }).from(follows).where(eq(follows.followeeId, p.id)),
+    gameDb.select({ c: sql<number>`count(*)::int` }).from(follows).where(eq(follows.followerId, p.id)),
+  ]);
+
   return {
     login: p.githubLogin!,
     handle: p.handle,
+    followers: followerRows[0]?.c ?? 0,
+    following: followingRows[0]?.c ?? 0,
     tier: normalizeTier(p.tier),
     isAi: p.isAi,
     aiAttestation: p.aiAttestation,

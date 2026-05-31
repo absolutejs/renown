@@ -18,7 +18,7 @@ const resolveProfilePetLook = (seed: string, activePetLookId: string | undefined
   return isPetLookId(override) ? override : resolvePetLookId(activePetLookId);
 };
 type Profile = {
-  login: string; handle: string; tier: Tier; isAi?: boolean;
+  login: string; handle: string; tier: Tier; isAi?: boolean; followers?: number; following?: number;
   aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean } | null;
   score: number; baseScore?: number; meritScore?: number; totalLevel: number;
   petsCount: number; rarestPetScore: number; biggestPetSize: number;
@@ -136,7 +136,7 @@ export const ProfileModal = ({ login, onClose, me = null, following = [], onTogg
                   {isFollowing ? "✓ Following" : "+ Follow"}
                 </button>
               )}
-              <a href={`/rivals/${encodeURIComponent(profile.login)}`} className="muted" style={{ fontSize: 13, textDecoration: "none" }}>rivals →</a>
+              <a href={`/rivals/${encodeURIComponent(profile.login)}`} className="muted" style={{ fontSize: 13, textDecoration: "none" }}><strong style={{ color: "inherit" }}>{(profile.followers ?? 0).toLocaleString()}</strong> followers · <strong style={{ color: "inherit" }}>{(profile.following ?? 0).toLocaleString()}</strong> following →</a>
               {canFollow && <a href={`/vs/${encodeURIComponent(me!)}/${encodeURIComponent(profile.login)}`} className="muted" style={{ fontSize: 13, textDecoration: "none" }}>compare with you →</a>}
             </div>
             <ProfileShareRow login={profile.login} />
