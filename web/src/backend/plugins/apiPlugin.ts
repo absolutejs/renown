@@ -172,9 +172,13 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // ago exists, so brand-new players still rank by their visible activity. Other
       // boards (pets-count/rarest-pet/biggest-pet) ignore window — those are absolute
       // numbers, not rates.
+      // ?window=week → past-7-day gain; ?window=season → gain since the 1st of the month (same
+      // attribution-snapshot baseline trick, just a different cutoff). Returned as weekXp either way.
       const window = String(query.window ?? "all");
-      if (window === "week" && (board === "score" || query.board === undefined)) {
-        const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      if ((window === "week" || window === "season") && (board === "score" || query.board === undefined)) {
+        const cutoff = window === "season"
+          ? `${new Date().toISOString().slice(0, 7)}-01`
+          : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
         // Subquery: per-player earliest snapshot's attribution_score in the last 7d.
         // Drizzle SQL builder keeps this typed; the inner select is parameterized.
         const weeklyOrder = sql<number>`(${players.attributionScore} - coalesce((select ${playerAttributionSnapshots.attributionScore} from ${playerAttributionSnapshots} where ${playerAttributionSnapshots.playerId} = ${players.id} and ${playerAttributionSnapshots.snapshotDate} >= ${cutoff} order by ${playerAttributionSnapshots.snapshotDate} asc limit 1), ${players.attributionScore}))`;

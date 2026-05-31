@@ -711,8 +711,8 @@ const QuirkOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) =>
 };
 
 type Audience = "all" | "humans" | "ai";
-const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet, openProfile, freshIds, myLogin }:
-  { top: Entry[]; board: Board; setBoard: (b: Board) => void; audience: Audience; setAudience: (a: Audience) => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string>; myLogin: string | null }) => {
+const Board = ({ top, board, setBoard, audience, setAudience, boardWindow, setBoardWindow, sel, setSel, sheet, openProfile, freshIds, myLogin }:
+  { top: Entry[]; board: Board; setBoard: (b: Board) => void; audience: Audience; setAudience: (a: Audience) => void; boardWindow: "all" | "week" | "season"; setBoardWindow: (w: "all" | "week" | "season") => void; sel: string | null; setSel: (id: string) => void; sheet: SkillSheet | null; openProfile: (login: string) => void; freshIds: Set<string>; myLogin: string | null }) => {
   const skills = (sheet?.skills ?? []).slice().sort((a, b) => b.level - a.level || b.xp - a.xp);
   // Client-side quirks registry, fetched once. Used to populate the cope-leaderboard
   // dropdown AND to derive the meta (label / hint / statOf) when a quirk:* board is
@@ -902,6 +902,15 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
           <button className={audience === "humans" ? "on" : ""} role="radio" aria-checked={audience === "humans"} onClick={() => setAudience("humans")}>Humans</button>
           <button className={audience === "ai" ? "on" : ""} role="radio" aria-checked={audience === "ai"} onClick={() => setAudience("ai")}>🤖 AI</button>
         </div>
+        {/* Time window — all-time vs gained this week / this season (the snapshot-delta boards).
+            Only the score board supports it server-side. */}
+        {(board === "score") && (
+          <div className="audienceTabs" role="radiogroup" aria-label="Time window">
+            <button className={boardWindow === "all" ? "on" : ""} role="radio" aria-checked={boardWindow === "all"} onClick={() => setBoardWindow("all")}>All-time</button>
+            <button className={boardWindow === "week" ? "on" : ""} role="radio" aria-checked={boardWindow === "week"} onClick={() => setBoardWindow("week")}>This week</button>
+            <button className={boardWindow === "season" ? "on" : ""} role="radio" aria-checked={boardWindow === "season"} onClick={() => setBoardWindow("season")}>This season</button>
+          </div>
+        )}
         {top.length === 0 ? (
           <p className="muted">No players yet — be the first.</p>
         ) : (
@@ -942,8 +951,8 @@ const Board = ({ top, board, setBoard, audience, setAudience, sel, setSel, sheet
                         : <span className="petCanvas rankPetEmpty" />}
                       </span>
                       <span className="who">{e.name}<TierBadge tier={e.tier} /><AiBadge isAi={e.isAi} attestation={e.aiAttestation} compact /></span>
-                      <span className="score">{meta.statOf(e)}</span>
-                      <span className="muted">Lvl {e.totalLevel ?? e.level} · 🔥{e.streak} · {e.ach}🏆</span>
+                      <span className="score">{boardWindow !== "all" && board === "score" ? `+${(e.weekXp ?? 0).toLocaleString()}` : meta.statOf(e)}</span>
+                      <span className="muted">{boardWindow !== "all" && board === "score" ? `renown ${boardWindow === "season" ? "this season" : "this week"} · ${(e.score ?? 0).toLocaleString()} total` : `Lvl ${e.totalLevel ?? e.level} · 🔥${e.streak} · ${e.ach}🏆`}</span>
                       {(() => {
                         const ghosts = ghostsFor(e.id);
                         if (ghosts.length === 0) return null;
@@ -1878,6 +1887,7 @@ const App = () => {
   // top-N is stable per audience. AI accounts score identically — this is a viewing
   // preference, not a scoring change.
   const [audience, setAudience] = useState<"all" | "humans" | "ai">("all");
+  const [boardWindow, setBoardWindow] = useState<"all" | "week" | "season">("all");
   const [profileLogin, setProfileLogin] = useState<string | null>(null);
   // Summon payload for the post-/api/verify cinematic. Keep per-pet look assignments
   // with each seed so newly-earned pets preserve the look they were minted with.
@@ -1909,8 +1919,8 @@ const App = () => {
   // data flow stays declarative even though the post-fetch behavior is rich.
   const { data: topData } = useLiveQuery<Entry[]>(
     ["top"],
-    (signal) => fetch(`/api/top?n=10&board=${board}&audience=${audience}`, { signal }).then((r) => r.json()),
-    [board, audience],
+    (signal) => fetch(`/api/top?n=10&board=${board}&audience=${audience}&window=${boardWindow}`, { signal }).then((r) => r.json()),
+    [board, audience, boardWindow],
   );
   useEffect(() => {
     if (!topData) return;
@@ -2054,7 +2064,7 @@ const App = () => {
               </div>
             </section>
           )}
-          <Board top={top} board={board} setBoard={setBoard} audience={audience} setAudience={setAudience} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} myLogin={account?.github?.login ?? null} />
+          <Board top={top} board={board} setBoard={setBoard} audience={audience} setAudience={setAudience} boardWindow={boardWindow} setBoardWindow={setBoardWindow} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} myLogin={account?.github?.login ?? null} />
           <TopThisWeek openProfile={(login) => setProfileLogin(login)} />
           <TrendingRepos />
         </>
