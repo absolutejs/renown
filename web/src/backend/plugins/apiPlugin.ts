@@ -6,8 +6,9 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { generate } from "../../../../core/procgen.ts";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
-import { achievements, aiAttestationEvents, playerAccounts, playerAchievements, playerAttributionSnapshots, playerProjects, players, wildSeedSources } from "../../../../db/schema.ts";
+import { achievements, aiAttestationEvents, playerAccounts, playerAchievements, playerAttributionSnapshots, playerProjects, players, projects, wildSeedSources } from "../../../../db/schema.ts";
 import { resolvePlayerByGithubLogin } from "../resolvePlayer.ts";
+import { fetchRepoImportance, scoreRepoForLogin } from "../repoScore.ts";
 import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import { authIdentities, users } from "../../../db/schema.ts";
 import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
@@ -37,6 +38,9 @@ import { gameDb, grantAchievements, hub, playerCache, submitPlayer, type PlayerS
 import { verifyGithub } from "../verify.ts";
 
 const TOP_MAX = 100, ACH_MAX = 2000;
+// Don't re-score the same (player, repo) from CI more than once per window — bounds GitHub API
+// spend when a repo gets many pushes in quick succession.
+const CI_REPO_COOLDOWN_MS = 10 * 60_000;
 
 // In-process tracker for the current weekly AI leader (login → most recent broadcast).
 // Single-instance assumption already holds for the rest of sync.ts (in-memory hub +
@@ -163,6 +167,42 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     .get("/projects/top", async ({ query }) => {
       const n = Math.min(24, Math.max(1, Number(query.n ?? 12)));
       return loadTopProjects(n, normalizeProjectWindow(query.window));
+    })
+    // CI per-repo board sync — powers `renown ci-sync` (the GitHub Action). Given { repo, logins },
+    // scores each LINKED contributor's commits in that repo from the GitHub API (the shared craft
+    // formula, server's own token) and upserts player_projects. Monotonic: keeps the greatest of
+    // (existing, computed) for xp/commits/lines, so CI only ever adds contributors / raises stats,
+    // never regresses what the local CLI submitted. Unlinked logins no-op; a per-(player,repo)
+    // cooldown bounds GitHub API spend across rapid pushes. No client-supplied scores are trusted.
+    .post("/ci/repo-sync", async ({ body }) => {
+      const b = (body ?? {}) as { repo?: string; logins?: unknown };
+      const m = String(b.repo ?? "").trim().match(/^([^/\s]+)\/([^/\s]+)$/);
+      if (!m) return { error: "repo required as owner/name" };
+      const [, owner, repo] = m;
+      const key = `${owner}/${repo}`, keyLc = key.toLowerCase();
+      const logins = Array.isArray(b.logins)
+        ? Array.from(new Set(b.logins.map((l) => String(l).trim().toLowerCase()).filter(Boolean))).slice(0, 50)
+        : [];
+      if (logins.length === 0) return { error: "logins required" };
+      const importance = await fetchRepoImportance(owner, repo);   // fetched once for the whole repo
+      const results: Array<{ login: string; status: string; xp?: number; commits?: number; lines?: number }> = [];
+      for (const login of logins) {
+        const player = await resolvePlayerByGithubLogin(login);
+        if (!player?.githubVerified) { results.push({ login, status: "unlinked" }); continue; }
+        const existing = (await gameDb.select().from(playerProjects).where(and(eq(playerProjects.playerId, player.id), sql`lower(${playerProjects.projectKey}) = ${keyLc}`)).limit(1))[0];
+        if (existing && Date.now() - new Date(existing.updatedAt).getTime() < CI_REPO_COOLDOWN_MS) {
+          results.push({ login, status: "throttled", xp: Number(existing.xp), commits: existing.commits, lines: Number(existing.lines) });
+          continue;
+        }
+        const sc = await scoreRepoForLogin(owner, repo, login, { importance });
+        if (!sc || sc.commits === 0) { results.push({ login, status: "no-commits" }); continue; }
+        await gameDb.insert(projects).values({ key, name: repo, stars: sc.stars, oss: sc.oss })
+          .onConflictDoUpdate({ target: projects.key, set: { stars: sql`greatest(${projects.stars}, excluded.stars)`, oss: sql`${projects.oss} or excluded.oss` } });
+        await gameDb.insert(playerProjects).values({ playerId: player.id, projectKey: key, xp: sc.xp, commits: sc.commits, lines: sc.lines, updatedAt: new Date() })
+          .onConflictDoUpdate({ target: [playerProjects.playerId, playerProjects.projectKey], set: { xp: sql`greatest(${playerProjects.xp}, excluded.xp)`, commits: sql`greatest(${playerProjects.commits}, excluded.commits)`, lines: sql`greatest(${playerProjects.lines}, excluded.lines)`, updatedAt: sql`now()` } });
+        results.push({ login, status: "scored", xp: sc.xp, commits: sc.commits, lines: sc.lines });
+      }
+      return { ok: true, repo: key, results };
     })
     // Public profile by github login — what others see (avatar, showcase, stats). No PII; just
     // the same public facts already on the leaderboard, plus the curated 3D showcase.

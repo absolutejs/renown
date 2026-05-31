@@ -727,6 +727,17 @@ const main = async () => {
         console.log(`  ${HC.dim}· @${login} — ${why}${R}`);
       }
     }
+    // Per-repo board: score each contributor's commits in THIS repo (server-side, the shared craft
+    // formula on GitHub data) so the repo's public /project leaderboard fills in from CI too.
+    if (repo) {
+      const res = await fetch(`${endpoint}/ci/repo-sync`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ repo, logins: [...logins] }), signal: AbortSignal.timeout(60000) }).catch(() => null);
+      const rj: any = res ? await res.json().catch(() => null) : null;
+      const scored = Array.isArray(rj?.results) ? rj.results.filter((r: any) => r.status === "scored" || r.status === "throttled") : [];
+      if (scored.length) {
+        console.log(`\n  ${B}board${R}  ${HC.dim}${repo}${R}`);
+        for (const r of scored) console.log(`  ✓ ${B}@${r.login}${R}  ${HC.dim}${Number(r.commits ?? 0).toLocaleString()} commits · ${Number(r.xp ?? 0).toLocaleString()} XP here${R}`);
+      }
+    }
     console.log(`\n  ${HC.mag}${credited} contributor${credited === 1 ? "" : "s"} refreshed${R}  ${HC.dim}· join: npm i -g @absolutejs/renown && renown link${R}\n`);
     return;
   }

@@ -49,11 +49,15 @@ password before this repo is public.**
 ## GitHub Action — auto-sync from CI
 
 Drop the renown Action into a repo and every push refreshes that repo's contributors'
-renown — their score, **Co-Authored-By attribution**, and freshly-minted 1/1 pets — with
-**no manual `renown sync` and no secrets in the workflow**. The Action reads GitHub's own
-context (the pusher + the authors GitHub names in the event) and asks your renown server to
-recompute each *linked* contributor from the GitHub API using the **server's** token.
-Contributors who aren't on renown simply no-op, and the step never fails your build.
+renown — their score, **Co-Authored-By attribution**, freshly-minted 1/1 pets, **and the
+repo's own `/project` leaderboard** — with **no manual `renown sync` and no secrets in
+the workflow**. The Action reads GitHub's own context (the pusher + the authors GitHub names
+in the event) and asks your renown server to recompute each *linked* contributor from the
+GitHub API using the **server's** token: their global renown *and* their per-repo commits/XP
+(scored by the same craft engine your local CLI uses — `core/craftScore.ts` is shared, so CI
+and local scoring can't drift; the board upsert is monotonic, so CI only ever adds
+contributors or raises stats). Contributors who aren't on renown simply no-op, and the step
+never fails your build.
 
 ```yaml
 # .github/workflows/renown.yml
