@@ -58,7 +58,7 @@ jobs:
       - name: Pull droplet env (bakes prod config at build time)
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${HOST}" \
-            'cat ${APP_DIR}/web/.env' > web/.env
+            "cat ${APP_DIR}/web/.env" > web/.env
           test -s web/.env || { echo "::error::could not read ${HOST}:${APP_DIR}/web/.env"; exit 1; }
 
       # Idempotent catalog seed so new/edited achievements (e.g. mile-high) exist in
