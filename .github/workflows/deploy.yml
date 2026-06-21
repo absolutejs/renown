@@ -1,21 +1,19 @@
 name: Deploy
 
 # Continuous deployment for Renown. origin/main is the single source of truth for
-# what runs on the droplet, so "what's live" can't drift from the repo.
+# what runs on the droplet.
 #
-#   push to main → typecheck (hard gate) → sync code to droplet → seed catalog →
-#                  compile on the droplet → atomic swap + smoke + auto-rollback
+#   push to main → typecheck → seed catalog → pull droplet env → compile ON THE
+#                  RUNNER → scp binary → atomic swap + smoke + auto-rollback
 #
-# Why compile ON the droplet (not the runner): `absolute compile` boots the server
-# to pre-render, and the `networking()` server auto-listens — on the runner this
-# collides with the pre-render harness on port 3000 (EADDRINUSE). On the droplet we
-# free 3000 first (stop the service), so pre-render gets the port cleanly. The box
-# is 1 GB + 2 GB swap and compiles in seconds. Downtime = compile duration (~1 min);
-# if anything fails the old binary is restored.
+# Compile on the runner (lots of RAM), NOT the droplet — the droplet only runs the
+# binary. The droplet's /srv/renown/web/.env is pulled and baked at build time so
+# prod config is correct. No PORT is set for the compile: `absolute compile`
+# (>=0.19.0-beta.1077) picks a free pre-render port itself (findFreePort), so it
+# never collides on the runner.
 #
 # Required repo secret:
-#   ABSOLUTEJS_SSH_KEY — private key authorized as root@ on the droplet
-#                        (the local ~/.ssh/absolutejs_droplet key).
+#   ABSOLUTEJS_SSH_KEY — private key authorized as root@ on the droplet.
 
 on:
   push:
@@ -27,7 +25,7 @@ concurrency:
 
 env:
   HOST: 159.89.87.74
-  APP_DIR: /srv/renown
+  APP_DIR: /srv/renown/web
 
 jobs:
   deploy:
@@ -40,7 +38,7 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      - name: Install dependencies (root + web, for typecheck)
+      - name: Install dependencies (root + web)
         run: |
           bun install --frozen-lockfile
           cd web && bun install --frozen-lockfile
@@ -54,58 +52,49 @@ jobs:
           printf '%s\n' "${{ secrets.ABSOLUTEJS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-      - name: Sync code to droplet (keeps the droplet's own .env)
+      - name: Pull droplet env (bakes prod config at build time)
         run: |
-          rsync -az --delete \
-            --exclude='.git' --exclude='node_modules' --exclude='web/node_modules' \
-            --exclude='web/dist' --exclude='web/build' --exclude='.env' --exclude='web/.env' \
-            --exclude='*.log' \
-            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
-            ./ "root@${HOST}:${APP_DIR}/"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${HOST}" \
+            "cat ${APP_DIR}/.env" > web/.env
+          test -s web/.env || { echo "::error::could not read ${HOST}:${APP_DIR}/.env"; exit 1; }
 
-      - name: Seed catalog + compile + atomic swap + smoke + rollback (on droplet)
+      - name: Seed achievement catalog (idempotent)
+        run: bun --env-file=web/.env db/seed.ts
+
+      - name: Compile standalone binary (no PORT → absolute picks a free pre-render port)
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${HOST}" "APP_DIR=${APP_DIR} bash -s" <<'EOSSH'
+          cd web && bunx absolute compile --outfile "$GITHUB_WORKSPACE/compiled-server"
+          test -f "$GITHUB_WORKSPACE/compiled-server" || { echo "::error::no compiled-server produced"; exit 1; }
+          echo "artifact: $(stat -c %s "$GITHUB_WORKSPACE/compiled-server") bytes"
+
+      - name: Ship — checksum + backup + atomic swap + smoke + auto-rollback
+        run: |
           set -euo pipefail
-          APP_DIR="${APP_DIR:-/srv/renown}"
-          chown -R renown:renown "$APP_DIR"
-
-          # Install deps + seed the achievement catalog (idempotent; reads DATABASE_URL
-          # from the droplet's web/.env). No schema migration here — renown schema is
-          # managed manually via db:push.
-          sudo -u renown -H bash -lc "export PATH=\$HOME/.bun/bin:\$PATH; cd '$APP_DIR' && bun install --frozen-lockfile && bun --env-file=web/.env db/seed.ts && cd web && bun install --frozen-lockfile"
-
-          cd "$APP_DIR/web"
-          TS=$(date +%Y%m%d-%H%M%S)
-          [ -f compiled-server ] && cp -a compiled-server "compiled-server.bak-$TS" || true
-
-          # Free port 3000 so `absolute compile` pre-render can bind it, then build.
-          systemctl stop renown || true
-          if ! sudo -u renown -H bash -lc "export PATH=\$HOME/.bun/bin:\$PATH; cd '$APP_DIR/web' && bunx absolute compile --outfile '$APP_DIR/web/compiled-server.new'" || [ ! -f compiled-server.new ]; then
-            echo '::error::compile failed — restoring previous binary'
-            systemctl start renown || true
-            exit 1
-          fi
-
-          mv compiled-server.new compiled-server
-          chown renown:renown compiled-server && chmod 755 compiled-server
-          systemctl start renown && sleep 5
-
-          A=$(systemctl is-active renown || echo inactive)
-          C=$(curl -sS -m 15 -o /dev/null -w '%{http_code}' http://127.0.0.1:3000 || echo 000)
-          echo "active=$A app=$C (backup compiled-server.bak-$TS)"
-          if [ "$A" != active ] || [ "$C" != 200 ]; then
-            echo '!!! SMOKE FAILED — rolling back !!!'
-            if [ -f "compiled-server.bak-$TS" ]; then systemctl stop renown; cp -a "compiled-server.bak-$TS" compiled-server; systemctl start renown; sleep 4; fi
-            echo "rolled back: active=$(systemctl is-active renown || echo inactive)"
-            exit 1
-          fi
-
-          # Keep the 2 newest backups + drop stale AbsoluteJS /tmp runtime extracts.
-          # `|| true`: under `set -o pipefail` a no-match `ls` would fail the (already
-          # successful) deploy.
-          { ls -t compiled-server.bak-* 2>/dev/null | tail -n +3 | xargs -r rm -f; } || true
-          { ls -dt /tmp/absolutejs-compiled-runtime-* 2>/dev/null | tail -n +3 | xargs -r rm -rf; } || true
-          echo "deploy ok"
-          EOSSH
+          SHA="$(sha256sum compiled-server | cut -c1-16)"
+          echo "shipping sha=${SHA} → renown (${HOST})"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${HOST}" \
+            "cd ${APP_DIR} && rm -f compiled-server.new && ls -t compiled-server.bak-* 2>/dev/null | tail -n +2 | xargs -r rm -f"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            compiled-server "root@${HOST}:${APP_DIR}/compiled-server.new"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${HOST}" "
+            set -e
+            cd ${APP_DIR}
+            GOT=\$(sha256sum compiled-server.new | cut -c1-16)
+            if [ \"\$GOT\" != \"${SHA}\" ]; then echo 'CHECKSUM MISMATCH — aborting'; rm -f compiled-server.new; exit 1; fi
+            TS=\$(date +%Y%m%d-%H%M%S)
+            [ -f compiled-server ] && cp -a compiled-server \"compiled-server.bak-\$TS\" || true
+            systemctl stop renown
+            mv compiled-server.new compiled-server
+            chown renown:renown compiled-server && chmod 755 compiled-server
+            systemctl start renown && sleep 5
+            A=\$(systemctl is-active renown); C=\$(curl -sS -m 15 -o /dev/null -w '%{http_code}' http://127.0.0.1:3000 || echo 000)
+            echo \"active=\$A app=\$C (backup compiled-server.bak-\$TS)\"
+            if [ \"\$A\" != active ] || [ \"\$C\" != 200 ]; then
+              echo '!!! SMOKE FAILED — rolling back !!!'
+              if [ -f \"compiled-server.bak-\$TS\" ]; then systemctl stop renown; cp -a \"compiled-server.bak-\$TS\" compiled-server; systemctl start renown; sleep 4; fi
+              echo \"rolled back: active=\$(systemctl is-active renown)\"; exit 1
+            fi
+            { ls -t compiled-server.bak-* 2>/dev/null | tail -n +3 | xargs -r rm -f; } || true
+            { ls -dt /tmp/absolutejs-compiled-runtime-* 2>/dev/null | tail -n +3 | xargs -r rm -rf; } || true
+          "
           echo "deployed ${{ github.sha }} → renown.absolutejs.com"
