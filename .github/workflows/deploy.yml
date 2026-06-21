@@ -60,6 +60,11 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "root@${HOST}" \
             "cat ${APP_DIR}/web/.env" > web/.env
           test -s web/.env || { echo "::error::could not read ${HOST}:${APP_DIR}/web/.env"; exit 1; }
+          # Drop PORT for the build only: `absolute compile` boots the server to
+          # pre-render and needs a free port, but a baked PORT=3000 forces a fixed
+          # one and collides (EADDRINUSE) on the runner. Runtime PORT comes from the
+          # droplet's own /srv/renown/web/.env (untouched), read by the binary at boot.
+          sed -i '/^PORT=/d' web/.env
 
       # Idempotent catalog seed so new/edited achievements (e.g. mile-high) exist in
       # the DB before the new binary references them. Reads DATABASE_URL from the
