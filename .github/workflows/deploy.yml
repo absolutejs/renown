@@ -102,8 +102,10 @@ jobs:
           fi
 
           # Keep the 2 newest backups + drop stale AbsoluteJS /tmp runtime extracts.
-          ls -t compiled-server.bak-* 2>/dev/null | tail -n +3 | xargs -r rm -f
-          ls -dt /tmp/absolutejs-compiled-runtime-* 2>/dev/null | tail -n +3 | xargs -r rm -rf
+          # `|| true`: under `set -o pipefail` a no-match `ls` would fail the (already
+          # successful) deploy.
+          { ls -t compiled-server.bak-* 2>/dev/null | tail -n +3 | xargs -r rm -f; } || true
+          { ls -dt /tmp/absolutejs-compiled-runtime-* 2>/dev/null | tail -n +3 | xargs -r rm -rf; } || true
           echo "deploy ok"
           EOSSH
           echo "deployed ${{ github.sha }} → renown.absolutejs.com"
