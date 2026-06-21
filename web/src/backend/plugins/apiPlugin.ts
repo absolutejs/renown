@@ -42,6 +42,8 @@ const isoWeekIndex = (d: Date = new Date()): number => {
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "../billing/tiers";
 import { gameDb, grantAchievements, hub, playerCache, submitPlayer, type PlayerSnapshot } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";
+import { clientIp } from "../rateLimit.ts";
+import { matchInflightCarrier } from "../inflightNetworks.ts";
 
 const TOP_MAX = 100, ACH_MAX = 2000;
 // Don't re-score the same (player, repo) from CI more than once per window — bounds GitHub API
@@ -73,6 +75,12 @@ const recomputeWeeklyAiLeader = async () => {
     avatarSeed: top.avatarSeed,
   });
 };
+
+// Per-process guard so we don't re-run the mile-high grant (a select + insert) on every
+// heartbeat submit. grantAchievements is idempotent (onConflictDoNothing), so the only
+// cost of a cleared set after restart is one no-op grant per in-flight player. Single-
+// instance assumption matches the rest of this file (see sync.ts hub/cache note).
+const mileHighGranted = new Set<string>();
 
 type ApiDeps = { accessTokenStore: ReturnType<typeof createNeonAccessTokenStore> };
 
@@ -1096,7 +1104,7 @@ ${items}
         })),
       };
     })
-    .post("/submit", async ({ body, headers }) => {
+    .post("/submit", async ({ body, headers, request, server }) => {
       const e = body as PlayerSnapshot;
       if (!e?.id) return { error: "bad request" };
       // Open by design — client xp NEVER ranks (only github_verified rows do), so an
@@ -1104,6 +1112,20 @@ ${items}
       // just marks the write as first-party-trusted for a caller's own bookkeeping.
       const trusted = hasScopes(await principal(headers.authorization), ["renown:submit"]);
       submitPlayer(e);   // synchronous hot write + live push; Neon persist coalesced behind it
+      // Mile High Code Club — server-observed signal (NOT a client field): does this
+      // submit's egress IP belong to an in-flight Wi-Fi carrier? If so, you're coding from
+      // a plane. Granted off the request's own source IP, so it can't be forged from the
+      // payload. The log line captures the exact matched IP/CIDR so we can later tighten
+      // the seed (Viasat's full range → just the Fly-Fi egress block) from a real flight.
+      if (!mileHighGranted.has(e.id)) {
+        const ip = clientIp(request, server ?? null);
+        const hit = matchInflightCarrier(ip);
+        if (hit) {
+          mileHighGranted.add(e.id);
+          console.log(`renown: mile-high match player=${e.id} carrier=${hit.carrier.id} ip=${ip} cidr=${hit.cidr}`);
+          void grantAchievements(e.id, ["mile-high"]);
+        }
+      }
       return { ok: true, trusted };
     })
     // Trusted server-to-server recompute (no per-call throttle, unlike /verify). For first-

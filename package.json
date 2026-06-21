@@ -91,8 +91,7 @@
     "db:check": "bun run db/check.ts",
     "db:seed": "bun run db/seed.ts",
     "db:backup": "absolute db backup --exclude achievements",
-    "db:restore": "absolute db restore && bun run db/recompute-rarity.ts",
-    "server": "bun run server/index.ts"
+    "db:restore": "absolute db restore && bun run db/recompute-rarity.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

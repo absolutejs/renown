@@ -339,6 +339,12 @@ add("ai-attested", "Attested AI", "AI status backed by a public attestation from
 add("ai-verified", "Verified AI", "AI status cryptographically verified against your provider's published key", "AI", "mythic", "shown", _ => false);
 add("ai-self-verified", "Self-Keyed AI", "AI status attested with a hardware-key WebAuthn assertion (no provider key required)", "AI", "silver", "shown", _ => false);
 
+// ── Mile High Code Club ───────────────────────────────────────────────────
+// SERVER-EVALUATED (check stays false). /api/submit matches the requester's egress IP
+// against known in-flight Wi-Fi carrier ranges (web/src/backend/inflightNetworks.ts) and
+// grants this when you submit from a plane's network. Real network signal, not self-report.
+add("mile-high", "Mile High Code Club", "Land a coding session from an airplane's in-flight Wi-Fi", "Secret", "secret", "secret", _ => false);
+
 // ── The "Rate Limited" easter egg ─────────────────────────────────────────
 // Tier-laddered family for AI accounts that get rate-limited by their provider. The
 // frame: "you're not important enough for Anthropic right now." Self-deprecating, in

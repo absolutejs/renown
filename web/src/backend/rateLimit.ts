@@ -40,6 +40,10 @@ const ipGenerator = (request: Request, server: { requestIP?: (r: Request) => { a
   return server?.requestIP?.(request)?.address ?? "unknown";
 };
 
+// Exported so non-rate-limit code (e.g. in-flight carrier detection on /api/submit) can
+// resolve the same trusted-proxy-aware egress IP we key limiters on.
+export const clientIp = ipGenerator;
+
 const sessionGenerator = (request: Request, server: Parameters<typeof ipGenerator>[1]) =>
   sessionKey(request) ?? ipGenerator(request, server);
 

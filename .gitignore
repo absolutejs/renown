@@ -14,3 +14,5 @@ backups/
 
 # playwright-mcp scratch (screenshots / console logs)
 .playwright-mcp/
+.env.prod
+web/.env.prod
