@@ -83,12 +83,22 @@ export const ProfileModal = ({ login, onClose, me = null, following = [], onTogg
   useEffect(() => { setIsFollowing(following.some((l) => l.toLowerCase() === login.toLowerCase())); }, [following, login]);
   const toggleFollow = async () => { const next = !isFollowing; setIsFollowing(next); try { await onToggleFollow?.(login, next); } catch { setIsFollowing(!next); } };
   useEffect(() => {
-    fetch(`/api/profile/${encodeURIComponent(login)}`).then(async (r) => {
-      if (!r.ok) { setErr("Profile not found."); return; }
-      const j = await r.json();
-      if ("error" in j) setErr(j.error);
-      else setProfile(j);
-    });
+    let cancelled = false;
+    setErr(null); setProfile(null);
+    (async () => {
+      try {
+        const r = await fetch(`/api/profile/${encodeURIComponent(login)}`);
+        if (!r.ok) { if (!cancelled) setErr("Profile not found."); return; }
+        const j = await r.json().catch(() => null);
+        if (cancelled) return;
+        if (!j || "error" in j) setErr(j?.error ?? "Couldn't load this profile.");
+        else setProfile(j);
+      } catch {
+        // network/parse failure — surface it instead of spinning forever
+        if (!cancelled) setErr("Couldn't load this profile — check your connection and try again.");
+      }
+    })();
+    return () => { cancelled = true; };
   }, [login]);
   // Esc to close
   useEffect(() => {
@@ -101,8 +111,8 @@ export const ProfileModal = ({ login, onClose, me = null, following = [], onTogg
     <div className="modalScrim" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <button className="modalClose" onClick={onClose} aria-label="Close">✕</button>
-        {err && <p className="muted">{err}</p>}
-        {!err && !profile && <p className="muted">Loading…</p>}
+        {err && <div className="loadState"><p className="muted">{err}</p></div>}
+        {!err && !profile && <div className="loadState"><div className="spinner" /><p className="muted">Loading…</p></div>}
         {profile && (
           <>
             <div className="profileHead">

@@ -21,10 +21,15 @@ const Login = ({ onAuthed }: { onAuthed: () => void }) => {
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(null); setBusy(true);
-    const r = await fetch("/admin/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
-    setBusy(false);
-    if (r.ok) onAuthed();
-    else setErr(((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `Failed (${r.status})`);
+    try {
+      const r = await fetch("/admin/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
+      if (r.ok) onAuthed();
+      else setErr(((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `Failed (${r.status})`);
+    } catch {
+      setErr("Network error — check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <section className="card" style={{ maxWidth: 420, margin: "60px auto" }}>
@@ -53,10 +58,15 @@ const Dashboard = ({ admin, onSignOut }: { admin: Admin; onSignOut: () => void }
 
   const setTier = async (sub: string, tier: Tier) => {
     setBusy(sub);
-    const r = await fetch(`/api/admin/users/${sub}/tier`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tier }) });
-    setBusy(null);
-    if (r.ok) { setBanner({ kind: "ok", text: `Tier set to ${tier}.` }); load(); }
-    else setBanner({ kind: "warn", text: `Failed to set tier.` });
+    try {
+      const r = await fetch(`/api/admin/users/${sub}/tier`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tier }) });
+      if (r.ok) { setBanner({ kind: "ok", text: `Tier set to ${tier}.` }); load(); }
+      else setBanner({ kind: "warn", text: `Failed to set tier.` });
+    } catch {
+      setBanner({ kind: "warn", text: "Network error — couldn't set tier." });
+    } finally {
+      setBusy(null);
+    }
   };
 
   const stats = {
@@ -311,8 +321,12 @@ const AttestationsPanel = () => {
 const App = () => {
   const [admin, setAdmin] = useState<Admin | null | undefined>(undefined);
   const load = useCallback(async () => {
-    const r = await fetch("/api/admin/me");
-    setAdmin(r.ok ? await r.json() : null);
+    try {
+      const r = await fetch("/api/admin/me");
+      setAdmin(r.ok ? await r.json() : null);
+    } catch {
+      setAdmin(null);   // network failure → treat as signed-out instead of spinning forever
+    }
   }, []);
   useEffect(() => { load(); }, [load]);
   const signOut = async () => { await fetch("/admin/logout", { method: "DELETE" }); setAdmin(null); };

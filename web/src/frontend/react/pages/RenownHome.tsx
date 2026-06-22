@@ -52,9 +52,17 @@ const resolvePetLookId = (seed: string | null, activePetLookId: string | undefin
 const resolveLookId = (value: string | undefined | null): PetLookId => isPetLookId(value) ? value : DEFAULT_PET_LOOK_ID;
 const PET_LOOK_OPTIONS = Object.values(PET_LOOKS);
 
+// Never throws: a network failure (offline, DNS, aborted) resolves to { ok:false, status:0 }
+// instead of rejecting. Call sites guard their loading flags after `await api(...)`, so a
+// thrown fetch used to leave buttons/spinners stuck forever — this makes the failure a
+// normal { ok:false } the UI already knows how to surface.
 const api = async (url: string, opts?: RequestInit) => {
-  const r = await fetch(url, opts);
-  return { ok: r.ok, status: r.status, data: r.ok ? await r.json().catch(() => null) : null };
+  try {
+    const r = await fetch(url, opts);
+    return { ok: r.ok, status: r.status, data: r.ok ? await r.json().catch(() => null) : null };
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
 };
 const post = (url: string, body?: unknown) =>
   api(url, { method: "POST", headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -165,14 +173,14 @@ const FollowingFeed = ({ myLogin, openProfile }: { myLogin: string | null; openP
   const ago = (iso: string) => { const s = Math.max(1, Math.round((Date.now() - Date.parse(iso)) / 1000)); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
   return (
     <section className="card">
-      <h2>From devs you follow <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· live</span></h2>
+      <h2>From devs you follow <span className="eyebrow">· live</span></h2>
       <p className="muted hint">Recent unlocks from your circle. <a href={`/rivals/${encodeURIComponent(myLogin)}`}>Your rivals →</a></p>
-      <div className="achList" style={{ marginTop: 8, flexDirection: "column", alignItems: "stretch", gap: 6 }}>
-        {feed.map((r, i) => (
+      <div className="achList" style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 6 }}>
+        {feed.slice(0, 8).map((r, i) => (
           <a key={`${r.player.login}:${r.achievement.id}:${i}`} href={r.player.login ? profileHref(r.player.login) : "#"}
             onClick={(ev) => { if (!r.player.login || !isPlainPrimaryClick(ev)) return; ev.preventDefault(); openProfile(r.player.login); }}
             className={`achChip tier-${r.achievement.tier}`}
-            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", textAlign: "left", cursor: "pointer", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", textAlign: "left", cursor: "pointer", borderRadius: 10 }}>
             <span><strong>@{r.player.login ?? r.player.handle}</strong>{r.player.isAi && " 🤖"} <span className="muted">unlocked</span> {r.achievement.name}</span>
             <span className="muted" style={{ fontSize: 12 }}>{ago(r.unlockedAt)}</span>
           </a>
@@ -209,10 +217,10 @@ const RecentUnlocks = ({ openProfile }: { openProfile: (login: string) => void }
   };
   return (
     <section className="card">
-      <h2>Across the network <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· live</span></h2>
-      <p className="muted hint">The {rows.length} most recent shown-visibility unlocks anywhere on renown. Click to open a player's profile.</p>
-      <div className="achList" style={{ marginTop: 8, flexDirection: "column", alignItems: "stretch", gap: 6 }}>
-        {rows.map((r, i) => (
+      <h2>Across the network <span className="eyebrow">· live</span></h2>
+      <p className="muted hint">The latest unlocks anywhere on renown. Click to open a player's profile.</p>
+      <div className="achList" style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 6 }}>
+        {rows.slice(0, 8).map((r, i) => (
           <a
             key={`${r.player.login}:${r.achievement.id}:${i}`}
             href={profileHref(r.player.login)}
@@ -222,7 +230,7 @@ const RecentUnlocks = ({ openProfile }: { openProfile: (login: string) => void }
               openProfile(r.player.login);
             }}
             className={`achChip tier-${r.achievement.tier}`}
-            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", textAlign: "left", cursor: "pointer", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", textAlign: "left", cursor: "pointer", borderRadius: 10 }}
             title={r.achievement.description}
           >
             <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
@@ -1854,15 +1862,20 @@ const AuthView = ({ initial, onAuthed, onBanner }: { initial: "login" | "registe
     e.preventDefault(); setErr(null); setBusy(true);
     const url = mode === "login" ? "/auth/login" : mode === "register" ? "/auth/register" : "/auth/reset-password/request";
     const body = mode === "forgot" ? { email } : { email, password };
-    const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    setBusy(false);
-    if (r.ok) {
-      if (mode === "login") { onAuthed(); }
-      else if (mode === "register") { onBanner({ kind: "info", text: "✉ Account created — check the server console for your verify link." }); setMode("login"); }
-      else { onBanner({ kind: "info", text: "Reset link generated — check the server console." }); setMode("login"); }
-    } else {
-      const j = await r.json().catch(() => null) as { error?: string; message?: string } | null;
-      setErr(j?.error ?? j?.message ?? `Failed (${r.status}). ${r.status === 403 ? "Verify your email first." : ""}`);
+    try {
+      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      if (r.ok) {
+        if (mode === "login") { onAuthed(); }
+        else if (mode === "register") { onBanner({ kind: "info", text: "✉ Account created — check the server console for your verify link." }); setMode("login"); }
+        else { onBanner({ kind: "info", text: "Reset link generated — check the server console." }); setMode("login"); }
+      } else {
+        const j = await r.json().catch(() => null) as { error?: string; message?: string } | null;
+        setErr(j?.error ?? j?.message ?? `Failed (${r.status}). ${r.status === 403 ? "Verify your email first." : ""}`);
+      }
+    } catch {
+      setErr("Network error — check your connection and try again.");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -1895,10 +1908,15 @@ const ResetView = ({ token, onDone }: { token: string; onDone: (ok: boolean, msg
   const [pw, setPw] = useState(""); const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(null); setBusy(true);
-    const r = await fetch("/auth/reset-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, password: pw }) });
-    setBusy(false);
-    if (r.ok) onDone(true, "Password updated — please log in.");
-    else { const j = await r.json().catch(() => null) as { error?: string } | null; setErr(j?.error ?? `Failed (${r.status})`); }
+    try {
+      const r = await fetch("/auth/reset-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, password: pw }) });
+      if (r.ok) onDone(true, "Password updated — please log in.");
+      else { const j = await r.json().catch(() => null) as { error?: string } | null; setErr(j?.error ?? `Failed (${r.status})`); }
+    } catch {
+      setErr("Network error — check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <section className="card" style={{ maxWidth: 460, margin: "20px auto" }}>

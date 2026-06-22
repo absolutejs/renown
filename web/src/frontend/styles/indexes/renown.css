@@ -1,552 +1,671 @@
-/* Renown web — AbsoluteJS brand re-skin.
-   Dark page, #5fbeeb accent, card/ink/muted/line tokens lifted from the voice + sync examples. */
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+/* ============================================================================
+   Renown — "Ranked" theme.  A competitive, arcade/esports dark UI for a game
+   about shipping real code: skills capped at 99, seasons, pets, trophy walls.
+   Dominant electric blue, near-monochrome carbon surfaces, one hot accent for
+   energy, a strict rarity ramp reserved for drops. Class API matches the React
+   pages 1:1 — restyle here, every page follows.
+   ========================================================================== */
 :root {
   color-scheme: dark;
-  --page: #0a0a0a;
-  --page-glow: radial-gradient(1200px 600px at 50% -10%, rgba(95,190,235,.08), transparent 60%);
-  --card: rgba(255,255,255,.04);
-  --card-strong: rgba(255,255,255,.06);
-  --ink: #e4e4e7;
-  --text: #f4f4f5;
-  --muted: #8b8b95;
-  --line: rgba(255,255,255,.08);
-  --line-strong: rgba(255,255,255,.14);
-  --accent: #5fbeeb;
-  --accent-2: #4aa3d6;
-  --accent-soft: rgba(95,190,235,.14);
-  --accent-line: rgba(95,190,235,.34);
-  --danger: #fca5a5;
-  --ok: #86efac;
-  --warn: #fde68a;
-  --radius: 12px;
-  --shadow: 0 24px 80px rgba(0,0,0,.28);
-  --display-font: system-ui, -apple-system, "Segoe UI", "Inter", sans-serif;
+
+  /* — surfaces: carbon, layered — */
+  --bg:        #06080d;
+  --bg-2:      #080b12;
+  --surface-0: #0b0f17;   /* base panel */
+  --surface-1: #10151f;   /* raised */
+  --surface-2: #161d29;   /* hover / active */
+  --surface-inset: rgba(255,255,255,.02);
+
+  /* — hairlines — */
+  --line:        rgba(150,180,220,.10);
+  --line-2:      rgba(150,180,220,.16);
+  --line-strong: rgba(150,180,220,.24);
+  --edge-hi:     rgba(255,255,255,.06);   /* top inner-highlight on panels */
+
+  /* — text — */
+  --text:  #f3f6fb;
+  --ink:   #c2cad8;
+  --muted: #79839a;
+  --faint: #4d566b;
+
+  /* — brand blue (the anchor) — */
+  --accent:        #5fbeeb;
+  --accent-bright: #8fd9ff;
+  --accent-deep:   #2f80b8;
+  --accent-soft:   rgba(95,190,235,.12);
+  --accent-line:   rgba(95,190,235,.40);
+  --accent-glow:   rgba(95,190,235,.45);
+
+  /* — hot accent (live / season / secondary energy). Used sparingly. — */
+  --hot:        #ff4d72;
+  --hot-bright: #ff7d97;
+  --hot-soft:   rgba(255,77,114,.12);
+  --hot-line:   rgba(255,77,114,.42);
+
+  /* — rarity ramp (pets, achievements, drops only) — */
+  --r-common:    #9aa4b8;
+  --r-uncommon:  #7ee787;
+  --r-rare:      #5fbeeb;
+  --r-epic:      #b48cff;
+  --r-legendary: #ffb454;
+  --r-mythic-a:  #f0abfc;
+  --r-mythic-b:  #fbbf24;
+
+  /* — status — */
+  --ok:     #7ee787;
+  --warn:   #ffcf5c;
+  --danger: #ff8a8a;
+
+  /* — type — */
+  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --font-body:    "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+
+  /* — type scale — */
+  --fs-display: clamp(40px, 6vw, 76px);
+  --fs-h1: 32px;
+  --fs-h2: 19px;
+  --fs-h3: 15px;
+  --fs-body: 15px;
+  --fs-sm: 13px;
+  --fs-xs: 11px;
+
+  /* — spacing scale — */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
+
+  /* — radius — */
+  --r-xs: 6px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+  --radius: 12px;   /* legacy alias */
+
+  /* — elevation — */
+  --shadow-1: 0 1px 0 var(--edge-hi) inset, 0 8px 24px rgba(0,0,0,.36);
+  --shadow-2: 0 1px 0 var(--edge-hi) inset, 0 18px 50px rgba(0,0,0,.50);
+  --shadow:   var(--shadow-2);   /* legacy alias */
+
+  /* — motion — */
+  --ease: cubic-bezier(.2,.7,.3,1);
 }
+
 * { box-sizing: border-box; margin: 0; }
-body { font: 16px/1.5 var(--display-font); background: var(--page); background-image: var(--page-glow); color: var(--ink); min-height: 100vh; }
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+::selection { background: var(--accent-glow); color: #04121c; }
 
-.wrap { max-width: 880px; margin: 0 auto; padding: 24px 24px 64px; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font: var(--fs-body)/1.55 var(--font-body);
+  color: var(--ink);
+  background: var(--bg);
+  min-height: 100vh;
+  /* atmosphere: a faint blueprint grid + a cool top glow + a hot ember low-right */
+  background-image:
+    radial-gradient(1100px 520px at 50% -8%, rgba(95,190,235,.10), transparent 62%),
+    radial-gradient(800px 600px at 110% 110%, rgba(255,77,114,.05), transparent 60%),
+    linear-gradient(transparent 0 23px, rgba(120,160,210,.022) 23px 24px),
+    linear-gradient(90deg, transparent 0 23px, rgba(120,160,210,.022) 23px 24px);
+  background-attachment: fixed;
+  background-size: auto, auto, 24px 24px, 24px 24px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+a { color: var(--accent); text-decoration: none; transition: color .12s var(--ease); }
+a:hover { color: var(--accent-bright); text-decoration: none; }
+h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 600; line-height: 1.12; }
 
-/* ── top bar + nav ─────────────────────────────────────────── */
-.topbar { display: flex; align-items: center; gap: 18px; padding: 6px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: -.2px; }
-.brand .logo { color: var(--accent); transition: transform .25s ease; }
-.brand:hover .logo { transform: rotate(15deg); }
-.nav { display: flex; gap: 2px; margin-left: 6px; }
-.nav button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 14px; padding: 7px 13px; border-radius: 9px; cursor: pointer; transition: background .12s, color .12s; }
-.nav button:hover { color: var(--text); background: rgba(255,255,255,.04); }
-.nav button.on { color: var(--text); background: var(--accent-soft); }
-.authbox { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-.me { display: inline-flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; padding: 7px 13px; border-radius: 10px; cursor: pointer; }
-.me:hover { background: var(--card-strong); }
-/* Audio toggle in the header. Synth-only, lives in audio.ts. The click itself is the
-   user-gesture that unlocks Web Audio, so flipping this on warms the AudioContext too. */
-.soundToggle { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; background: var(--card); border: 1px solid var(--line); border-radius: 9px; font-size: 15px; cursor: pointer; transition: background .12s, border-color .12s; }
-.soundToggle:hover { background: var(--card-strong); border-color: var(--accent-line); }
-.adminLink { color: var(--muted); font-size: 12px; padding: 6px 10px; border: 1px dashed var(--line-strong); border-radius: 8px; }
-.adminLink:hover { color: var(--text); border-color: var(--accent-line); text-decoration: none; }
+/* numbers everywhere read as a scoreboard */
+.num, .score, .xp, .lvl, .rank, .stat .num, .profileScore .num,
+.tier .price, .attestWhen, .attestTrailAt, .summonProgress, .petSize {
+  font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+}
 
-/* ── buttons ───────────────────────────────────────────────── */
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 18px; border-radius: 10px; text-decoration: none; font: inherit; font-weight: 600; color: #051018; transition: transform .08s ease, filter .15s ease, background .15s ease; cursor: pointer; border: 0; }
-.btn:hover { transform: translateY(-1px); filter: brightness(1.08); text-decoration: none; }
-.btn.solid { background: var(--accent); color: #051018; }
-.btn.solid:hover { background: var(--accent-2); color: #051018; }
-.btn.ghost { background: var(--card); border: 1px solid var(--line-strong); color: var(--text); }
-.btn.ghost:hover { background: var(--card-strong); }
-.btn.gh { background: #24292e; color: #fff; border: 1px solid #3a3f46; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: var(--s-5) var(--s-5) var(--s-8); }
+@media (max-width: 640px) { .wrap { padding: var(--s-4) var(--s-4) var(--s-7); } }
+
+/* ── top bar + nav ─────────────────────────────────────────────────────────
+   Sticky carbon rail. Brand wordmark in the display face; nav reads like a
+   game menu (uppercase, tracked). */
+.topbar {
+  display: flex; align-items: center; gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  margin: 0 0 var(--s-5);
+  background: linear-gradient(180deg, rgba(16,21,31,.92), rgba(11,15,23,.82));
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(10px);
+  position: sticky; top: 10px; z-index: 60;
+}
+.brand {
+  display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
+  font-family: var(--font-display); font-size: 19px; font-weight: 700;
+  color: var(--text); letter-spacing: .04em; text-transform: uppercase;
+}
+.brand .logo { color: var(--accent); filter: drop-shadow(0 0 8px var(--accent-glow)); transition: transform .25s var(--ease); }
+.brand:hover .logo { transform: rotate(-12deg) scale(1.08); }
+.nav { display: flex; gap: 2px; margin-left: var(--s-2); }
+.nav button {
+  background: none; border: 0; color: var(--muted);
+  font-family: var(--font-display); font-size: 12px; font-weight: 500;
+  letter-spacing: .06em; text-transform: uppercase;
+  padding: 8px 13px; border-radius: var(--r-sm); cursor: pointer;
+  transition: background .14s var(--ease), color .14s var(--ease);
+}
+.nav button:hover { color: var(--text); background: var(--surface-2); }
+.nav button.on { color: var(--accent-bright); background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); }
+.authbox { margin-left: auto; display: flex; gap: var(--s-2); align-items: center; }
+.me {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  background: var(--surface-1); border: 1px solid var(--line-2); color: var(--text);
+  font-family: var(--font-display); font-size: 13px; font-weight: 600; letter-spacing: .02em;
+  padding: 8px 13px; border-radius: var(--r-sm); cursor: pointer;
+  transition: background .14s var(--ease), border-color .14s var(--ease);
+}
+.me:hover { background: var(--surface-2); border-color: var(--accent-line); }
+.soundToggle {
+  width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  font-size: 15px; cursor: pointer; transition: background .14s var(--ease), border-color .14s var(--ease);
+}
+.soundToggle:hover { background: var(--surface-2); border-color: var(--accent-line); }
+.adminLink {
+  color: var(--muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+  padding: 6px 10px; border: 1px dashed var(--line-strong); border-radius: var(--r-sm);
+}
+.adminLink:hover { color: var(--accent-bright); border-color: var(--accent-line); }
+
+/* ── buttons ───────────────────────────────────────────────────────────────
+   Slight corner-cut on solids echoes the Chakra Petch letterforms → arcade. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
+  padding: 11px 20px; border-radius: var(--r-sm);
+  font-family: var(--font-display); font-weight: 600; font-size: 14px; letter-spacing: .03em;
+  color: #04121c; cursor: pointer; border: 0;
+  transition: transform .08s var(--ease), filter .15s var(--ease), background .15s var(--ease), box-shadow .15s var(--ease);
+}
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn.solid {
+  background: linear-gradient(180deg, var(--accent-bright), var(--accent));
+  color: #04121c; box-shadow: 0 6px 18px rgba(95,190,235,.28), 0 1px 0 rgba(255,255,255,.3) inset;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+.btn.solid:hover { filter: brightness(1.06); box-shadow: 0 10px 26px rgba(95,190,235,.42), 0 1px 0 rgba(255,255,255,.3) inset; }
+.btn.ghost { background: var(--surface-1); border: 1px solid var(--line-strong); color: var(--text); }
+.btn.ghost:hover { background: var(--surface-2); border-color: var(--accent-line); }
+.btn.hot {
+  background: linear-gradient(180deg, var(--hot-bright), var(--hot)); color: #1a0309;
+  box-shadow: 0 6px 18px rgba(255,77,114,.30), 0 1px 0 rgba(255,255,255,.25) inset;
+}
+.btn.gh { background: #1c2128; color: #fff; border: 1px solid #30363d; }
+.btn.gh:hover { background: #262c34; }
 .btn.gg { background: #1a73e8; color: #fff; }
-.btn.sm { padding: 7px 14px; font-size: 14px; }
-.btn[disabled] { opacity: .45; cursor: default; filter: none; transform: none; }
+.btn.gg:hover { filter: brightness(1.06); }
+.btn.sm { padding: 8px 14px; font-size: 13px; }
+.btn[disabled] { opacity: .45; cursor: default; filter: none; transform: none; box-shadow: none; }
 
-/* ── hero (signed-out) ─────────────────────────────────────── */
-.hero { text-align: center; margin: 36px 0 18px; }
-.hero h1 { font-size: 42px; line-height: 1.1; letter-spacing: -1px; color: var(--text); }
-.hero h1 .accent { color: var(--accent); }
-.tag { color: var(--muted); margin-top: 10px; max-width: 520px; margin-left: auto; margin-right: auto; }
-.cta { display: flex; gap: 10px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
+/* ── hero (signed-out) ─────────────────────────────────────────────────────
+   The marquee. Oversized display type with the accent word lit like a sign. */
+.hero { text-align: center; margin: var(--s-7) 0 var(--s-5); position: relative; }
+.hero h1 {
+  font-size: var(--fs-display); line-height: .98; letter-spacing: -.01em;
+  text-transform: uppercase; font-weight: 700; color: var(--text);
+}
+.hero h1 .accent { color: var(--accent); text-shadow: 0 0 28px var(--accent-glow); }
+.tag {
+  color: var(--muted); margin: var(--s-4) auto 0; max-width: 560px;
+  font-size: 16px; line-height: 1.5;
+}
+.cta { display: flex; gap: var(--s-3); justify-content: center; margin-top: var(--s-5); flex-wrap: wrap; }
 
-/* ── banner ────────────────────────────────────────────────── */
-.banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: 10px; margin: 14px 0; font-size: 14px; }
-.banner.ok { background: rgba(134,239,172,.1); border: 1px solid rgba(134,239,172,.3); color: var(--ok); }
-.banner.info { background: var(--accent-soft); border: 1px solid var(--accent-line); color: var(--accent); }
-.banner.warn { background: rgba(253,230,138,.1); border: 1px solid rgba(253,230,138,.3); color: var(--warn); }
-.banner button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 15px; opacity: .7; }
+/* ── banner ────────────────────────────────────────────────────────────────*/
+.banner {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
+  padding: var(--s-3) var(--s-4); border-radius: var(--r-sm); margin: var(--s-4) 0;
+  font-size: var(--fs-sm); border: 1px solid var(--line);
+}
+.banner.ok   { background: rgba(126,231,135,.08); border-color: rgba(126,231,135,.32); color: var(--ok); }
+.banner.info { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-bright); }
+.banner.warn { background: rgba(255,207,92,.08); border-color: rgba(255,207,92,.32); color: var(--warn); }
+.banner button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 16px; opacity: .7; }
 .banner button:hover { opacity: 1; }
 
-/* ── card ──────────────────────────────────────────────────── */
-.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px 26px; margin-top: 18px; }
-.card h2 { font-size: 17px; color: var(--text); margin-bottom: 8px; letter-spacing: -.2px; }
-.card.warn { border-color: rgba(253,230,138,.3); }
-.muted { color: var(--muted); font-size: 14px; }
-.hint { margin-bottom: 14px; line-height: 1.5; font-size: 14px; color: var(--muted); }
-.row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+/* ── card ──────────────────────────────────────────────────────────────────*/
+.card {
+  background: linear-gradient(180deg, var(--surface-0), var(--bg-2));
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: var(--s-5) var(--s-5); margin-top: var(--s-4);
+  box-shadow: var(--shadow-1);
+}
+.card h2 {
+  font-size: var(--fs-h2); color: var(--text); margin-bottom: var(--s-3);
+  letter-spacing: .01em; display: flex; align-items: baseline; gap: var(--s-2);
+}
+.card.warn { border-color: rgba(255,207,92,.32); }
+.muted { color: var(--muted); font-size: var(--fs-sm); }
+.hint { margin-bottom: var(--s-4); line-height: 1.5; font-size: var(--fs-sm); color: var(--muted); }
+.row { display: flex; gap: var(--s-3); flex-wrap: wrap; margin-top: var(--s-4); }
 
-/* ── leaderboard ───────────────────────────────────────────── */
-.ranks { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-.ranks li { border-radius: 9px; background: rgba(255,255,255,.02); transition: background .12s; }
-.ranks li:hover { background: var(--card); }
-.ranks li.sel { background: var(--accent-soft); outline: 1px solid var(--accent-line); }
-.rankLink { display: grid; grid-template-columns: 30px 56px 1fr auto auto auto auto; gap: 12px; align-items: center; padding: 10px 12px; color: inherit; cursor: pointer; text-decoration: none; }
+/* section eyebrow — small tracked display label used to title regions */
+.eyebrow {
+  font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: .18em; text-transform: uppercase; color: var(--muted);
+}
+
+/* ── leaderboard — THE HERO ────────────────────────────────────────────────
+   A ranked ladder. Big display rank index, mono tabular score, a lit left edge
+   on hover, and a podium treatment for the top 3. */
+.ranks { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.ranks li {
+  border-radius: var(--r-sm); background: var(--surface-inset);
+  border: 1px solid transparent; position: relative;
+  transition: background .14s var(--ease), border-color .14s var(--ease);
+}
+.ranks li::before {
+  content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px;
+  border-radius: 2px; background: transparent; transition: background .14s var(--ease);
+}
+.ranks li:hover { background: var(--surface-1); border-color: var(--line-2); }
+.ranks li:hover::before { background: var(--accent); }
+.ranks li.sel { background: var(--accent-soft); border-color: var(--accent-line); }
+.ranks li.sel::before { background: var(--accent); }
+.rankLink {
+  display: grid; grid-template-columns: 36px 56px 1fr auto auto auto auto; gap: var(--s-3);
+  align-items: center; padding: 10px 14px; color: inherit; cursor: pointer;
+}
 .rankLink:hover { text-decoration: none; }
-/* Newcomer flash — matches the in-canvas entranceBurst on the SinglePet to its left.
-   ~2s pulse so the row reads as having "just arrived" even when the user scans the
-   list quickly. Cleared from React state at 2.5s so the class doesn't linger. */
+.rank { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--muted); text-align: center; }
+/* podium: 1st gold, 2nd silver, 3rd bronze — only on the default score board */
+.ranks li:nth-child(1) .rank { color: var(--r-legendary); text-shadow: 0 0 14px rgba(255,180,84,.5); }
+.ranks li:nth-child(2) .rank { color: #d6dbe6; }
+.ranks li:nth-child(3) .rank { color: #e0a06a; }
+.rankPet { width: 56px; height: 56px; display: block; }
+.rankPet .petCanvas { width: 56px; height: 56px; aspect-ratio: auto; border-radius: var(--r-sm); overflow: hidden; border: 1px solid var(--line-2); }
+.rankPetEmpty { display: block; opacity: .3; }
+.who { font-weight: 600; color: var(--text); letter-spacing: .01em; }
+.lvl { color: var(--accent); font-weight: 600; font-family: var(--font-mono); }
+.xp { color: var(--ink); font-family: var(--font-mono); font-size: var(--fs-sm); }
+.score { color: var(--accent-bright); font-weight: 700; font-size: 16px; font-family: var(--font-mono); }
+
+/* newcomer flash */
 .ranks li.fresh { animation: rankFreshPulse 2s ease-out 1; }
 @keyframes rankFreshPulse {
-  0%   { background: rgba(96, 192, 255, .25); box-shadow: 0 0 0 3px rgba(96, 192, 255, .35); }
-  60%  { background: rgba(96, 192, 255, .08); box-shadow: 0 0 0 1px rgba(96, 192, 255, .15); }
-  100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
+  0%   { background: rgba(95,190,235,.25); box-shadow: 0 0 0 3px rgba(95,190,235,.35); }
+  60%  { background: rgba(95,190,235,.08); box-shadow: 0 0 0 1px rgba(95,190,235,.15); }
+  100% { background: var(--surface-inset); box-shadow: none; }
 }
-/* Swarm — 3+ other tabs converged on this row for >1s. ~1.8s gold pulse with a wider
-   expanding ring so the social moment reads even out of the corner of your eye.
-   AI variants swap palette: ai = purple wash (matches the AI badge accent), verified
-   AI = brighter / bigger ring (the trust signal is stronger, so the celebration is too). */
+/* swarm — many tabs on one row */
 .ranks li.swarm { animation: rankSwarmPulse 1.8s ease-out 1; }
 .ranks li.swarmAi { animation: rankSwarmPulseAi 1.8s ease-out 1; }
 .ranks li.swarmAiVerified { animation: rankSwarmPulseAiVerified 1.8s ease-out 1; }
 @keyframes rankSwarmPulse {
-  0%   { background: rgba(255, 200, 80, .35); box-shadow: 0 0 0 0 rgba(255, 200, 80, .65); }
-  60%  { background: rgba(255, 200, 80, .12); box-shadow: 0 0 0 14px rgba(255, 200, 80, 0); }
-  100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
+  0%   { background: rgba(255,180,84,.35); box-shadow: 0 0 0 0 rgba(255,180,84,.65); }
+  60%  { background: rgba(255,180,84,.12); box-shadow: 0 0 0 14px rgba(255,180,84,0); }
+  100% { background: var(--surface-inset); box-shadow: none; }
 }
 @keyframes rankSwarmPulseAi {
-  0%   { background: rgba(180, 120, 255, .35); box-shadow: 0 0 0 0 rgba(180, 120, 255, .60); }
-  60%  { background: rgba(180, 120, 255, .12); box-shadow: 0 0 0 16px rgba(180, 120, 255, 0); }
-  100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
+  0%   { background: rgba(180,140,255,.35); box-shadow: 0 0 0 0 rgba(180,140,255,.60); }
+  60%  { background: rgba(180,140,255,.12); box-shadow: 0 0 0 16px rgba(180,140,255,0); }
+  100% { background: var(--surface-inset); box-shadow: none; }
 }
 @keyframes rankSwarmPulseAiVerified {
-  0%   { background: rgba(180, 120, 255, .55); box-shadow: 0 0 0 0 rgba(180, 120, 255, .85), 0 0 18px rgba(180, 120, 255, .45); }
-  60%  { background: rgba(180, 120, 255, .18); box-shadow: 0 0 0 22px rgba(180, 120, 255, 0), 0 0 0 rgba(180, 120, 255, 0); }
-  100% { background: rgba(255, 255, 255, .02); box-shadow: none; }
+  0%   { background: rgba(180,140,255,.55); box-shadow: 0 0 0 0 rgba(180,140,255,.85), 0 0 18px rgba(180,140,255,.45); }
+  60%  { background: rgba(180,140,255,.18); box-shadow: 0 0 0 22px rgba(180,140,255,0), 0 0 0 rgba(180,140,255,0); }
+  100% { background: var(--surface-inset); box-shadow: none; }
 }
-.rank { font-size: 17px; text-align: center; }
-/* Mini-pet next to each leaderboard row. Sized once here so the shared MenagerieCanvas
-   has a stable rect to scissor into per row. Empty placeholder keeps grid alignment when
-   a player hasn't earned a pet yet on this board. */
-.rankPet { width: 56px; height: 56px; display: block; }
-.rankPet .petCanvas { width: 56px; height: 56px; aspect-ratio: auto; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
-.rankPetEmpty { display: block; opacity: .35; }
 
-/* Ghost cursors — small colored dots next to a row that another tab is currently
-   hovering. Color is sid-derived (deterministic); the pulse keeps the row feeling
-   "live" without becoming distracting at scale. Capped at 4 dots + an "+N" suffix
-   in the markup. */
+/* ghost cursors */
 .rankGhosts { display: inline-flex; align-items: center; gap: 4px; padding-left: 6px; }
 .ghostDot { width: 10px; height: 10px; border-radius: 50%; animation: ghostPulse 1.4s ease-in-out infinite; }
-.ghostMore { font-size: 11px; color: var(--ink); padding-left: 2px; opacity: .8; }
+.ghostMore { font-size: 11px; color: var(--ink); padding-left: 2px; opacity: .8; font-family: var(--font-mono); }
 @keyframes ghostPulse {
   0%, 100% { transform: scale(.85); opacity: .85; }
   50%      { transform: scale(1.05); opacity: 1; }
 }
-/* Labeled ghost — a live mini-pet (GhostAvatar component) instead of a dot. Same row
-   strip, slightly larger, ringed with the sid color so the identity affordance still
-   reads at-a-glance the way the anonymous dot does. */
-.ghostAvatarWrap { display: inline-flex; width: 24px; height: 24px; border-radius: 50%; padding: 1px; background: rgba(255,255,255,.05); }
+.ghostAvatarWrap { display: inline-flex; width: 24px; height: 24px; border-radius: 50%; padding: 1px; background: rgba(255,255,255,.05); position: relative; }
 .ghostAvatar { width: 22px; height: 22px; border-radius: 50%; overflow: hidden; background: linear-gradient(180deg, #0e1218, #060608); aspect-ratio: auto; }
 
-/* Privacy section — checkbox + label row for cursor-label opt-in (and any future
-   per-user opt-ins that live here). */
-.prefRow { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+/* prefs / inputs */
+.prefRow { display: flex; align-items: center; gap: var(--s-3); cursor: pointer; user-select: none; }
 .prefRow input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
-/* Plain text/url input used by AI attestation + future forms. Inherits the card palette
-   so it doesn't read as a CTA — it's a field, not a button. */
-.textInput { background: rgba(255,255,255,.04); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 8px; outline: none; transition: border-color .12s, background .12s; }
-.textInput:focus { border-color: var(--accent-line); background: rgba(255,255,255,.06); }
+.textInput {
+  background: var(--surface-1); border: 1px solid var(--line-2); color: var(--text);
+  font: 13px var(--font-mono); padding: 8px 11px; border-radius: var(--r-sm); outline: none;
+  transition: border-color .12s var(--ease), background .12s var(--ease);
+}
+.textInput:focus { border-color: var(--accent-line); background: var(--surface-2); box-shadow: 0 0 0 3px var(--accent-soft); }
 .textInput::placeholder { color: var(--muted); opacity: .7; }
 
-/* Hover spotlight: ranks on the left, a sticky big preview on the right. The drei View
-   inside SpotlightView renders its own DOM element (.rankSpotlight) which we size here
-   so the shared MenagerieCanvas has a stable rect to scissor into. Collapses to stack
-   on narrow screens. */
-.boardLayout { display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; }
-.boardSpotlight { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 10px; }
-.rankSpotlight { width: 100%; aspect-ratio: 1 / 1; border-radius: 14px; overflow: hidden; border: 1px solid var(--accent-line); background: linear-gradient(180deg, #0e1218, #060608); box-shadow: 0 12px 36px rgba(0,0,0,.45); }
-.boardSpotlightMeta { padding: 4px 6px; }
-.boardSpotlightMeta h3 { margin: 0 0 4px; font-size: 15px; }
-.boardSpotlightMeta p { margin: 0; font-size: 12px; }
-@media (max-width: 720px) {
+/* hover spotlight (board → big preview) */
+.boardLayout { display: grid; grid-template-columns: 1fr 320px; gap: var(--s-5); align-items: start; }
+.boardSpotlight { position: sticky; top: 80px; display: flex; flex-direction: column; gap: var(--s-3); }
+.rankSpotlight {
+  width: 100%; aspect-ratio: 1 / 1; border-radius: var(--r-lg); overflow: hidden;
+  border: 1px solid var(--accent-line);
+  background: radial-gradient(ellipse at 50% 0%, #11202c, #060a10 70%);
+  box-shadow: 0 0 50px rgba(95,190,235,.12), var(--shadow-2);
+}
+.boardSpotlightMeta { padding: var(--s-1) var(--s-2); }
+.boardSpotlightMeta h3 { margin: 0 0 4px; font-size: var(--fs-h3); }
+.boardSpotlightMeta p { margin: 0; font-size: 12px; color: var(--muted); }
+@media (max-width: 760px) {
   .boardLayout { grid-template-columns: 1fr; }
   .boardSpotlight { position: static; }
   .rankSpotlight { aspect-ratio: 4 / 3; }
 }
 
-/* Per-board theming — each leaderboard board gets its own aura tied to what it ranks.
-   Applied via `.boardCard.board-${id}` so the card frame, spotlight border, and tab accent
-   all shift together when the user switches boards. Subtle by default; goes louder for the
-   rare/big boards to match their "trophy case" energy. */
+/* per-board aura */
 .boardCard { transition: border-color .25s, box-shadow .25s, background .25s; position: relative; overflow: hidden; }
-.boardCard::before {
+.boardCard::after {
   content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
-  opacity: .8; transition: opacity .35s, background .35s;
+  opacity: .8; transition: opacity .35s, background .35s; z-index: 0;
 }
 .boardCard > * { position: relative; z-index: 1; }
+.board-score::after        { background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(95,190,235,.12), transparent 70%); }
+.board-pets-count::after    { background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(126,231,135,.10), transparent 70%); }
+.board-rarest-pet::after    { background:
+  radial-gradient(ellipse 90% 70% at 50% 0%, rgba(180,140,255,.20), transparent 65%),
+  radial-gradient(ellipse 70% 50% at 80% 100%, rgba(95,190,235,.12), transparent 60%); }
+.board-biggest-pet::after   { background:
+  radial-gradient(ellipse 70% 50% at 50% 110%, rgba(255,180,84,.20), transparent 65%),
+  linear-gradient(180deg, transparent 60%, rgba(255,180,84,.06) 100%); }
+.board-rarest-pet { border-color: rgba(180,140,255,.32); box-shadow: 0 14px 40px rgba(120,60,200,.12); }
+.board-rarest-pet .rankSpotlight { border-color: rgba(180,140,255,.55); box-shadow: 0 14px 40px rgba(120,60,200,.32); }
+.board-biggest-pet { border-color: rgba(255,180,84,.28); box-shadow: 0 14px 40px rgba(180,140,40,.12); }
+.board-biggest-pet .rankSpotlight { border-color: rgba(255,180,84,.55); box-shadow: 0 14px 40px rgba(180,140,40,.28); }
 
-.board-score::before          { background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(96,192,255,.10), transparent 70%); }
-.board-pets-count::before     { background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(134,239,172,.10), transparent 70%); }
-.board-rarest-pet::before     { background:
-  radial-gradient(ellipse 90% 70% at 50% 0%, rgba(180,120,255,.22), transparent 65%),
-  radial-gradient(ellipse 70% 50% at 80% 100%, rgba(96,192,255,.12), transparent 60%); }
-.board-biggest-pet::before    { background:
-  radial-gradient(ellipse 70% 50% at 50% 110%, rgba(255,200,80,.22), transparent 65%),
-  linear-gradient(180deg, transparent 60%, rgba(255,200,80,.06) 100%); }
+/* ── board tabs + audience filter ──────────────────────────────────────────*/
+.boardTabs { display: flex; gap: 2px; margin: var(--s-2) 0 var(--s-4); flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+.boardTabs button {
+  background: none; border: 0; color: var(--muted);
+  font-family: var(--font-display); font-size: 12px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase;
+  padding: 9px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .12s var(--ease), border-color .12s var(--ease);
+}
+.boardTabs button:hover { color: var(--text); }
+.boardTabs button.on { color: var(--accent-bright); border-bottom-color: var(--accent); }
+.audienceTabs {
+  display: inline-flex; gap: 2px; margin: 0 0 var(--s-4); padding: 3px;
+  background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-pill);
+}
+.audienceTabs button {
+  background: transparent; border: 0; color: var(--muted);
+  font-family: var(--font-display); font-size: 12px; letter-spacing: .04em;
+  padding: 5px 13px; cursor: pointer; border-radius: var(--r-pill);
+  transition: background .12s var(--ease), color .12s var(--ease);
+}
+.audienceTabs button:hover { color: var(--text); }
+.audienceTabs button.on { background: var(--accent-soft); color: var(--accent-bright); }
 
-.board-rarest-pet { border-color: rgba(180,120,255,.35); box-shadow: 0 12px 36px rgba(120,60,200,.12); }
-.board-rarest-pet .rankSpotlight { border-color: rgba(180,120,255,.55); box-shadow: 0 12px 36px rgba(120,60,200,.35); }
-.board-biggest-pet { border-color: rgba(255,200,80,.30); box-shadow: 0 12px 36px rgba(180,140,40,.12); }
-.board-biggest-pet .rankSpotlight { border-color: rgba(255,200,80,.55); box-shadow: 0 12px 36px rgba(180,140,40,.30); }
-.who { font-weight: 600; color: var(--text); }
-.lvl { color: var(--accent); font-weight: 600; }
-.xp { color: var(--ink); }
-
-/* ── skills ────────────────────────────────────────────────── */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-.skill { display: grid; grid-template-columns: 20px 1fr auto; grid-template-rows: auto 4px; column-gap: 8px; align-items: center; padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.02); }
+/* ── skills (the level sheet) ──────────────────────────────────────────────*/
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--s-2); }
+.skill {
+  display: grid; grid-template-columns: 20px 1fr auto; grid-template-rows: auto 5px;
+  column-gap: var(--s-2); align-items: center; padding: 9px 11px; border-radius: var(--r-sm);
+  background: var(--surface-inset); border: 1px solid var(--line);
+  transition: border-color .14s var(--ease), background .14s var(--ease);
+}
+.skill:hover { border-color: var(--line-2); background: var(--surface-1); }
 .skill .ic { font-size: 15px; text-align: center; }
-.skill .nm { font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.skill .lv { font-size: 13px; font-weight: 700; color: var(--accent); }
-.skill .barT { grid-column: 1 / -1; height: 4px; border-radius: 3px; background: rgba(255,255,255,.07); overflow: hidden; }
-.skill .barF { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
-.skill.maxed { outline: 1px solid var(--accent-line); }
-.skill.maxed .lv { color: var(--accent); }
+.skill .nm { font-size: var(--fs-sm); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill .lv { font-family: var(--font-mono); font-size: var(--fs-sm); font-weight: 700; color: var(--accent); }
+.skill .barT { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: rgba(255,255,255,.06); overflow: hidden; }
+.skill .barF { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-deep), var(--accent-bright)); box-shadow: 0 0 8px var(--accent-glow); }
+.skill.maxed { border-color: var(--r-legendary); background: rgba(255,180,84,.06); }
+.skill.maxed .lv { color: var(--r-legendary); }
+.skill.maxed .barF { background: linear-gradient(90deg, var(--r-legendary), #ffe28a); box-shadow: 0 0 10px rgba(255,180,84,.5); }
 
-/* ── tier badges + chip ────────────────────────────────────── */
-.tierBadge { font-size: 10px; font-weight: 800; letter-spacing: .5px; padding: 2px 6px; border-radius: 5px; margin-left: 8px; vertical-align: middle; }
-.tierBadge.supporter { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); }
-.tierBadge.pro { background: var(--accent); color: #051018; }
-.tierChip { font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 999px; text-transform: capitalize; flex: none; }
-.tierChip.free { background: rgba(255,255,255,.06); color: var(--ink); border: 1px solid var(--line); }
-.tierChip.supporter { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); }
-.tierChip.pro { background: var(--accent); color: #051018; }
+/* ── tier badges + chips ───────────────────────────────────────────────────*/
+.tierBadge { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: .08em; padding: 2px 7px; border-radius: var(--r-xs); margin-left: var(--s-2); vertical-align: middle; text-transform: uppercase; }
+.tierBadge.supporter { background: var(--accent-soft); color: var(--accent-bright); border: 1px solid var(--accent-line); }
+.tierBadge.pro { background: var(--accent); color: #04121c; }
+.tierChip { font-family: var(--font-display); font-size: 12px; font-weight: 600; letter-spacing: .03em; padding: 5px 12px; border-radius: var(--r-pill); text-transform: uppercase; flex: none; }
+.tierChip.free { background: var(--surface-1); color: var(--ink); border: 1px solid var(--line-2); }
+.tierChip.supporter { background: var(--accent-soft); color: var(--accent-bright); border: 1px solid var(--accent-line); }
+.tierChip.pro { background: var(--accent); color: #04121c; }
 
-/* AI participant marker — server-authoritative (players.is_ai). Same visual weight as
-   the tier badges so it reads as "another piece of identity," not a stigma. The compact
-   variant (just 🤖) is used in tight contexts like leaderboard rows; the full "🤖 AI"
-   chip is used in profile/spotlight headers. */
-.aiBadge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; letter-spacing: .5px; padding: 2px 7px; border-radius: 5px; margin-left: 8px; vertical-align: middle; background: rgba(180,120,255,.15); color: #d6a3ff; border: 1px solid rgba(180,120,255,.35); }
-.aiBadge.compact { padding: 2px 4px; font-size: 11px; line-height: 1; margin-left: 6px; }
-/* Attested variant — slightly stronger background + subtle glow, signalling the
-   claim is backed by a public provider identifier (and ideally an evidence URL).
-   Cryptographic verification comes later; for v1 the visual is the trust signal. */
-.aiBadge.attested { background: rgba(180,120,255,.25); border-color: rgba(180,120,255,.55); box-shadow: 0 0 10px rgba(180,120,255,.25); }
-/* Cryptographically verified — stronger purple + a brighter glow than plain attested
-   so the trust signal reads at-a-glance. The ✓ glyph in the badge text seals it. */
-.aiBadge.verified { background: rgba(180,120,255,.35); border-color: rgba(180,120,255,.75); box-shadow: 0 0 16px rgba(180,120,255,.40); color: #efe2ff; }
-/* Self-keyed variant — green accent (different trust source than purple-verified;
-   green reads as "personally vouched for" vs. purple's "provider-vouched"). Same
-   tier weight as .attested, distinct hue. */
-.aiBadge.selfKeyed { background: rgba(134,239,172,.18); border-color: rgba(134,239,172,.55); box-shadow: 0 0 10px rgba(134,239,172,.30); color: #c4f6da; }
-/* Verified attestation that's within ~a week of expiring — same purple as .verified
-   but with an amber border to telegraph "re-attest soon." Doesn't change the trust
-   tier (still verified), just the urgency cue. */
-.aiBadge.verified.expiringSoon { border-color: rgba(255,200,80,.85); box-shadow: 0 0 12px rgba(255,200,80,.45); }
+/* AI marker */
+.aiBadge { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: .08em; padding: 2px 8px; border-radius: var(--r-xs); margin-left: var(--s-2); vertical-align: middle; background: rgba(180,140,255,.15); color: #d6b8ff; border: 1px solid rgba(180,140,255,.35); text-transform: uppercase; }
+.aiBadge.compact { padding: 2px 5px; font-size: 11px; line-height: 1; margin-left: 6px; }
+.aiBadge.attested { background: rgba(180,140,255,.25); border-color: rgba(180,140,255,.55); box-shadow: 0 0 10px rgba(180,140,255,.25); }
+.aiBadge.verified { background: rgba(180,140,255,.35); border-color: rgba(180,140,255,.75); box-shadow: 0 0 16px rgba(180,140,255,.40); color: #efe6ff; }
+.aiBadge.selfKeyed { background: rgba(126,231,135,.18); border-color: rgba(126,231,135,.55); box-shadow: 0 0 10px rgba(126,231,135,.30); color: #c4f6da; }
+.aiBadge.verified.expiringSoon { border-color: rgba(255,207,92,.85); box-shadow: 0 0 12px rgba(255,207,92,.45); }
 
-/* WebAuthn credential management list — one row per registered key, label-rename
-   in place, delete confirmed via window.confirm. Stays tight visually since this
-   lives inside the AiAttestationCard's collapsed Advanced section. */
-.webauthnKeys { padding-top: 6px; border-top: 1px dashed var(--line); margin-top: 12px; }
+/* webauthn keys */
+.webauthnKeys { padding-top: var(--s-2); border-top: 1px dashed var(--line); margin-top: var(--s-3); }
 .webauthnKeyList { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
-.webauthnKeyRow { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.webauthnKeyRow { display: flex; align-items: center; gap: var(--s-3); padding: 7px 11px; background: var(--surface-inset); border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 12px; }
 .webauthnKeyLabel { font-weight: 600; color: var(--text); background: none; border: 0; padding: 0; font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
-.webauthnKeyLabel:hover { color: var(--accent); }
+.webauthnKeyLabel:hover { color: var(--accent-bright); }
 .webauthnKeyDelete { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-.webauthnKeyDelete:hover { background: rgba(255,180,120,.18); color: #ffb478; }
-/* Small count chip in the Advanced summary so registered keys are discoverable
-   without expanding. Matches the visual weight of the AI badge .compact variant. */
-.webauthnCountChip { display: inline-flex; align-items: center; padding: 2px 7px; font-size: 10px; font-weight: 800; letter-spacing: .5px; margin-left: 8px; border-radius: 5px; background: rgba(134,239,172,.18); color: #c4f6da; border: 1px solid rgba(134,239,172,.40); }
+.webauthnKeyDelete:hover { background: rgba(255,138,138,.18); color: var(--danger); }
+.webauthnCountChip { display: inline-flex; align-items: center; padding: 2px 7px; font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: .06em; margin-left: var(--s-2); border-radius: var(--r-xs); background: rgba(126,231,135,.18); color: #c4f6da; border: 1px solid rgba(126,231,135,.40); }
 
-/* AI of the Week — a low-weight pill above the leaderboard featuring the highest-
-   scoring AI participant. Clickable; opens that AI's profile. Subtle so it informs
-   without competing with the actual leaderboard for attention. */
-.aiOtwBanner { display: inline-flex; align-items: center; gap: 12px; padding: 10px 16px; margin: 0 0 12px; background: linear-gradient(90deg, rgba(180,120,255,.18), rgba(96,192,255,.06)); border: 1px solid rgba(180,120,255,.45); border-radius: 12px; cursor: pointer; font: inherit; color: var(--text); transition: background .15s, border-color .15s, transform .08s; }
-.aiOtwBanner:hover { background: linear-gradient(90deg, rgba(180,120,255,.28), rgba(96,192,255,.10)); border-color: rgba(180,120,255,.65); transform: translateY(-1px); }
-.aiOtwLabel { font-size: 11px; font-weight: 800; letter-spacing: .8px; color: #d6a3ff; text-transform: uppercase; }
+/* AI of the week */
+.aiOtwBanner {
+  display: inline-flex; align-items: center; gap: var(--s-3); padding: 10px 16px; margin: 0 0 var(--s-3);
+  background: linear-gradient(90deg, rgba(180,140,255,.18), rgba(95,190,235,.06));
+  border: 1px solid rgba(180,140,255,.45); border-radius: var(--r-md); cursor: pointer; color: var(--text);
+  transition: background .15s var(--ease), border-color .15s var(--ease), transform .08s var(--ease);
+}
+.aiOtwBanner:hover { background: linear-gradient(90deg, rgba(180,140,255,.28), rgba(95,190,235,.10)); border-color: rgba(180,140,255,.65); transform: translateY(-1px); }
+.aiOtwLabel { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: .12em; color: #d6b8ff; text-transform: uppercase; }
 .aiOtwName { font-weight: 700; }
-.aiOtwScore { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); margin-left: auto; }
+.aiOtwScore { font-family: var(--font-mono); font-weight: 700; color: var(--accent-bright); margin-left: auto; }
 
-/* Public attestation feed — every AI participant's most-recent claim, one row each.
-   Same dim/glow tier vocabulary as the AI badge so the visual matches everywhere AI
-   appears. */
-.attestFeed { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
-.attestRow { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: rgba(180,120,255,.06); border: 1px solid rgba(180,120,255,.25); border-radius: 10px; font: inherit; color: var(--text); text-align: left; transition: background .12s, border-color .12s; }
-.attestRow:hover { background: rgba(180,120,255,.15); border-color: rgba(180,120,255,.50); }
-.attestRowLink { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; color: inherit; text-decoration: none; cursor: pointer; }
+/* attestation feed */
+.attestFeed { display: flex; flex-direction: column; gap: 6px; margin-top: var(--s-3); }
+.attestRow { display: flex; align-items: center; gap: var(--s-3); padding: 10px 14px; background: rgba(180,140,255,.06); border: 1px solid rgba(180,140,255,.25); border-radius: var(--r-sm); color: var(--text); text-align: left; transition: background .12s var(--ease), border-color .12s var(--ease); }
+.attestRow:hover { background: rgba(180,140,255,.14); border-color: rgba(180,140,255,.50); }
+.attestRowLink { display: flex; align-items: center; gap: var(--s-3); flex: 1; min-width: 0; color: inherit; cursor: pointer; }
 .attestWho { font-weight: 700; }
-.attestWhen { font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
-.attestEvidence { color: var(--accent); font-size: 12px; text-decoration: underline; text-decoration-color: rgba(96,192,255,.4); text-underline-offset: 2px; }
+.attestWhen { font-size: 12px; margin-left: auto; font-family: var(--font-mono); color: var(--muted); }
+.attestEvidence { color: var(--accent); font-size: 12px; text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 2px; }
 .attestEvidence:hover { text-decoration-color: var(--accent); }
-
-/* Per-provider stat chips — rendered at the top of AttestationFeed. Verified-having
-   providers get a brighter background so the social proof "real cryptographic proof
-   on this many accounts" jumps. Counts are tabular for clean column alignment. */
-.providerCounts { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 6px; }
-.providerCount { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
-.providerCount.has-verified { background: rgba(180,120,255,.12); border-color: rgba(180,120,255,.40); }
+.providerCounts { display: flex; flex-wrap: wrap; gap: 6px; margin: var(--s-3) 0 6px; }
+.providerCount { display: inline-flex; align-items: center; gap: var(--s-2); padding: 4px 10px; background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-pill); font-size: 12px; }
+.providerCount.has-verified { background: rgba(180,140,255,.12); border-color: rgba(180,140,255,.40); }
 .providerCountName { font-weight: 700; }
-.providerCountVerified { color: #d6a3ff; font-variant-numeric: tabular-nums; font-weight: 700; }
-.providerCountClaimed { color: var(--muted); font-variant-numeric: tabular-nums; }
+.providerCountVerified { color: #d6b8ff; font-family: var(--font-mono); font-weight: 700; }
+.providerCountClaimed { color: var(--muted); font-family: var(--font-mono); }
 
-/* Verified-attestation announcement toasts — site-wide, top-right, 8s auto-fade. The
-   stack handles multiple events arriving in quick succession (each is a separate
-   pill that slides in / fades out independently). Sits above the modal scrim so it's
-   visible during profile / catalog / summon cinematics too. */
-.announceStack { position: fixed; top: 16px; right: 16px; z-index: 250; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
-.announceToast { pointer-events: auto; display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px; background: linear-gradient(90deg, rgba(180,120,255,.35), rgba(96,192,255,.22)); border: 1px solid rgba(180,120,255,.65); border-radius: 12px; box-shadow: 0 12px 32px rgba(180,120,255,.30); color: var(--text); font: inherit; cursor: pointer; animation: announceIn .35s ease-out 1, announceOut .5s ease-in 7.5s 1 forwards; }
+/* announce toasts */
+.announceStack { position: fixed; top: 16px; right: 16px; z-index: 250; display: flex; flex-direction: column; gap: var(--s-2); pointer-events: none; }
+.announceToast { pointer-events: auto; display: inline-flex; align-items: center; gap: var(--s-3); padding: 11px 16px; background: linear-gradient(90deg, rgba(180,140,255,.35), rgba(95,190,235,.22)); border: 1px solid rgba(180,140,255,.65); border-radius: var(--r-md); box-shadow: 0 14px 34px rgba(180,140,255,.30); color: var(--text); cursor: pointer; animation: announceIn .35s var(--ease) 1, announceOut .5s ease-in 7.5s 1 forwards; }
 .announceToast:hover { transform: translateY(-1px); }
-.announceLabel { font-size: 11px; font-weight: 800; letter-spacing: .8px; color: #d6a3ff; text-transform: uppercase; }
+.announceLabel { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: .12em; color: #d6b8ff; text-transform: uppercase; }
 .announceWho { font-weight: 700; }
 @keyframes announceIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes announceOut { from { opacity: 1; } to { opacity: 0; transform: translateX(40px); } }
 
-/* Public attestation trail on the profile modal — newest-first, color-coded by kind so
-   "this account was verified, then cleared, then re-claimed" reads at a glance. */
-.attestTrail { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 4px; }
-.attestTrailRow { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: rgba(255,255,255,.03); border: 1px solid var(--line); border-left-width: 3px; border-radius: 6px; font-size: 12px; }
+/* attestation trail */
+.attestTrail { list-style: none; padding: 0; margin: var(--s-2) 0 0; display: flex; flex-direction: column; gap: 4px; }
+.attestTrailRow { display: flex; align-items: center; gap: var(--s-2); padding: 6px 10px; background: var(--surface-inset); border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--r-xs); font-size: 12px; }
 .attestDot { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 700; }
-.attestKindLabel { font-weight: 700; text-transform: uppercase; letter-spacing: .5px; font-size: 10px; }
-.attestTrailAt { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; }
-.attestKind-claimed   { border-left-color: rgba(180,120,255,.55); } .attestKind-claimed   .attestDot { background: rgba(180,120,255,.25); color: #d6a3ff; }
-.attestKind-verified  { border-left-color: rgba(96,192,255,.65); }  .attestKind-verified  .attestDot { background: rgba(96,192,255,.30); color: #b3e5ff; }
-.attestKind-cleared   { border-left-color: rgba(255,180,120,.55); } .attestKind-cleared   .attestDot { background: rgba(255,180,120,.25); color: #ffd2a3; }
+.attestKindLabel { font-family: var(--font-display); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: 10px; }
+.attestTrailAt { margin-left: auto; font-size: 11px; font-family: var(--font-mono); color: var(--muted); }
+.attestKind-claimed  { border-left-color: rgba(180,140,255,.55); } .attestKind-claimed  .attestDot { background: rgba(180,140,255,.25); color: #d6b8ff; }
+.attestKind-verified { border-left-color: rgba(95,190,235,.65); }  .attestKind-verified .attestDot { background: rgba(95,190,235,.30); color: #b3e5ff; }
+.attestKind-cleared  { border-left-color: rgba(255,180,84,.55); }  .attestKind-cleared  .attestDot { background: rgba(255,180,84,.25); color: #ffd2a3; }
 
-/* ── Achievements panel ──────────────────────────────────────
-   Tier-colored chips grouped by category. Same rules used in AccountView (your own
-   achievements card) and ProfileModal (someone else's). Tier classes ride on .achChip
-   so the same palette lights up wherever an achievement is shown. */
-.achGroups { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
-.achGroupName { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 4px; font-weight: 700; }
+/* ── achievements panel ────────────────────────────────────────────────────*/
+.achGroups { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-3); }
+.achGroupName { font-family: var(--font-display); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 4px; font-weight: 600; }
 .achList { display: flex; flex-wrap: wrap; gap: 6px; }
-.achChip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px 5px 12px; border-radius: 999px; font-size: 12px; background: rgba(255,255,255,.04); border: 1px solid var(--line); }
+.achChip { display: inline-flex; align-items: center; gap: var(--s-2); padding: 5px 10px 5px 12px; border-radius: var(--r-pill); font-size: 12px; background: var(--surface-1); border: 1px solid var(--line-2); transition: border-color .14s var(--ease), transform .08s var(--ease); }
+.achChip:hover { transform: translateY(-1px); }
 .achName { font-weight: 600; color: var(--text); }
-.achTier { font-size: 9px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--ink); }
+.achTier { font-family: var(--font-display); font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 6px; border-radius: var(--r-pill); background: rgba(255,255,255,.08); color: var(--ink); }
 .achChip.tier-bronze   { border-color: rgba(205,127,50,.40); } .achChip.tier-bronze .achTier   { background: rgba(205,127,50,.20); color: #f5cba7; }
 .achChip.tier-silver   { border-color: rgba(192,192,192,.40); } .achChip.tier-silver .achTier   { background: rgba(192,192,192,.20); color: #e7e7e7; }
 .achChip.tier-gold     { border-color: rgba(255,215,0,.45); } .achChip.tier-gold .achTier     { background: rgba(255,215,0,.22); color: #ffe28a; }
 .achChip.tier-platinum { border-color: rgba(180,210,255,.55); background: rgba(180,210,255,.08); } .achChip.tier-platinum .achTier { background: rgba(180,210,255,.25); color: #cfe4ff; }
 .achChip.tier-mythic   { border-color: rgba(255,180,80,.60); background: rgba(255,180,80,.10); box-shadow: 0 0 14px rgba(255,180,80,.18); } .achChip.tier-mythic .achTier { background: rgba(255,180,80,.30); color: #ffe1a8; }
-.achChip.tier-secret   { border-color: rgba(180,120,255,.50); } .achChip.tier-secret .achTier { background: rgba(180,120,255,.25); color: #d6a3ff; }
-/* Locked variant for the Catalog view — dim everything (text + tier chip) so earned
-   entries stand out by comparison. Border keeps tier hue at low alpha so the rarity
-   ladder still reads. */
-.achChip.locked { opacity: .42; filter: grayscale(.35); }
+.achChip.tier-secret   { border-color: rgba(180,140,255,.50); } .achChip.tier-secret .achTier { background: rgba(180,140,255,.25); color: #d6b8ff; }
+.achChip.locked { opacity: .4; filter: grayscale(.4); }
 .achChip.locked .achName { color: var(--ink); }
 
-/* Ghost-cursor decoration for AI viewers: ringed in the AI accent (purple) regardless
-   of the sid-derived color, and a tiny 🤖 pip in the corner so it reads at-a-glance. */
-.ghostDot.ai { outline: 1.5px solid rgba(180,120,255,.7); outline-offset: 1px; }
-.ghostAvatarWrap.ai { background: rgba(180,120,255,.20); }
+/* AI ghost cursor decoration */
+.ghostDot.ai { outline: 1.5px solid rgba(180,140,255,.7); outline-offset: 1px; }
+.ghostAvatarWrap.ai { background: rgba(180,140,255,.20); }
 .ghostAiPip { position: absolute; right: -4px; bottom: -4px; font-size: 10px; line-height: 1; pointer-events: none; }
-.ghostAvatarWrap { position: relative; }
 
-/* ── pricing tiers ─────────────────────────────────────────── */
-.tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 8px; }
-.tier { position: relative; background: rgba(255,255,255,.02); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px 22px; display: flex; flex-direction: column; }
+/* ── pricing tiers ─────────────────────────────────────────────────────────*/
+.tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--s-4); margin-top: var(--s-2); }
+.tier { position: relative; background: var(--surface-0); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: var(--s-5) var(--s-5); display: flex; flex-direction: column; transition: border-color .15s var(--ease), transform .12s var(--ease); }
+.tier:hover { transform: translateY(-2px); border-color: var(--line-strong); }
 .tier.current { border-color: var(--accent-line); background: var(--accent-soft); }
-.tier.pro { border-color: var(--accent-line); }
-.tier .pill { position: absolute; top: -10px; right: 14px; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--accent); color: #051018; }
-.tier h3 { font-size: 18px; color: var(--text); }
-.tier .price { font-size: 30px; font-weight: 800; margin: 8px 0 2px; color: var(--text); }
+.tier.pro { border-color: var(--accent-line); box-shadow: 0 0 40px rgba(95,190,235,.08); }
+.tier .pill { position: absolute; top: -11px; right: 14px; font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 3px 10px; border-radius: var(--r-pill); background: var(--accent); color: #04121c; }
+.tier h3 { font-size: 18px; color: var(--text); text-transform: uppercase; letter-spacing: .03em; }
+.tier .price { font-family: var(--font-display); font-size: 32px; font-weight: 700; margin: var(--s-2) 0 2px; color: var(--text); }
 .tier .blurb { color: var(--muted); font-size: 13px; min-height: 34px; }
-.perks { list-style: none; margin: 14px 0; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.perks { list-style: none; margin: var(--s-3) 0; display: flex; flex-direction: column; gap: var(--s-2); flex: 1; }
 .perks li { font-size: 13px; color: var(--ink); padding-left: 22px; position: relative; line-height: 1.4; }
-.perks li::before { content: "✓"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+.perks li::before { content: "▸"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
 .tier .btn { width: 100%; margin-top: auto; }
 
-/* ── account ───────────────────────────────────────────────── */
-.acctHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.subline { color: var(--ink); font-size: 14px; margin-top: 4px; }
-.idents { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
-.idents li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.02); border: 1px solid var(--line); }
+/* ── account ───────────────────────────────────────────────────────────────*/
+.acctHead { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-3); }
+.subline { color: var(--ink); font-size: var(--fs-sm); margin-top: 4px; }
+.idents { list-style: none; display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-3) 0; }
+.idents li { display: flex; align-items: center; gap: var(--s-3); padding: 10px 12px; border-radius: var(--r-sm); background: var(--surface-inset); border: 1px solid var(--line); }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: #666; flex: none; }
 .dot.gh { background: #e4e4e7; } .dot.gg { background: #4285f4; } .dot.credentials { background: var(--accent); }
 .idp { font-weight: 600; color: var(--text); }
-.primary { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); padding: 2px 7px; border-radius: 6px; border: 1px solid var(--accent-line); }
-.idsub { font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.idActions { margin-left: auto; display: flex; gap: 12px; }
+.primary { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--accent-bright); background: var(--accent-soft); padding: 2px 8px; border-radius: var(--r-xs); border: 1px solid var(--accent-line); }
+.idsub { font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--muted); }
+.idActions { margin-left: auto; display: flex; gap: var(--s-3); }
 .link { background: none; border: 0; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; padding: 0; }
-.link:hover { text-decoration: underline; }
+.link:hover { color: var(--accent-bright); text-decoration: underline; }
 .link.danger { color: var(--danger); }
-.signout { display: block; margin: 22px auto 0; color: var(--muted); }
+.signout { display: block; margin: var(--s-5) auto 0; color: var(--muted); }
 
-/* ── forms (credentials login/register/forgot) ─────────────── */
-.form { display: flex; flex-direction: column; gap: 12px; max-width: 380px; margin: 14px 0; }
+/* ── forms ─────────────────────────────────────────────────────────────────*/
+.form { display: flex; flex-direction: column; gap: var(--s-3); max-width: 380px; margin: var(--s-4) 0; }
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field label { font-size: 13px; color: var(--muted); }
-.field input { padding: 11px 14px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--card); color: var(--text); font: inherit; font-size: 15px; transition: border-color .12s, background .12s; }
-.field input:focus { outline: none; border-color: var(--accent); background: var(--card-strong); }
+.field label { font-family: var(--font-display); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.field input { padding: 11px 14px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--surface-1); color: var(--text); font: 15px var(--font-body); transition: border-color .12s var(--ease), background .12s var(--ease), box-shadow .12s var(--ease); }
+.field input:focus { outline: none; border-color: var(--accent); background: var(--surface-2); box-shadow: 0 0 0 3px var(--accent-soft); }
 .field .err { color: var(--danger); font-size: 12px; }
-.tabRow { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
-.tabRow button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 14px; padding: 9px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.tabRow button.on { color: var(--text); border-bottom-color: var(--accent); }
+.tabRow { display: flex; gap: 4px; margin-bottom: var(--s-4); border-bottom: 1px solid var(--line); }
+.tabRow button { background: none; border: 0; color: var(--muted); font-family: var(--font-display); font-size: 13px; letter-spacing: .03em; text-transform: uppercase; padding: 9px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabRow button.on { color: var(--accent-bright); border-bottom-color: var(--accent); }
 
-/* ── admin table ───────────────────────────────────────────── */
-.atable { width: 100%; border-collapse: collapse; font-size: 14px; }
+/* ── admin table ───────────────────────────────────────────────────────────*/
+.atable { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .atable th, .atable td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); }
-.atable th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
-.atable tr:hover td { background: var(--card); }
+.atable th { color: var(--muted); font-family: var(--font-display); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.atable tr:hover td { background: var(--surface-1); }
 .atable td .miniRow { display: inline-flex; gap: 6px; }
-.atable td select { background: var(--card); border: 1px solid var(--line-strong); color: var(--text); border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 12px; }
+.atable td select, .petPortalSelect { background: var(--surface-1); border: 1px solid var(--line-strong); color: var(--text); border-radius: var(--r-xs); padding: 5px 9px; font: 12px var(--font-body); }
 
-/* ── foot ──────────────────────────────────────────────────── */
-.foot { text-align: center; color: var(--muted); font-size: 13px; margin-top: 40px; }
+/* ── foot ──────────────────────────────────────────────────────────────────*/
+.foot { text-align: center; color: var(--muted); font-size: var(--fs-sm); margin-top: var(--s-7); }
 .foot a { color: var(--ink); }
 
-/* ── GitHub sync stats ─────────────────────────────────────── */
-.syncStats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 14px; }
-.stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: rgba(255,255,255,.02); border: 1px solid var(--line); border-radius: 10px; }
-.stat .num { font-size: 22px; font-weight: 800; color: var(--accent); letter-spacing: -.3px; }
-.stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+/* ── stats ─────────────────────────────────────────────────────────────────*/
+.syncStats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--s-3); margin-top: var(--s-4); }
+.stat { display: flex; flex-direction: column; gap: 2px; padding: var(--s-3) var(--s-4); background: var(--surface-inset); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.stat .num { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--accent-bright); letter-spacing: -.01em; }
+.stat .lbl { font-family: var(--font-display); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 
-/* ── CLI sync command box ──────────────────────────────────── */
-.cliBox { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(255,255,255,.02); border: 1px solid var(--line); border-radius: 9px; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
-.cliBox code { flex: 1; color: var(--accent); font-size: 14px; }
+/* ── CLI box ───────────────────────────────────────────────────────────────*/
+.cliBox { display: flex; align-items: center; gap: var(--s-3); padding: 11px 14px; background: #05070b; border: 1px solid var(--line-2); border-radius: var(--r-sm); font-family: var(--font-mono); position: relative; }
+.cliBox::before { content: "$"; color: var(--accent-deep); font-weight: 700; }
+.cliBox code { flex: 1; color: var(--accent-bright); font-size: 13px; }
 
-/* Leaderboard score (the ranked number) */
-.score { color: var(--accent); font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
-.ranks li { grid-template-columns: 30px 56px 1fr auto auto auto; }
-
-/* ── Menagerie (3D pets) ───────────────────────────────────── */
-.petStage { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
-.petCard { background: rgba(255,255,255,.02); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; transition: transform .2s, border-color .2s; }
-.petCard:hover { transform: translateY(-2px); border-color: var(--accent-line); }
-.petCanvas { aspect-ratio: 1 / 1; background: linear-gradient(180deg, #0e1218, #060608); }
-.petLabel { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; gap: 8px; border-top: 1px solid var(--line); }
-.tierTag { font-size: 9px; font-weight: 800; padding: 3px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: .5px; flex: none; }
+/* ── menagerie (pet cards) ─────────────────────────────────────────────────*/
+.petStage { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s-3); margin-top: var(--s-3); }
+.petCard { background: var(--surface-0); border: 1px solid var(--line-2); border-radius: var(--r-md); overflow: hidden; transition: transform .2s var(--ease), border-color .2s var(--ease), box-shadow .2s var(--ease); position: relative; }
+.petCard:hover { transform: translateY(-3px); border-color: var(--accent-line); box-shadow: var(--shadow-2); }
+.petCanvas { aspect-ratio: 1 / 1; background: radial-gradient(ellipse at 50% 30%, #14202c, #05080d 72%); }
+.petLabel { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; gap: var(--s-2); border-top: 1px solid var(--line); background: var(--surface-1); }
+.tierTag { font-family: var(--font-display); font-size: 9px; font-weight: 700; padding: 3px 7px; border-radius: var(--r-xs); text-transform: uppercase; letter-spacing: .06em; flex: none; }
 .tierTag.t-common { background: rgba(255,255,255,.1); color: var(--ink); }
-.tierTag.t-uncommon { background: rgba(134,239,172,.18); color: var(--ok); }
-.tierTag.t-rare { background: rgba(96,165,250,.2); color: #93c5fd; }
-.tierTag.t-epic { background: rgba(196,181,253,.22); color: #c4b5fd; }
-.tierTag.t-legendary { background: rgba(251,191,36,.25); color: var(--warn); border: 1px solid rgba(251,191,36,.4); }
-.tierTag.t-mythic { background: linear-gradient(90deg, #f0abfc, #fbbf24); color: #1a1024; }
+.tierTag.t-uncommon { background: rgba(126,231,135,.18); color: var(--ok); }
+.tierTag.t-rare { background: rgba(95,190,235,.2); color: #93d4f5; }
+.tierTag.t-epic { background: rgba(180,140,255,.22); color: #c4b5fd; }
+.tierTag.t-legendary { background: rgba(255,180,84,.25); color: var(--warn); border: 1px solid rgba(255,180,84,.4); }
+.tierTag.t-mythic { background: linear-gradient(90deg, var(--r-mythic-a), var(--r-mythic-b)); color: #1a1024; }
 .petName { font-size: 12px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; flex: 1; min-width: 0; }
-.petCard.tier-legendary { box-shadow: inset 0 0 0 1px rgba(251,191,36,.25); }
-.petCard.tier-mythic { box-shadow: inset 0 0 0 1px rgba(240,171,252,.4); }
-
-/* ── Leaderboard board tabs ────────────────────────────────── */
-.boardTabs { display: flex; gap: 4px; margin: 8px 0 14px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
-.boardTabs button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; padding: 8px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .12s, border-color .12s; }
-.boardTabs button:hover { color: var(--text); }
-.boardTabs button.on { color: var(--text); border-bottom-color: var(--accent); }
-/* Audience filter — pill row sitting under the board tabs. Smaller weight than the
-   board tabs (it's a viewing preference, not a different leaderboard), but visible
-   enough that the "all/humans/AI" choice is one-click obvious. */
-.audienceTabs { display: inline-flex; gap: 2px; margin: 0 0 14px; padding: 3px; background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 999px; }
-.audienceTabs button { background: transparent; border: 0; color: var(--muted); font: inherit; font-size: 12px; padding: 4px 12px; cursor: pointer; border-radius: 999px; transition: background .12s, color .12s; }
-.audienceTabs button:hover { color: var(--text); }
-.audienceTabs button.on { background: var(--accent-soft); color: var(--accent); }
-
-/* ── Avatar star + size badge on pet cards ────────────────── */
-.petCard { position: relative; }
-.avatarBtn { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.55); border: 1px solid var(--line-strong); color: #aaa; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px; padding: 0; transition: color .12s, background .12s; }
-.avatarBtn:hover { color: var(--accent); background: rgba(0,0,0,.75); }
-.avatarBtn.on { color: var(--accent); cursor: default; background: rgba(95,190,235,.18); border-color: var(--accent-line); }
+.avatarBtn { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.55); border: 1px solid var(--line-strong); color: #aaa; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px; padding: 0; transition: color .12s var(--ease), background .12s var(--ease); }
+.avatarBtn:hover { color: var(--accent-bright); background: rgba(0,0,0,.75); }
+.avatarBtn.on { color: var(--accent); cursor: default; background: var(--accent-soft); border-color: var(--accent-line); }
 .petCard.isAvatar { box-shadow: inset 0 0 0 1px var(--accent-line); }
-.petSize { font-size: 10px; font-weight: 700; color: var(--muted); background: rgba(255,255,255,.06); padding: 2px 6px; border-radius: 4px; font-variant-numeric: tabular-nums; flex: none; }
-.petLookControl {
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  z-index: 2;
-}
-.petLookControl select {
-  appearance: none;
-  background: rgba(0,0,0,.65);
-  border: 1px solid var(--line-strong);
-  color: var(--text);
-  border-radius: 8px;
-  padding: 4px 8px;
-  font: inherit;
-  font-size: 10px;
-  cursor: pointer;
-}
+.petSize { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--muted); background: rgba(255,255,255,.06); padding: 2px 6px; border-radius: var(--r-xs); flex: none; }
+.petLookControl { position: absolute; left: 8px; top: 8px; z-index: 2; }
+.petLookControl select { appearance: none; background: rgba(0,0,0,.65); border: 1px solid var(--line-strong); color: var(--text); border-radius: var(--r-sm); padding: 4px 8px; font: 10px var(--font-display); cursor: pointer; }
 .petLookControl select:hover { border-color: var(--accent-line); }
+.petPortalSelect { appearance: none; cursor: pointer; }
 
-.petPortalSelect {
-  appearance: none;
-  background: rgba(255,255,255,.03);
-  border: 1px solid var(--line-strong);
-  color: var(--text);
-  border-radius: 8px;
-  padding: 6px 10px;
-  font: inherit;
-  cursor: pointer;
-}
-
-/* ── Profile modal ─────────────────────────────────────────── */
-.modalScrim { position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(6px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
-
-/* ── Summon cinematic ────────────────────────────────────────
-   Fullscreen takeover when /api/verify yields new pets. z-index above the profile modal
-   so it can also fire from there if we ever want it to. The HeroCanvas inside .summonStage
-   carries all the post-FX; the scrim itself adds an animated cosmic vignette around it. */
-.summonScrim { position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 24px; background: radial-gradient(ellipse at center, #060615 0%, #020205 70%, #000 100%); animation: summonIn .4s ease-out 1; }
-@keyframes summonIn { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
-.summonHead { display: flex; align-items: center; gap: 18px; padding: 10px 18px; border-radius: 999px; background: rgba(255,255,255,.04); border: 1px solid var(--accent-line); }
-.summonLabel { font-size: 14px; font-weight: 700; letter-spacing: .8px; color: var(--accent); text-transform: uppercase; }
-.summonProgress { font-size: 12px; color: var(--ink); font-variant-numeric: tabular-nums; }
-.summonSkip { padding: 4px 10px !important; font-size: 12px !important; }
-.summonStage { width: min(720px, 90vw); aspect-ratio: 1 / 1; max-height: 60vh; border-radius: 22px; overflow: hidden; border: 1px solid var(--accent-line); box-shadow: 0 0 80px rgba(96,192,255,.15), 0 20px 60px rgba(0,0,0,.6); animation: summonStageIn .8s ease-out 1; }
-@keyframes summonStageIn { from { transform: scale(.85); opacity: 0; } to { transform: none; opacity: 1; } }
-.summonMeta { text-align: center; min-height: 56px; }
-.summonName { margin: 0 0 4px; font-size: 26px; letter-spacing: .2px; }
-.summonName.tier-mythic    { color: #ffd166; text-shadow: 0 0 22px rgba(255,180,80,.55); }
-.summonName.tier-legendary { color: #d6a3ff; text-shadow: 0 0 18px rgba(180,120,255,.45); }
-.summonName.tier-epic      { color: #b3e5ff; }
-
-/* Profile modal — animated cosmic gradient backdrop so the hero pet inside reads as "on
-   stage." Conic-gradient drift is slow (24s) and very subtle so it doesn't fight the pet's
-   own animations, but you can tell the modal is alive even before the canvas mounts. */
-.modal { background: radial-gradient(ellipse at 20% 0%, #131726 0%, #060608 55%, #050507 100%); border: 1px solid var(--line); border-radius: 16px; padding: 28px; max-width: 720px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative; box-shadow: var(--shadow); }
-.modal::before {
-  content: ""; position: absolute; inset: 0; border-radius: 16px; pointer-events: none; opacity: .35;
-  background: conic-gradient(from 0deg at 70% 20%, rgba(96,192,255,.18), rgba(180,120,255,.1), rgba(255,210,140,.12), rgba(96,192,255,.18));
-  animation: modalAura 24s linear infinite;
-  mix-blend-mode: screen;
-}
-@keyframes modalAura { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-.modal > * { position: relative; z-index: 1; }   /* sit above the ::before glow */
-.modalClose { position: absolute; top: 12px; right: 12px; background: none; border: 0; color: var(--muted); font-size: 20px; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; }
-.modalClose:hover { color: var(--text); background: var(--card); }
-.profileHead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 14px; }
-.profileHead h2 { font-size: 24px; color: var(--text); }
-.profileScore { text-align: right; }
-.profileScore .num { font-size: 28px; font-weight: 800; color: var(--accent); display: block; line-height: 1; }
-.profileScore .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
-.profileAvatar .petCanvas { aspect-ratio: 16 / 10; max-height: 320px; border-radius: 12px; border: 1px solid var(--accent-line); }
-.profileAvatarEmpty { display: flex; align-items: center; justify-content: center; aspect-ratio: 16 / 10; max-height: 320px; }
-.profileStats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-top: 14px; }
-.profileStats .stat { padding: 10px 12px; }
-.profileShowcase { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 8px; }
-.profileShowcase .petCanvas { aspect-ratio: 1 / 1; }
-
-/* ── Tier-themed animated borders for pet cards ───────────── */
+/* legendary / mythic animated frames */
 .petCard.tier-legendary {
   background:
-    linear-gradient(rgba(255,255,255,.02), rgba(255,255,255,.02)) padding-box,
+    linear-gradient(var(--surface-0), var(--surface-0)) padding-box,
     linear-gradient(135deg, #fbbf24, #f59e0b 30%, #fde68a 50%, #fbbf24 70%, #f59e0b) border-box;
-  border: 1.5px solid transparent;
-  background-size: 100% 100%, 300% 300%;
+  border: 1.5px solid transparent; background-size: 100% 100%, 300% 300%;
   animation: legendaryShimmer 5s linear infinite;
 }
-@keyframes legendaryShimmer {
-  0% { background-position: 0% 0%, 0% 50%; }
-  100% { background-position: 0% 0%, 300% 50%; }
-}
+@keyframes legendaryShimmer { 0% { background-position: 0% 0%, 0% 50%; } 100% { background-position: 0% 0%, 300% 50%; } }
 .petCard.tier-mythic {
   background:
-    linear-gradient(rgba(255,255,255,.02), rgba(255,255,255,.02)) padding-box,
+    linear-gradient(var(--surface-0), var(--surface-0)) padding-box,
     linear-gradient(45deg, #f0abfc, #fbbf24, #5fbeeb, #c4b5fd, #f0abfc) border-box;
-  border: 2px solid transparent;
-  background-size: 100% 100%, 400% 400%;
+  border: 2px solid transparent; background-size: 100% 100%, 400% 400%;
   animation: mythicShimmer 7s linear infinite;
 }
-@keyframes mythicShimmer {
-  0% { background-position: 0% 0%, 0% 0%; }
-  100% { background-position: 0% 0%, 400% 0%; }
-}
+@keyframes mythicShimmer { 0% { background-position: 0% 0%, 0% 0%; } 100% { background-position: 0% 0%, 400% 0%; } }
 
-/* ── Shared menagerie WebGL viewport ───────────────────────── */
-/* Fixed full-viewport canvas; pet cards register drei <View>s tracking their own DOM rects */
+/* ── profile modal ─────────────────────────────────────────────────────────*/
+.modalScrim { position: fixed; inset: 0; background: rgba(2,4,8,.72); backdrop-filter: blur(7px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal { background: radial-gradient(ellipse at 20% 0%, #131b2a 0%, #070a11 55%, #05070b 100%); border: 1px solid var(--line-2); border-radius: var(--r-lg); padding: var(--s-6); max-width: 720px; width: 100%; max-height: 90vh; overflow-y: auto; position: relative; box-shadow: var(--shadow-2); }
+.modal::before {
+  content: ""; position: absolute; inset: 0; border-radius: var(--r-lg); pointer-events: none; opacity: .3;
+  background: conic-gradient(from 0deg at 70% 20%, rgba(95,190,235,.18), rgba(180,140,255,.1), rgba(255,210,140,.12), rgba(95,190,235,.18));
+  animation: modalAura 24s linear infinite; mix-blend-mode: screen;
+}
+@keyframes modalAura { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+.modal > * { position: relative; z-index: 1; }
+.modalClose { position: absolute; top: 12px; right: 12px; background: none; border: 0; color: var(--muted); font-size: 20px; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; transition: background .12s var(--ease), color .12s var(--ease); }
+.modalClose:hover { color: var(--text); background: var(--surface-2); }
+.profileHead { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--s-4); margin-bottom: var(--s-3); }
+.profileHead h2 { font-size: 26px; color: var(--text); text-transform: uppercase; letter-spacing: .01em; }
+.profileScore { text-align: right; }
+.profileScore .num { font-family: var(--font-display); font-size: 30px; font-weight: 700; color: var(--accent-bright); display: block; line-height: 1; }
+.profileScore .lbl { font-family: var(--font-display); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.profileAvatar .petCanvas { aspect-ratio: 16 / 10; max-height: 320px; border-radius: var(--r-md); border: 1px solid var(--accent-line); }
+.profileAvatarEmpty { display: flex; align-items: center; justify-content: center; aspect-ratio: 16 / 10; max-height: 320px; }
+.profileStats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: var(--s-3); margin-top: var(--s-4); }
+.profileStats .stat { padding: 10px 12px; }
+.profileShowcase { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--s-3); margin-top: var(--s-2); }
+.profileShowcase .petCanvas { aspect-ratio: 1 / 1; }
+
+/* ── summon cinematic ──────────────────────────────────────────────────────*/
+.summonScrim { position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-4); padding: var(--s-5); background: radial-gradient(ellipse at center, #060615 0%, #020205 70%, #000 100%); animation: summonIn .4s var(--ease) 1; }
+@keyframes summonIn { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+.summonHead { display: flex; align-items: center; gap: var(--s-4); padding: 10px 18px; border-radius: var(--r-pill); background: var(--surface-1); border: 1px solid var(--accent-line); }
+.summonLabel { font-family: var(--font-display); font-size: 14px; font-weight: 700; letter-spacing: .12em; color: var(--accent-bright); text-transform: uppercase; }
+.summonProgress { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+.summonSkip { padding: 4px 10px !important; font-size: 12px !important; }
+.summonStage { width: min(720px, 90vw); aspect-ratio: 1 / 1; max-height: 60vh; border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--accent-line); box-shadow: 0 0 80px rgba(95,190,235,.15), 0 20px 60px rgba(0,0,0,.6); animation: summonStageIn .8s var(--ease) 1; }
+@keyframes summonStageIn { from { transform: scale(.85); opacity: 0; } to { transform: none; opacity: 1; } }
+.summonMeta { text-align: center; min-height: 56px; }
+.summonName { margin: 0 0 4px; font-family: var(--font-display); font-size: 28px; letter-spacing: .02em; text-transform: uppercase; }
+.summonName.tier-mythic    { color: #ffd166; text-shadow: 0 0 22px rgba(255,180,80,.55); }
+.summonName.tier-legendary { color: #d6b8ff; text-shadow: 0 0 18px rgba(180,140,255,.45); }
+.summonName.tier-epic      { color: #b3e5ff; }
+
+/* ── shared menagerie WebGL viewport ───────────────────────────────────────*/
 .viewportCanvas { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
 .viewportCanvas canvas { width: 100% !important; height: 100% !important; }
+
+/* ── loading / empty states (used by the spinner-bug fixes) ────────────────*/
+.loadState { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-3); padding: var(--s-7) var(--s-4); color: var(--muted); text-align: center; }
+.spinner { width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid var(--line-2); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loadState .retry { margin-top: var(--s-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}
