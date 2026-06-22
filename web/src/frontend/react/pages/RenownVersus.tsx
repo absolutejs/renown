@@ -1,8 +1,8 @@
 // Public /vs/:a/:b page — two devs head to head across every renown dimension, with a verdict
 // and a shareable OG card. Reuses the canonical 2D pet sprite for avatars. Lightweight, no three.js.
 import { Head } from "@absolutejs/absolute/react/components";
-import { generate } from "../../../../../core/procgen.ts";
-import { spriteToSvg } from "../../../../../core/petSvg.ts";
+import { generate } from "../../../shared/procgen.ts";
+import { spriteToSvg } from "../../../shared/petSvg.ts";
 
 type VsSide = { login: string; handle: string; tier: string; isAi: boolean; avatarSeed: string | null; score: number; totalLevel: number; achievements: number; petsCount: number; rarestPetScore: number; reviews: number; crossRepo: number; merged: number; downloads: number };
 type VsDim = { key: string; label: string; a: number; b: number; winner: "a" | "b" | "tie"; float?: boolean };

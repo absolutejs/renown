@@ -12,9 +12,9 @@ import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } f
 import { BoxGeometry, BufferAttribute, type BufferGeometry, ExtrudeGeometry, Float32BufferAttribute, type Group, type PerspectiveCamera as ThreePerspectiveCamera, Shape, Vector2 } from "three";
 import * as CANNON from "cannon-es";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { clampVoxelDepth, type Creature, generate, voxelize } from "../../../../../core/procgen";
-import type { RGB } from "../../../../../core/shiny.ts";
-import { DEFAULT_PET_LOOK_ID, PET_LOOKS, isPetLookId, type PetLookId } from "../../../../../core/petLooks.ts";
+import { clampVoxelDepth, type Creature, generate, voxelize } from "../../../shared/procgen";
+import type { RGB } from "../../../shared/shiny.ts";
+import { DEFAULT_PET_LOOK_ID, PET_LOOKS, isPetLookId, type PetLookId } from "../../../shared/petLooks.ts";
 import { chimeVoiceFor, playChime } from "../../audio";
 import { ProceduralMat } from "./petMaterials";
 

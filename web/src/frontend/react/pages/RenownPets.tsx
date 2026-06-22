@@ -2,8 +2,8 @@
 // /pet/:seed page and its owner's profile. Lightweight (2D canonical sprites, no three.js), a
 // discovery surface that shows the game is alive.
 import { Head } from "@absolutejs/absolute/react/components";
-import { generate, TIER_RGB, type Tier } from "../../../../../core/procgen.ts";
-import { spriteToSvg } from "../../../../../core/petSvg.ts";
+import { generate, TIER_RGB, type Tier } from "../../../shared/procgen.ts";
+import { spriteToSvg } from "../../../shared/petSvg.ts";
 
 type RGB = readonly [number, number, number];
 const hex = ([r, g, b]: RGB) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;

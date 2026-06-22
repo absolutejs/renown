@@ -1,8 +1,8 @@
 // Public /quests/:login page — this week's directed goals, their progress, and the quest pets
 // earned for completing them. Completion settles server-side on load (idempotent). Lightweight.
 import { Head } from "@absolutejs/absolute/react/components";
-import { generate } from "../../../../../core/procgen.ts";
-import { spriteToSvg } from "../../../../../core/petSvg.ts";
+import { generate } from "../../../shared/procgen.ts";
+import { spriteToSvg } from "../../../shared/petSvg.ts";
 
 type QuestView = { id: string; name: string; desc: string; icon: string; progress: number; target: number; pct: number; completed: boolean; rewardSeed: string | null };
 type Quests = { login: string; handle: string; weekKey: string; quests: QuestView[]; completedCount: number };

@@ -12,7 +12,7 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { useEffect, useState } from "react";
 import { SinglePet } from "../components/PetViewer";
-import { isPetLookId, resolvePetLookId, type PetLookId } from "../../../../../core/petLooks.ts";
+import { isPetLookId, resolvePetLookId, type PetLookId } from "../../../shared/petLooks.ts";
 
 type Tier = "free" | "supporter" | "pro";
 type Attestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean; expiresAt?: string };

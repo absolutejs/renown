@@ -9,8 +9,8 @@
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
-import type { RGB } from "../../../../../core/shiny.ts";
-import type { Creature } from "../../../../../core/procgen";
+import type { RGB } from "../../../shared/shiny.ts";
+import type { Creature } from "../../../shared/procgen";
 
 const PATTERN_MAP: Record<string, number> = { plain: 0, spots: 1, stripes: 2, scales: 3, runes: 4, cosmic: 5 };
 const AURA_MAP: Record<string, number> = { none: 0, glow: 1, sparkle: 2, flame: 3, frost: 4, void: 5, rainbow: 6 };

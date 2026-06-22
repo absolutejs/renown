@@ -5,8 +5,8 @@
 // Lightweight like RenownProject — renders the canonical 2D sprite (with a gentle idle bob), the
 // creature's name/tier/rarity/traits, and an install CTA. No three.js.
 import { Head } from "@absolutejs/absolute/react/components";
-import { generate, TIER_RGB, type Tier } from "../../../../../core/procgen.ts";
-import { spriteToSvg } from "../../../../../core/petSvg.ts";
+import { generate, TIER_RGB, type Tier } from "../../../shared/procgen.ts";
+import { spriteToSvg } from "../../../shared/petSvg.ts";
 
 type RGB = readonly [number, number, number];
 const hex = ([r, g, b]: RGB) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;

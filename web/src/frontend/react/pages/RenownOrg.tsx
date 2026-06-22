@@ -4,8 +4,8 @@
 // Lightweight (no three.js); contributor pets render as the canonical 2D sprite.
 import { Head } from "@absolutejs/absolute/react/components";
 import { useState } from "react";
-import { generate } from "../../../../../core/procgen.ts";
-import { spriteToSvg } from "../../../../../core/petSvg.ts";
+import { generate } from "../../../shared/procgen.ts";
+import { spriteToSvg } from "../../../shared/petSvg.ts";
 
 const petSvgHtml = (seed: string, box: number) => {
   const { svg, width, height } = spriteToSvg(generate(seed), { box });

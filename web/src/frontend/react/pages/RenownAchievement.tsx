@@ -2,8 +2,8 @@
 // description, live rarity %, and recent earners (with pets, linking to profiles). Secret/hidden
 // achievements are shown redacted. Lightweight (no three.js). OG meta → the achievement OG card.
 import { Head } from "@absolutejs/absolute/react/components";
-import { generate } from "../../../../../core/procgen.ts";
-import { spriteToSvg } from "../../../../../core/petSvg.ts";
+import { generate } from "../../../shared/procgen.ts";
+import { spriteToSvg } from "../../../shared/petSvg.ts";
 
 const petSvgHtml = (seed: string, box: number) => {
   const { svg, width, height } = spriteToSvg(generate(seed), { box });

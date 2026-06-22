@@ -3,7 +3,7 @@
 // no PII; just what the leaderboard already exposes plus the curated 3D showcase.
 import { useEffect, useState } from "react";
 import { SinglePet } from "./PetViewer";
-import { isPetLookId, resolvePetLookId, type PetLookId } from "../../../../../core/petLooks.ts";
+import { isPetLookId, resolvePetLookId, type PetLookId } from "../../../shared/petLooks.ts";
 
 type Tier = "free" | "supporter" | "pro";
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };

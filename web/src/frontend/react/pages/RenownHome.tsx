@@ -5,10 +5,10 @@ import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, p
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
-import { DEFAULT_PET_LOOK_ID, isPetLookId, PET_LOOKS, type PetLookId } from "../../../../../core/petLooks.ts";
-import { generate } from "../../../../../core/procgen.ts";
-import { spriteToSvg } from "../../../../../core/petSvg.ts";
-import { SKILLS } from "../../../../../core/skills.ts";
+import { DEFAULT_PET_LOOK_ID, isPetLookId, PET_LOOKS, type PetLookId } from "../../../shared/petLooks.ts";
+import { generate } from "../../../shared/procgen.ts";
+import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { SKILLS } from "../../../shared/skills.ts";
 
 type Tier = "free" | "supporter" | "pro";
 type PetLookMap = Record<string, PetLookId>;
