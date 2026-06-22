@@ -36,7 +36,7 @@ import { play } from "../core/ascii.ts";
 import { B, R, gradientBar, gradient, rainbow, shimmer } from "../core/shiny.ts";
 import { evalAll, info as achInfo } from "../core/achievements/index.ts";
 
-type AppConfig = { leaderboardEndpoint?: string; playerId?: string; playerName?: string; clientId?: string; clientSecret?: string; autoUpdate?: boolean };
+type AppConfig = { leaderboardEndpoint?: string; playerId?: string; playerName?: string; clientId?: string; clientSecret?: string; autoUpdate?: boolean; sourceDir?: string };
 
 const HOME = homedir();
 const RDIR = join(HOME, ".renown");
@@ -325,6 +325,24 @@ const findOnPath = (name: string) => {
   return undefined;
 };
 
+// The full game engine — commit scoring, the 10k-achievement catalog, streak,
+// memory bosses — lives in cli/index.ts and needs Bun. This published bundle runs
+// under Node and can only do the lightweight per-turn agent nudge. When a Bun
+// source checkout IS present we delegate the heavy lifting to it; without this,
+// reinstalling hooks (e.g. when adding Codex) silently leaves only the nudge and
+// commit tracking dies. Override the checkout location with RENOWN_SRC or
+// { "sourceDir": "..." } in config; otherwise probe the AbsoluteJS dev conventions.
+const fullEngineEntry = (cfg: AppConfig): { bun: string; entry: string } | undefined => {
+  const bun = findOnPath("bun");
+  if (!bun) return undefined;
+  const roots = [process.env.RENOWN_SRC, cfg.sourceDir, join(HOME, "abs", "renown"), join(HOME, "renown"), join(HOME, "src", "renown")].filter(Boolean) as string[];
+  for (const root of roots) {
+    const entry = join(root, "cli", "index.ts");
+    if (existsSync(entry)) return { bun, entry };
+  }
+  return undefined;
+};
+
 const sanitizeTitle = (value: string) => value.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 140).trim();
 const stripAnsi = (value: string) => value.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -478,7 +496,11 @@ const installClaudeAgent = (dryRun: boolean) => {
   const hooks = (settings.hooks && typeof settings.hooks === "object") ? settings.hooks as Record<string, unknown> : {};
   addCommandHook(hooks, "SessionStart", "renown agent claude --quiet");
   addCommandHook(hooks, "SessionStart", "renown self-update --quiet");
-  addCommandHook(hooks, "Stop", "renown heartbeat --quiet");
+  // Prefer the full Bun engine (commit scoring + achievements + streak) when a
+  // source checkout is present; otherwise the published bundle's lightweight
+  // heartbeat, which delegates to the engine at runtime if it later appears.
+  const engine = fullEngineEntry(loadConfig());
+  addCommandHook(hooks, "Stop", engine ? `${engine.bun} ${engine.entry} heartbeat --quiet` : "renown heartbeat --quiet");
   settings.hooks = hooks;
   if (dryRun) {
     console.log(`[dry-run] would write ${path}`);
@@ -802,7 +824,13 @@ const main = async () => {
   }
 
   if (cmd === "heartbeat") {
-    const s = loadLocalState();
+    // Full engine first (when a Bun checkout is available): registers the cwd repo,
+    // scores new commits, evaluates the full achievement catalog, advances the
+    // streak — the writes the lightweight path below can't make. Best-effort and
+    // bounded; if it's absent or fails we still do the per-turn nudge.
+    const engine = fullEngineEntry(cfg);
+    if (engine) { try { await run([engine.bun, engine.entry, "heartbeat", "--quiet"]); } catch {} }
+    const s = loadLocalState();   // reload so the nudge/HUD/submit reflect the engine's writes
     s.skillXp ??= {};
     const totalBefore = totalLevel(s.skillXp);
     const cels: Celebration[] = [];
