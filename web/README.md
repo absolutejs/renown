@@ -26,19 +26,24 @@ Replaces the old `Bun.serve` stub. Mirrors `~/abs/examples/auth` (auth wiring) a
    - For production swap `localhost:3000` for the real domain in both the apps and
      `OAUTH2_CALLBACK_URI`.
 
-## Build status / next steps
-Scaffolded: project config, deps, env, structure. **Next (wired against your OAuth
-creds):**
-- [ ] `src/backend/server.ts` — Elysia + `auth<User>()` (GitHub+Google) + API plugin + pages + `absolutejs`/`networking`
-- [ ] `src/backend/auth/{config,providersConfiguration}.ts` — GitHub + Google
-- [ ] `src/backend/handlers/userHandlers.ts` — create/get a Renown **player** from the OAuth identity (the digital profile; ties to the GitHub login we score)
-- [ ] `db` auth tables (users/sessions/linked providers) via `@absolutejs/auth` + `drizzle-kit push`
-- [ ] `src/frontend/react/pages` — Profile, Leaderboard, Achievements
-- [ ] CLI auth — GitHub device flow so the CLI submits as the verified player
-- [ ] Anti-cheat — recompute XP server-side from the GitHub Events API for the verified user
+## Status
+**Live in production at [renown.absolutejs.com](https://renown.absolutejs.com).** The whole
+app is built and deployed — GitHub/Google auth, the full API, server-side anti-cheat
+recompute from the GitHub API, and every React page (home/leaderboard, profile, project,
+achievements, season, versus, recap, org, pets, quests, rivals). Most users never touch
+this directory: the published `@absolutejs/renown` CLI and the GitHub Action talk to the
+hosted board for you. You only run the server yourself to **self-host** or hack on the UI.
 
+## Run it locally
 ```bash
 bun install
-cp .env.example .env   # fill OAuth + DATABASE_URL
-bun run dev            # absolute dev
+cp .env.example .env   # fill OAuth creds + DATABASE_URL (.env is gitignored)
+bun run dev            # absolute dev — http://localhost:7777
+```
+> Note: the dev server binds `PORT` from `.env` (default 7777). Source lives outside
+> `web/` in the repo-root `core/` and is symlinked at `src/shared` so dev serves it.
+
+For production, build and start (the deploy pipeline does this on the droplet):
+```bash
+bun run build && bun run start
 ```

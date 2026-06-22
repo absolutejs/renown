@@ -35,13 +35,21 @@ const sh = (cmd: string[]) => { try { return (Bun.spawnSync(cmd, { stdout: "pipe
 const existingStatePlayerId = (): string | undefined => {
   try { const id = JSON.parse(readFileSync(`${RDIR}/state.json`, "utf8"))?.playerId; return typeof id === "string" && id && id !== "local" ? id : undefined; } catch { return undefined; }
 };
+// The hosted leaderboard a fresh install points at (env RENOWN_ENDPOINT > config
+// > this default), so `renown link`/submit work without manual setup. Self-hosters
+// set leaderboardEndpoint in ~/.renown/config.json.
+export const DEFAULT_ENDPOINT = "https://renown.absolutejs.com/api";
 export function loadConfig(): Config {
-  try { return { bossLogDir: `${HOME}/.claude/mem-tools/logs`, leaderboardEndpoint: "", codeRoots: [HOME], ...JSON.parse(readFileSync(CONFIG, "utf8")) }; }
+  const endpoint = (c: string) => process.env.RENOWN_ENDPOINT || c || DEFAULT_ENDPOINT;
+  try {
+    const cfg = { bossLogDir: `${HOME}/.claude/mem-tools/logs`, leaderboardEndpoint: "", codeRoots: [HOME], ...JSON.parse(readFileSync(CONFIG, "utf8")) } as Config;
+    return { ...cfg, leaderboardEndpoint: endpoint(cfg.leaderboardEndpoint) };
+  }
   catch {
     const login = sh(["gh", "api", "user", "-q", ".login"]) || sh(["git", "config", "--global", "user.name"]) || "player";
     const email = sh(["git", "config", "--global", "user.email"]);
     const orgs = sh(["gh", "api", "user/orgs", "-q", ".[].login"]).split("\n").filter(Boolean);
-    const cfg: Config = { playerName: login, playerId: existingStatePlayerId() ?? uuid(), myEmails: [email].filter(Boolean), myOwners: [login, ...orgs], leaderboardEndpoint: "", bossLogDir: `${HOME}/.claude/mem-tools/logs`, codeRoots: [HOME] };
+    const cfg: Config = { playerName: login, playerId: existingStatePlayerId() ?? uuid(), myEmails: [email].filter(Boolean), myOwners: [login, ...orgs], leaderboardEndpoint: endpoint(""), bossLogDir: `${HOME}/.claude/mem-tools/logs`, codeRoots: [HOME] };
     try { mkdirSync(RDIR, { recursive: true }); writeFileSync(CONFIG, JSON.stringify(cfg, null, 2)); } catch {}
     return cfg;
   }

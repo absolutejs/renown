@@ -11,6 +11,30 @@ recaps, and competitive per-project leaderboards. By [AbsoluteJS](https://absolu
 > agent-agnostic**, with Claude, Codex, Cursor, Copilot, Aider, Gemini, and friends all
 > treated as first-class participants.
 
+**▶ Live leaderboard: [renown.absolutejs.com](https://renown.absolutejs.com)**
+
+## Quick start
+```bash
+npm install -g @absolutejs/renown   # or: bun add -g @absolutejs/renown
+renown link                         # link your GitHub account → get a verified score
+renown                              # open the TUI: skills, quests, pets, leaderboard
+```
+The CLI talks to the hosted leaderboard out of the box — no config needed. Then wire it
+into your editor so XP accrues as you work:
+```bash
+renown install-agent all            # Claude Code / Codex hooks + tmux HUD
+```
+…or drop the Action into any repo to score every contributor on each push:
+```yaml
+# .github/workflows/renown.yml
+on: [push]
+jobs:
+  renown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: absolutejs/renown@v1
+```
+
 ## Why it's not cheese-able
 XP comes from a **craft engine** that scores each commit by *substance* (generated
 files / lockfiles / minified / reformat ≈ 0), with bonuses for tests/docs/new code and
@@ -69,17 +93,15 @@ jobs:
   renown:
     runs-on: ubuntu-latest
     steps:
-      - uses: absolutejs/renown@v1
-        with:
-          endpoint: https://renown.example.com/api   # your renown server's API base
+      - uses: absolutejs/renown@v1   # points at the hosted leaderboard by default
 ```
 
-Prefer no extra action? Call the CLI directly — same effect:
+Self-hosting? Add `with: { endpoint: https://your-host/api }`. Prefer no extra action?
+Call the CLI directly — same effect:
 
 ```yaml
       - run: npx -y @absolutejs/renown ci-sync
-        env:
-          RENOWN_ENDPOINT: https://renown.example.com/api
+        # RENOWN_ENDPOINT defaults to the hosted board; set it only when self-hosting.
 ```
 
 Locally, `renown ci-sync --endpoint <url>` does the same against a `GITHUB_*`-populated env.
@@ -105,3 +127,8 @@ Locally, `renown ci-sync --endpoint <url>` does the same against a `GITHUB_*`-po
 - [x] TUI shows live rarity % from the server (per-badge, full-catalog coverage)
 - [ ] Editor plugins (VS Code first — we already ship `absolutejs-vscode-extension`)
 - [x] Anti-cheat: project + skill boards rank GitHub-verified XP (server-recomputed); no public board ranks purely on self-reported data ([docs/trust-model.md](docs/trust-model.md))
+
+## License
+[Business Source License 1.1](LICENSE) — free to use, modify, and self-host for any
+purpose **except** running a competing hosted leaderboard service. Converts to Apache 2.0
+on 2030-05-29. See [LICENSE](LICENSE) for the exact additional-use grant.

@@ -1,6 +1,6 @@
 {
   "name": "@absolutejs/renown-web",
-  "version": "0.0.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Renown web — AbsoluteJS (Elysia + React) app: profiles, leaderboards, achievement gallery, OAuth (GitHub + Google) via @absolutejs/auth.",
   "type": "module",

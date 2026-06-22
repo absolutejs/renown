@@ -1104,7 +1104,11 @@ ${items}
         })),
       };
     })
-    .post("/submit", async ({ body, headers, request, server }) => {
+    .post("/submit", async ({ body, headers, request, server, set }) => {
+      // Defense-in-depth: reject oversized payloads up front. A real snapshot (even with
+      // the 12k-unlock / 500-skill clamps applied downstream) is well under ~500KB, so a
+      // 2MB ceiling never touches legit clients but caps abusive bodies before the write.
+      if (Number(headers["content-length"] ?? 0) > 2_000_000) { set.status = 413; return { error: "payload too large" }; }
       const e = body as PlayerSnapshot;
       if (!e?.id) return { error: "bad request" };
       // Open by design — client xp NEVER ranks (only github_verified rows do), so an

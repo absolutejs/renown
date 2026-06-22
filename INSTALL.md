@@ -318,16 +318,20 @@ HTTPS to your renown server and never stored.
 
 ## Configuring the server URL
 
-By default the CLI reads `~/.config/renown/config.json`:
+Out of the box the CLI talks to the **hosted leaderboard** at
+`https://renown.absolutejs.com/api` — no setup needed. You only configure this if
+you're self-hosting. Override via the `RENOWN_ENDPOINT` env var, or in
+`~/.config/renown/config.json`:
 
 ```json
 {
-  "leaderboardEndpoint": "https://renown.example.com/api",
+  "leaderboardEndpoint": "https://your-host/api",
   "playerId": "any-stable-id-you-pick"
 }
 ```
 
-`XDG_CONFIG_HOME` is honored. The CLI prints a helpful error if the endpoint isn't set.
+Resolution order is `RENOWN_ENDPOINT` env > config > hosted default. `XDG_CONFIG_HOME`
+is honored.
 
 ## Merit — the hard-to-game half of the leaderboard
 

@@ -46,15 +46,25 @@ const CELEBRATIONS = join(RDIR, "celebrations.txt");
 const TMUX_CONF = join(RDIR, "tmux-status.conf");
 const CODEX_REAL = join(RDIR, "codex-real-path");
 
+// The hosted leaderboard. A fresh install points here so `renown link` / submit
+// work out of the box; self-hosters override via config.leaderboardEndpoint or the
+// RENOWN_ENDPOINT env var (env > config > this default).
+const DEFAULT_ENDPOINT = "https://renown.absolutejs.com/api";
+
 // Minimal config-loader — accepts the historical XDG path and the current ~/.renown
-// path used by the local engine.
+// path used by the local engine. Always resolves an endpoint so the CLI is usable
+// the moment it's installed.
 const loadConfig = (): AppConfig => {
+  const withEndpoint = (c: AppConfig): AppConfig => ({
+    ...c,
+    leaderboardEndpoint: process.env.RENOWN_ENDPOINT || c.leaderboardEndpoint || DEFAULT_ENDPOINT,
+  });
   try {
     const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
     const path = [join(RDIR, "config.json"), join(base, "renown", "config.json")].find((p) => existsSync(p));
-    if (!path) return {};
-    return JSON.parse(readFileSync(path, "utf8")) as AppConfig;
-  } catch { return {}; }
+    if (!path) return withEndpoint({});
+    return withEndpoint(JSON.parse(readFileSync(path, "utf8")) as AppConfig);
+  } catch { return withEndpoint({}); }
 };
 
 type LocalState = {

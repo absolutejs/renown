@@ -7,8 +7,9 @@ branding:
 
 inputs:
   endpoint:
-    description: "Your renown server's API base URL, e.g. https://renown.example.com/api"
-    required: true
+    description: "Renown API base URL. Defaults to the hosted leaderboard; override only if self-hosting."
+    required: false
+    default: "https://renown.absolutejs.com/api"
   version:
     description: "Which @absolutejs/renown release to run (npm dist-tag or exact version)."
     required: false
