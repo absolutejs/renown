@@ -11,9 +11,9 @@ await sql`alter table wild_seed_sources add column if not exists species text no
 await sql`alter table wild_seed_sources add column if not exists aura text not null default 'none'`;
 await sql`alter table wild_seed_sources add column if not exists one_of_one boolean not null default false`;
 
-const rows = await sql<{ player_id: string; pet_seed: string }[]>`
+const rows = await sql`
   select player_id, pet_seed from wild_seed_sources where name = '' or species = ''
-`;
+` as { player_id: string; pet_seed: string }[];
 for (let offset = 0; offset < rows.length; offset += 25) {
   await Promise.all(rows.slice(offset, offset + 25).map((row) => {
     const pet = generate(row.pet_seed);
