@@ -92,7 +92,10 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     authorization ? resolveApiPrincipal({ accessTokenStore, authorization }) : Promise.resolve(undefined);
 
   return new Elysia({ prefix: "/api" })
-    .get("/pets", ({ query }) => loadRecentPets({ limit: Number(query.limit ?? 24), cursor: query.cursor, mode: query.mode }))
+    .get("/pets", ({ query }) => loadRecentPets({
+      limit: Number(query.limit ?? 24), cursor: query.cursor, mode: query.mode,
+      sort: query.sort, q: query.q, tier: query.tier, species: query.species,
+    }))
     .get("/top", async ({ query }) => {
       const n = Math.min(TOP_MAX, Number(query.n ?? 20));
       if (query.skill) {
@@ -395,7 +398,14 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         lastAttributionSyncAt: acctQuery ? new Date() : acct?.lastAttributionSyncAt ?? null,
         ...(recomputedSkillXp ? { verifiedSkillXp: recomputedSkillXp } : {}),
       }).where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`));
-      if (newShas.length > 0) await gameDb.insert(wildSeedSources).values(newShas.map((s) => ({ playerId: row.id, petSeed: s, githubLogin: login }))).onConflictDoNothing();
+      if (newShas.length > 0) await gameDb.insert(wildSeedSources).values(newShas.map((s) => {
+        const pet = generate(s);
+        return {
+          playerId: row.id, petSeed: s, githubLogin: login, name: pet.name,
+          tier: pet.tier, rarityScore: pet.score, size: pet.sizeN,
+          species: pet.traits.species, aura: pet.traits.aura, oneOfOne: pet.oneOfOne,
+        };
+      })).onConflictDoNothing();
       const agg = await rollupPlayerFromAccounts(row.id);
       const aggAttribution = agg?.attributionScore ?? acctAttribution;
       const aggScore = agg?.verifiedScore ?? acctScore;

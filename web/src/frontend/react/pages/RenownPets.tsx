@@ -1,94 +1,176 @@
-// Public /pets gallery — the latest 1/1 pets minted across renown, each a doorway to its own
-// /pet/:seed page and its owner's profile. Lightweight (2D canonical sprites, no three.js), a
-// discovery surface that shows the game is alive.
+// Collection-first pet workspace. Signed-in players land in their inventory; everyone
+// can switch to database-backed discovery with the same search/filter/sort controls.
 import { Head } from "@absolutejs/absolute/react/components";
-import { useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { generate, TIER_RGB, type Tier } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
 
 type RGB = readonly [number, number, number];
 const hex = ([r, g, b]: RGB) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
-
 const petSvgHtml = (seed: string, box: number) => {
   const { svg, width, height } = spriteToSvg(generate(seed), { box });
   return `<svg width="${width.toFixed(0)}" height="${height.toFixed(0)}" viewBox="0 0 ${width.toFixed(1)} ${height.toFixed(1)}" xmlns="http://www.w3.org/2000/svg" style="display:block;overflow:visible"><g>${svg}<animateTransform attributeName="transform" type="translate" values="0 0;0 -3;0 0" keyTimes="0;0.5;1" dur="2.6s" repeatCount="indefinite" calcMode="spline" keySplines="0.42 0 0.58 1;0.42 0 0.58 1"/></g></svg>`;
 };
 
-type GalleryPet = { seed: string; login: string | null; handle: string; tier: string; isAi: boolean; earnedAt: string | null };
-type GalleryMode = "latest" | "owners";
+type GalleryPet = {
+  seed: string; login: string | null; handle: string; tier: string; isAi: boolean;
+  earnedAt: string | null; name: string; rarityScore: number; size: number;
+  species: string; aura: string; oneOfOne: boolean; isAvatar?: boolean; lookId?: string;
+};
+type PetPage = { pets: GalleryPet[]; nextCursor?: string | null; total?: number; sort?: PetSort };
+type PetSort = "newest" | "rarest" | "biggest" | "name";
+type Workspace = "collection" | "discover";
+type RenownPetsProps = { cssPath?: string; pets?: GalleryPet[]; nextCursor?: string | null; total?: number; origin?: string };
 
-const PetTile = ({ pet }: { pet: GalleryPet }) => {
-  const c = generate(pet.seed);
-  const accent = hex(TIER_RGB[pet.tier as Tier] ?? [160, 160, 180]);
+const TIER_OPTIONS = ["all", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic"];
+const SPECIES_OPTIONS = ["all", "Slime", "Critter", "Beast", "Construct", "Drake", "Sprite", "Wyrm", "Eldritch", "Celestial"];
+
+const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; onAvatar: (seed: string) => void }) => {
+  const generated = useMemo(() => generate(pet.seed), [pet.seed]);
+  const name = pet.name || generated.name;
+  const tier = pet.tier || generated.tier;
+  const species = pet.species || generated.traits.species;
+  const size = pet.size || generated.sizeN;
+  const rarity = pet.rarityScore || generated.score;
+  const accent = hex(TIER_RGB[tier as Tier] ?? [160, 160, 180]);
   return (
-    <div style={{ display: "flex", flexDirection: "column", borderRadius: 12, overflow: "hidden", background: `${accent}14`, border: `1px solid ${accent}55` }}>
-      <a href={`/pet/${pet.seed}`} title={`${c.name} — ${pet.tier}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 132, textDecoration: "none" }}>
-        <span dangerouslySetInnerHTML={{ __html: petSvgHtml(pet.seed, 104) }} />
+    <article className={`collectionPet tier-${tier.toLowerCase()}${pet.isAvatar ? " isAvatar" : ""}`} style={{ "--pet-accent": accent } as CSSProperties}>
+      <a className="collectionPetArt" href={`/pet/${pet.seed}`} title={`${name} — ${tier}`}>
+        {pet.isAvatar && <span className="collectionPetStatus">Current avatar</span>}
+        <span dangerouslySetInnerHTML={{ __html: petSvgHtml(pet.seed, 112) }} />
       </a>
-      <div style={{ padding: "8px 10px 10px", textAlign: "center" }}>
-        <a href={`/pet/${pet.seed}`} style={{ display: "block", fontWeight: 700, fontSize: 13, color: "inherit", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</a>
-        <div style={{ fontSize: 11, color: accent, fontWeight: 700 }}>{pet.tier}{c.oneOfOne ? " · 1/1" : ""}</div>
-        {pet.login && <a href={`/profile/${encodeURIComponent(pet.login)}`} className="muted" style={{ fontSize: 11, textDecoration: "none" }}>@{pet.login}{pet.isAi ? " 🤖" : ""}</a>}
-        {pet.earnedAt && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{new Date(pet.earnedAt).toLocaleDateString()}</div>}
+      <div className="collectionPetBody">
+        <div className="collectionPetTitle">
+          <a href={`/pet/${pet.seed}`}>{name}</a>
+          {pet.oneOfOne && <span className="oneOfOne">1/1</span>}
+        </div>
+        <div className="collectionPetMeta"><strong>{tier}</strong><span>{species}</span><span>size {size}</span></div>
+        <div className="collectionPetRarity">Rarity score {rarity.toFixed(2)}</div>
+        {!owned && pet.login && <a className="collectionPetOwner" href={`/profile/${encodeURIComponent(pet.login)}`}>@{pet.login}{pet.isAi ? " 🤖" : ""}</a>}
+        <div className="collectionPetActions">
+          <a className="petAction" href={`/pet/${pet.seed}`}>View details</a>
+          {owned && !pet.isAvatar && <button className="petAction primary" onClick={() => onAvatar(pet.seed)}>Set avatar</button>}
+        </div>
       </div>
-    </div>
+    </article>
   );
 };
 
-type RenownPetsProps = { cssPath?: string; pets?: GalleryPet[]; nextCursor?: string | null; mode?: GalleryMode; origin?: string };
-
-export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initialCursor = null, mode = "latest", origin = "" }: RenownPetsProps) => {
+export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initialCursor = null, total: initialTotal, origin = "" }: RenownPetsProps) => {
+  const [workspace, setWorkspace] = useState<Workspace>("discover");
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [pets, setPets] = useState(initialPets);
   const [nextCursor, setNextCursor] = useState(initialCursor);
+  const [total, setTotal] = useState(initialTotal ?? initialPets.length);
+  const [q, setQ] = useState("");
+  const [tier, setTier] = useState("all");
+  const [species, setSpecies] = useState("all");
+  const [sort, setSort] = useState<PetSort>("newest");
   const [loading, setLoading] = useState(false);
-  const loadMore = async () => {
-    if (!nextCursor || loading) return;
+  const [message, setMessage] = useState<string | null>(null);
+
+  const endpoint = workspace === "collection" ? "/api/account/pets" : "/api/pets";
+  const load = async (append = false, signal?: AbortSignal) => {
+    if (append && !nextCursor) return;
     setLoading(true);
+    const params = new URLSearchParams({ limit: "24", sort });
+    if (q.trim()) params.set("q", q.trim());
+    if (tier !== "all") params.set("tier", tier);
+    if (species !== "all") params.set("species", species);
+    if (append && nextCursor) params.set("cursor", nextCursor);
     try {
-      const params = new URLSearchParams({ mode, limit: "24", cursor: nextCursor });
-      const response = await fetch(`/api/pets?${params}`);
-      if (!response.ok) return;
-      const page = await response.json() as { pets?: GalleryPet[]; nextCursor?: string | null };
-      setPets((current) => [...current, ...(page.pets ?? [])]);
+      const response = await fetch(`${endpoint}?${params}`, { signal });
+      if (response.status === 401 && workspace === "collection") {
+        setSignedIn(false); setWorkspace("discover"); return;
+      }
+      if (!response.ok) throw new Error(`request failed (${response.status})`);
+      const page = await response.json() as PetPage;
+      if (workspace === "collection") setSignedIn(true);
+      setPets((current) => append ? [...current, ...(page.pets ?? [])] : (page.pets ?? []));
       setNextCursor(page.nextCursor ?? null);
-    } finally { setLoading(false); }
+      setTotal(page.total ?? page.pets?.length ?? 0);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) setMessage("Couldn’t load pets. Try again.");
+    } finally { if (!signal?.aborted) setLoading(false); }
   };
-  const title = "Pet gallery — the latest 1/1s on Renown";
-  const desc = "Browse the freshest 1/1 pets minted from real commits across renown. Each one is unique — procedurally generated from the commit that earned it.";
+
+  // Probe the protected collection once. A valid session promotes My collection to the
+  // default workspace; logged-out visitors keep the server-rendered discovery page.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/oauth2/status", { signal: controller.signal }).then((response) => response.json()).then(async (status: { user?: unknown }) => {
+      if (!status.user) { setSignedIn(false); return; }
+      const response = await fetch("/api/account/pets?limit=24&sort=newest", { signal: controller.signal });
+      if (!response.ok) return;
+      const page = await response.json() as PetPage;
+      setSignedIn(true); setWorkspace("collection"); setPets(page.pets ?? []);
+      setNextCursor(page.nextCursor ?? null); setTotal(page.total ?? 0);
+    }).catch(() => {});
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (signedIn === null || (workspace === "collection" && !signedIn)) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => { void load(false, controller.signal); }, 180);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace, q, tier, species, sort, signedIn]);
+
+  const setAvatar = async (seed: string) => {
+    const response = await fetch("/api/account/avatar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seed }) });
+    if (!response.ok) { setMessage("Couldn’t update your avatar."); return; }
+    setPets((current) => current.map((pet) => ({ ...pet, isAvatar: pet.seed === seed })));
+    setMessage("Avatar updated.");
+  };
+  const resetFilters = () => { setQ(""); setTier("all"); setSpecies("all"); setSort("newest"); };
+  const title = workspace === "collection" ? "My pet collection — Renown" : "Discover pets — Renown";
+  const desc = "Search, filter, sort, and manage unique pets earned through real development work.";
   const url = `${origin}/pets`;
+
   return (
     <html lang="en">
-      <Head
-        cssPath={cssPath}
-        title={title}
-        description={desc}
-        canonical={url}
+      <Head cssPath={cssPath} title={title} description={desc} canonical={url}
         openGraph={{ title, description: desc, type: "website", url, siteName: "Renown" }}
-        twitter={{ card: "summary", title, description: desc }}
-      />
+        twitter={{ card: "summary", title, description: desc }} />
       <body>
-        <main className="wrap profilePage">
-          <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a> <a href="/" className="muted" style={{ marginLeft: 12 }}>← Leaderboard</a></header>
-          <section className="card">
-            <h1 style={{ marginBottom: 4 }}>Pet gallery</h1>
-            <p className="muted">Every pet is procedurally generated from a real commit, so no two are alike. Browse the true mint stream or switch to one recent pet per owner for wider discovery.</p>
-            <nav className="audienceTabs" aria-label="Pet gallery view" style={{ marginTop: 12 }}>
-              <a className={mode === "latest" ? "on" : ""} href="/pets">Latest pets</a>
-              <a className={mode === "owners" ? "on" : ""} href="/pets?mode=owners">Recent owners</a>
+        <main className="wrap collectionPage">
+          <header className="topbar collectionTopbar">
+            <a href="/" className="brand"><span>Renown</span></a>
+            <nav className="collectionNav" aria-label="Pet navigation">
+              {signedIn && <button className={workspace === "collection" ? "on" : ""} onClick={() => setWorkspace("collection")}>My collection</button>}
+              <button className={workspace === "discover" ? "on" : ""} onClick={() => setWorkspace("discover")}>Discover</button>
+              {signedIn ? <a href="/?view=account">Account settings</a> : <a href="/">Log in</a>}
             </nav>
-            {pets.length === 0
-              ? <p className="muted" style={{ marginTop: 16 }}>No pets yet. <code>npm install -g @absolutejs/renown</code> → <code>renown link</code> and start hatching.</p>
-              : (
-                <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
-                  {pets.map((p) => <PetTile key={p.seed} pet={p} />)}
-                </div>
-              )}
-            {nextCursor && (
-              <div className="cta" style={{ marginTop: 18 }}>
-                <button className="btn ghost" disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading…" : "Load more pets"}</button>
-              </div>
-            )}
+          </header>
+
+          <section className="collectionHero">
+            <div>
+              <span className="collectionEyebrow">{workspace === "collection" ? "YOUR INVENTORY" : "THE RENOWN ARCHIVE"}</span>
+              <h1>{workspace === "collection" ? "My collection" : "Discover pets"}</h1>
+              <p>{workspace === "collection"
+                ? "Every pet you’ve earned, in one place. Find favorites, inspect traits, and choose the face you show across Renown."
+                : "Explore pets earned by developers across Renown. Search owners and seeds, or hunt by species and rarity."}</p>
+            </div>
+            <div className="collectionCount"><strong>{total.toLocaleString()}</strong><span>{workspace === "collection" ? "pets owned" : "pets found"}</span></div>
           </section>
+
+          <section className="collectionTools" aria-label="Collection filters">
+            <label className="collectionSearch"><span>Search</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder={workspace === "collection" ? "Name or commit seed…" : "Name, owner, or commit seed…"} /></label>
+            <label><span>Tier</span><select value={tier} onChange={(e) => setTier(e.target.value)}>{TIER_OPTIONS.map((value) => <option value={value} key={value}>{value === "all" ? "All tiers" : value}</option>)}</select></label>
+            <label><span>Species</span><select value={species} onChange={(e) => setSpecies(e.target.value)}>{SPECIES_OPTIONS.map((value) => <option value={value} key={value}>{value === "all" ? "All species" : value}</option>)}</select></label>
+            <label><span>Sort by</span><select value={sort} onChange={(e) => setSort(e.target.value as PetSort)}><option value="newest">Newest</option><option value="rarest">Rarest</option><option value="biggest">Biggest</option><option value="name">Name</option></select></label>
+            {(q || tier !== "all" || species !== "all" || sort !== "newest") && <button className="clearFilters" onClick={resetFilters}>Clear filters</button>}
+          </section>
+
+          {message && <div className="collectionNotice"><span>{message}</span><button onClick={() => setMessage(null)}>Dismiss</button></div>}
+          <div className="collectionResultsHeader"><span>{loading && pets.length === 0 ? "Loading…" : `Showing ${pets.length.toLocaleString()} of ${total.toLocaleString()}`}</span>{workspace === "collection" && <span>Choose “Set avatar” to use a pet across Renown.</span>}</div>
+
+          {pets.length > 0 ? <section className={`collectionGrid${loading ? " isLoading" : ""}`}>
+            {pets.map((pet) => <PetTile key={pet.seed} pet={pet} owned={workspace === "collection"} onAvatar={(seed) => void setAvatar(seed)} />)}
+          </section> : !loading && <section className="collectionEmpty"><h2>No pets match</h2><p>Try clearing a filter or searching for something broader.</p><button className="btn ghost" onClick={resetFilters}>Clear filters</button></section>}
+
+          {nextCursor && <div className="collectionMore"><button className="btn ghost" disabled={loading} onClick={() => void load(true)}>{loading ? "Loading…" : `Load more · ${Math.max(0, total - pets.length).toLocaleString()} remaining`}</button></div>}
         </main>
       </body>
     </html>

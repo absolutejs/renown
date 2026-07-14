@@ -1,13 +1,13 @@
-// Public pet gallery. Default mode is the actual chronological mint stream, backed by
-// wild_seed_sources. The optional owners mode keeps the old discovery behavior (one newest
-// pet per recently-active verified owner). Both use opaque keyset cursors, so page cost stays
-// constant as the collection grows and new mints cannot shift already-loaded rows.
-import { and, desc, eq, lt, or, sql } from "drizzle-orm";
+// Database-backed pet discovery and inventory. Deterministic procgen metadata is
+// materialized in wild_seed_sources so search/filter/sort remains keyset-paginated.
+import { and, asc, desc, eq, gt, ilike, lt, or, sql, type SQL } from "drizzle-orm";
 import { players, wildSeedSources } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
+import { getPlayerPetLookAssignments } from "./petLooks.ts";
 import { gameDb } from "./sync.ts";
 
 export type PetGalleryMode = "latest" | "owners";
+export type PetSort = "newest" | "rarest" | "biggest" | "name";
 export type GalleryPet = {
   seed: string;
   login: string | null;
@@ -15,89 +15,126 @@ export type GalleryPet = {
   tier: string;
   isAi: boolean;
   earnedAt: string | null;
+  name: string;
+  rarityScore: number;
+  size: number;
+  species: string;
+  aura: string;
+  oneOfOne: boolean;
+  isAvatar?: boolean;
+  lookId?: string;
 };
-export type GalleryPage = { pets: GalleryPet[]; nextCursor: string | null; mode: PetGalleryMode };
+export type GalleryPage = { pets: GalleryPet[]; nextCursor: string | null; mode: PetGalleryMode; total: number; sort: PetSort };
 
-type GalleryCursor = { mode: PetGalleryMode; at: string; id: string };
+type GalleryCursor = { mode: PetGalleryMode; sort: PetSort; value: string | number; id: string };
 const encodeCursor = (cursor: GalleryCursor) => Buffer.from(JSON.stringify(cursor)).toString("base64url");
-const decodeCursor = (raw: unknown, mode: PetGalleryMode): GalleryCursor | null => {
+const decodeCursor = (raw: unknown, mode: PetGalleryMode, sort: PetSort): GalleryCursor | null => {
   if (typeof raw !== "string" || !raw) return null;
   try {
     const value = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<GalleryCursor>;
-    if (value.mode !== mode || typeof value.at !== "string" || !Number.isFinite(Date.parse(value.at)) || typeof value.id !== "string") return null;
+    if (value.mode !== mode || value.sort !== sort || (typeof value.value !== "string" && typeof value.value !== "number") || typeof value.id !== "string") return null;
     return value as GalleryCursor;
   } catch { return null; }
 };
 
 export const normalizePetGalleryMode = (raw: unknown): PetGalleryMode => raw === "owners" ? "owners" : "latest";
+export const normalizePetSort = (raw: unknown): PetSort => raw === "rarest" || raw === "biggest" || raw === "name" ? raw : "newest";
+const cleanFilter = (raw: unknown) => typeof raw === "string" ? raw.trim().slice(0, 80) : "";
 
-export const loadRecentPets = async ({
-  limit: rawLimit = 24,
-  cursor: rawCursor,
-  mode: rawMode = "latest",
-}: { limit?: number; cursor?: unknown; mode?: unknown } = {}): Promise<GalleryPage> => {
-  const limit = Math.max(1, Math.min(60, Number(rawLimit) || 24));
-  const mode = normalizePetGalleryMode(rawMode);
-  const cursor = decodeCursor(rawCursor, mode);
-
-  if (mode === "owners") {
-    const cursorWhere = cursor
-      ? or(lt(players.verifiedAt, new Date(cursor.at)), and(eq(players.verifiedAt, new Date(cursor.at)), lt(players.id, cursor.id)))
-      : undefined;
-    const rows = await gameDb
-      .select({ id: players.id, login: players.githubLogin, handle: players.handle, tier: players.tier, isAi: players.isAi, wild: players.wild, verifiedAt: players.verifiedAt })
-      .from(players)
-      .where(and(eq(players.githubVerified, true), sql`jsonb_array_length(${players.wild}) > 0`, cursorWhere))
-      .orderBy(desc(players.verifiedAt), desc(players.id))
-      .limit(limit + 1);
-    const hasMore = rows.length > limit;
-    const pageRows = rows.slice(0, limit);
-    const pets = pageRows.flatMap((row) => {
-      const seed = (Array.isArray(row.wild) ? row.wild : [])[0];
-      return seed ? [{ seed, login: row.login, handle: row.handle, tier: normalizeTier(row.tier), isAi: row.isAi, earnedAt: row.verifiedAt?.toISOString() ?? null }] : [];
-    });
-    const last = pageRows.at(-1);
-    return {
-      mode,
-      pets,
-      nextCursor: hasMore && last?.verifiedAt ? encodeCursor({ mode, at: last.verifiedAt.toISOString(), id: last.id }) : null,
-    };
+const cursorCondition = (cursor: GalleryCursor | null, sort: PetSort): SQL | undefined => {
+  if (!cursor) return undefined;
+  if (sort === "rarest" && typeof cursor.value === "number") return or(lt(wildSeedSources.rarityScore, cursor.value), and(eq(wildSeedSources.rarityScore, cursor.value), lt(wildSeedSources.petSeed, cursor.id)));
+  if (sort === "biggest" && typeof cursor.value === "number") return or(lt(wildSeedSources.size, cursor.value), and(eq(wildSeedSources.size, cursor.value), lt(wildSeedSources.petSeed, cursor.id)));
+  if (sort === "name" && typeof cursor.value === "string") return or(gt(wildSeedSources.name, cursor.value), and(eq(wildSeedSources.name, cursor.value), gt(wildSeedSources.petSeed, cursor.id)));
+  if (typeof cursor.value === "string" && Number.isFinite(Date.parse(cursor.value))) {
+    const at = new Date(cursor.value);
+    return or(lt(wildSeedSources.earnedAt, at), and(eq(wildSeedSources.earnedAt, at), lt(wildSeedSources.petSeed, cursor.id)));
   }
+  return undefined;
+};
 
-  const cursorWhere = cursor
-    ? or(
-        lt(wildSeedSources.earnedAt, new Date(cursor.at)),
-        and(eq(wildSeedSources.earnedAt, new Date(cursor.at)), lt(wildSeedSources.petSeed, cursor.id)),
-      )
-    : undefined;
+const orderFor = (sort: PetSort) => sort === "rarest"
+  ? [desc(wildSeedSources.rarityScore), desc(wildSeedSources.petSeed)] as const
+  : sort === "biggest"
+    ? [desc(wildSeedSources.size), desc(wildSeedSources.petSeed)] as const
+    : sort === "name"
+      ? [asc(wildSeedSources.name), asc(wildSeedSources.petSeed)] as const
+      : [desc(wildSeedSources.earnedAt), desc(wildSeedSources.petSeed)] as const;
+
+const cursorValue = (row: { earnedAt: Date; rarityScore: number; size: number; name: string }, sort: PetSort) =>
+  sort === "rarest" ? row.rarityScore : sort === "biggest" ? row.size : sort === "name" ? row.name : row.earnedAt.toISOString();
+
+type PetQuery = { limit?: number; cursor?: unknown; mode?: unknown; sort?: unknown; q?: unknown; tier?: unknown; species?: unknown };
+
+const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string | null): Promise<GalleryPage> => {
+  const limit = Math.max(1, Math.min(60, Number(query.limit) || 24));
+  const mode = normalizePetGalleryMode(query.mode);
+  const sort = normalizePetSort(query.sort);
+  const cursor = decodeCursor(query.cursor, mode, sort);
+  const q = cleanFilter(query.q);
+  const tier = cleanFilter(query.tier);
+  const species = cleanFilter(query.species);
+  const filters: (SQL | undefined)[] = [
+    eq(players.githubVerified, true),
+    playerId ? eq(wildSeedSources.playerId, playerId) : undefined,
+    q ? or(ilike(wildSeedSources.name, `%${q}%`), ilike(wildSeedSources.petSeed, `%${q}%`), ilike(wildSeedSources.githubLogin, `%${q}%`)) : undefined,
+    tier && tier !== "all" ? eq(wildSeedSources.tier, tier) : undefined,
+    species && species !== "all" ? eq(wildSeedSources.species, species) : undefined,
+  ];
+  const baseWhere = and(...filters);
+  const [{ total = 0 } = { total: 0 }] = await gameDb
+    .select({ total: sql<number>`count(*)::int` })
+    .from(wildSeedSources)
+    .innerJoin(players, eq(players.id, wildSeedSources.playerId))
+    .where(baseWhere);
   const rows = await gameDb
     .select({
-      seed: wildSeedSources.petSeed,
-      earnedAt: wildSeedSources.earnedAt,
-      login: players.githubLogin,
-      handle: players.handle,
-      tier: players.tier,
-      isAi: players.isAi,
+      seed: wildSeedSources.petSeed, earnedAt: wildSeedSources.earnedAt,
+      login: players.githubLogin, handle: players.handle, accountTier: players.tier, isAi: players.isAi,
+      name: wildSeedSources.name, petTier: wildSeedSources.tier, rarityScore: wildSeedSources.rarityScore,
+      size: wildSeedSources.size, species: wildSeedSources.species, aura: wildSeedSources.aura, oneOfOne: wildSeedSources.oneOfOne,
     })
     .from(wildSeedSources)
     .innerJoin(players, eq(players.id, wildSeedSources.playerId))
-    .where(and(eq(players.githubVerified, true), cursorWhere))
-    .orderBy(desc(wildSeedSources.earnedAt), desc(wildSeedSources.petSeed))
+    .where(and(baseWhere, cursorCondition(cursor, sort)))
+    .orderBy(...orderFor(sort))
     .limit(limit + 1);
   const hasMore = rows.length > limit;
   const pageRows = rows.slice(0, limit);
+  const assignments = playerId ? await getPlayerPetLookAssignments(playerId, pageRows.map((row) => row.seed)) : {};
   const pets = pageRows.map((row) => ({
-    seed: row.seed,
-    login: row.login,
-    handle: row.handle,
-    tier: normalizeTier(row.tier),
-    isAi: row.isAi,
-    earnedAt: row.earnedAt.toISOString(),
+    seed: row.seed, login: row.login, handle: row.handle, tier: row.petTier || normalizeTier(row.accountTier),
+    isAi: row.isAi, earnedAt: row.earnedAt.toISOString(), name: row.name,
+    rarityScore: row.rarityScore, size: row.size, species: row.species, aura: row.aura,
+    oneOfOne: row.oneOfOne, isAvatar: row.seed === avatarSeed, lookId: assignments[row.seed],
   }));
   const last = pageRows.at(-1);
   return {
-    mode,
-    pets,
-    nextCursor: hasMore && last ? encodeCursor({ mode, at: last.earnedAt.toISOString(), id: last.seed }) : null,
+    mode, sort, total, pets,
+    nextCursor: hasMore && last ? encodeCursor({ mode, sort, value: cursorValue(last, sort), id: last.seed }) : null,
   };
+};
+
+export const loadPetCollection = (player: typeof players.$inferSelect, query: PetQuery) =>
+  loadPets({ ...query, mode: "latest" }, player.id, player.avatarSeed);
+
+export const loadRecentPets = async (query: PetQuery = {}): Promise<GalleryPage> => {
+  const mode = normalizePetGalleryMode(query.mode);
+  if (mode !== "owners") return loadPets(query);
+
+  // One recent pet per owner remains a lightweight people-discovery view.
+  const limit = Math.max(1, Math.min(60, Number(query.limit) || 24));
+  const rows = await gameDb.select({
+    id: players.id, login: players.githubLogin, handle: players.handle, accountTier: players.tier,
+    isAi: players.isAi, wild: players.wild, verifiedAt: players.verifiedAt,
+  }).from(players)
+    .where(and(eq(players.githubVerified, true), sql`jsonb_array_length(${players.wild}) > 0`))
+    .orderBy(desc(players.verifiedAt), desc(players.id)).limit(limit);
+  const pets = rows.flatMap((row) => {
+    const seed = (Array.isArray(row.wild) ? row.wild : [])[0];
+    if (!seed) return [];
+    return [{ seed, login: row.login, handle: row.handle, tier: normalizeTier(row.accountTier), isAi: row.isAi,
+      earnedAt: row.verifiedAt?.toISOString() ?? null, name: "", rarityScore: 0, size: 0, species: "", aura: "none", oneOfOne: false }];
+  });
+  return { mode, sort: "newest", total: pets.length, pets, nextCursor: null };
 };

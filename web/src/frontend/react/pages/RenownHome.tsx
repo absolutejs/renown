@@ -2,7 +2,7 @@ import { Head } from "@absolutejs/absolute/react/components";
 import { type FormEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, playSadTrombone, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
-import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
+import { GhostAvatar, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
 import { DEFAULT_PET_LOOK_ID, isPetLookId, PET_LOOKS, type PetLookId } from "../../../shared/petLooks.ts";
 import { generate } from "../../../shared/procgen.ts";
@@ -1739,6 +1739,21 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
   const paid = billing.tier !== "free";
   return (
     <>
+      {account.github && (
+        <section className="card collectionAccountCard">
+          <div>
+            <span className="collectionEyebrow">PET INVENTORY</span>
+            <h2>Your collection</h2>
+            <p className="muted">Search and sort every pet you own, inspect traits, and choose your avatar from the dedicated collection workspace.</p>
+          </div>
+          <div className="collectionAccountStats">
+            <span><strong>{account.github.petsCount.toLocaleString()}</strong> owned</span>
+            <span><strong>{account.github.rarestPetScore.toFixed(2)}</strong> best rarity</span>
+            <span><strong>{account.github.biggestPetSize}</strong> biggest</span>
+          </div>
+          <a className="btn solid" href="/pets">Open my collection</a>
+        </section>
+      )}
       <section className="card">
         <div className="acctHead">
           <div>
@@ -1787,28 +1802,6 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
       <AchievementsPanel total={account.achievementCount} />
       {account.github?.login && <MeritPanel login={account.github.login} title="Your merit" />}
       {account.github?.quirks && <QuirksPanel quirks={account.github.quirks} title="Your quirks" />}
-      {account.github && account.github.wild.length > 0 && (
-        <section className="card">
-          <h2>Your menagerie <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {account.github.petsCount} owned · rarest {account.github.rarestPetScore.toFixed(1)} · biggest size {account.github.biggestPetSize}</span></h2>
-          <p className="hint">Each pet is a unique 1/1, procedurally generated from a <strong>real commit SHA</strong> you're attributed in — deterministic, ungameable, the seed IS the asset. Tap ☆ to set as your avatar. Drag to spin.</p>
-          <PetViewer
-            seeds={account.github.wild}
-            avatarSeed={account.github.avatarSeed}
-            activePetLookId={account.github.activePetLookId}
-            petLookAssignments={account.github.petLookAssignments ?? {}}
-            onSetAvatar={(seed) => act(async () => {
-              const r = await post("/api/account/avatar", { seed });
-              if (r.ok) onBanner({ kind: "ok", text: "✓ Avatar updated." });
-              return r;
-            })}
-            onSetPetLook={(seed, lookId) => act(async () => {
-              const r = await post(`/api/account/pets/${encodeURIComponent(seed)}/look`, { lookId });
-              if (r.ok) onBanner({ kind: "ok", text: "✓ Pet look updated." });
-              return r;
-            })}
-          />
-        </section>
-      )}
       <CliSyncCard onBanner={onBanner} />
 
       <section className="card">
@@ -2039,6 +2032,7 @@ const App = () => {
     const q = new URLSearchParams(window.location.search);
     const billing = q.get("billing"), linked = q.get("linked"), merge = q.get("merge");
     const verify = q.get("verify"), reset = q.get("reset");
+    if (q.get("view") === "account") setView("account");
     // ?attest-webauthn=<provider>[&evidence=<url>] — the CLI's `renown ai-attest
     // --webauthn` lands users here. Jump to Account, store the prefill so
     // AiAttestationCard picks it up, and clean the URL.

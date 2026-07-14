@@ -148,9 +148,21 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   petSeed: text("pet_seed").notNull(),
   githubLogin: text("github_login").notNull(),
   earnedAt: timestamp("earned_at").notNull().defaultNow(),
+  // Materialized deterministic procgen fields make collection search/filter/sort a
+  // normal indexed database query instead of regenerating every pet on each request.
+  name: text("name").notNull().default(""),
+  tier: text("tier").notNull().default("Common"),
+  rarityScore: real("rarity_score").notNull().default(0),
+  size: integer("size").notNull().default(0),
+  species: text("species").notNull().default(""),
+  aura: text("aura").notNull().default("none"),
+  oneOfOne: boolean("one_of_one").notNull().default(false),
 }, (t) => ({
   pk: primaryKey({ columns: [t.playerId, t.petSeed] }),
   recentIdx: index("wild_seed_sources_recent_idx").on(t.earnedAt, t.petSeed),
+  ownerRecentIdx: index("wild_seed_sources_owner_recent_idx").on(t.playerId, t.earnedAt, t.petSeed),
+  ownerRarityIdx: index("wild_seed_sources_owner_rarity_idx").on(t.playerId, t.rarityScore, t.petSeed),
+  ownerSizeIdx: index("wild_seed_sources_owner_size_idx").on(t.playerId, t.size, t.petSeed),
 }));
 
 // Weekly quest progress. Per (player, ISO-week, quest): the baseline signal value captured on

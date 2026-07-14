@@ -540,6 +540,13 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .link:hover { color: var(--accent-bright); text-decoration: underline; }
 .link.danger { color: var(--danger); }
 .signout { display: block; margin: var(--s-5) auto 0; color: var(--muted); }
+.collectionAccountCard { display: grid; grid-template-columns: minmax(240px, 1fr) auto auto; align-items: center; gap: var(--s-5); border-color: var(--accent-line); background: linear-gradient(115deg, var(--accent-soft), var(--surface-0) 55%); }
+.collectionAccountCard h2 { margin: 4px 0; }
+.collectionAccountCard p { margin: 0; max-width: 560px; }
+.collectionAccountStats { display: flex; gap: var(--s-4); }
+.collectionAccountStats span { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.collectionAccountStats strong { display: block; color: var(--text); font: 700 19px var(--font-display); }
+@media (max-width: 820px) { .collectionAccountCard { grid-template-columns: 1fr; } .collectionAccountStats { flex-wrap: wrap; } .collectionAccountCard .btn { justify-self: start; } }
 
 /* ── forms ─────────────────────────────────────────────────────────────────*/
 .form { display: flex; flex-direction: column; gap: var(--s-3); max-width: 380px; margin: var(--s-4) 0; }
@@ -665,6 +672,77 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .spinner { width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid var(--line-2); border-top-color: var(--accent); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loadState .retry { margin-top: var(--s-2); }
+
+/* ── collection workspace ─────────────────────────────────────────────────*/
+.collectionPage { max-width: 1320px; padding-bottom: var(--s-8); }
+.collectionTopbar .brand { color: var(--text); text-decoration: none; }
+.collectionNav { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.collectionNav button, .collectionNav a { border: 0; background: transparent; color: var(--muted); padding: 8px 12px; border-radius: var(--r-sm); font: 600 13px var(--font-display); text-decoration: none; cursor: pointer; }
+.collectionNav button:hover, .collectionNav a:hover { color: var(--text); background: var(--surface-1); }
+.collectionNav button.on { color: var(--accent-bright); background: var(--accent-soft); }
+.collectionHero { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s-7); padding: var(--s-7) 0 var(--s-6); border-bottom: 1px solid var(--line-2); }
+.collectionHero h1 { margin: 5px 0 var(--s-2); font-size: clamp(34px, 5vw, 60px); letter-spacing: -.035em; text-transform: uppercase; }
+.collectionHero p { max-width: 690px; margin: 0; color: var(--ink); font-size: 16px; line-height: 1.55; }
+.collectionEyebrow { color: var(--accent); font: 700 11px var(--font-mono); letter-spacing: .16em; }
+.collectionCount { flex: none; min-width: 150px; padding: 16px 20px; background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-md); text-align: right; box-shadow: inset 0 1px var(--edge-hi); }
+.collectionCount strong { display: block; color: var(--text); font: 700 32px/1 var(--font-display); }
+.collectionCount span { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
+.collectionTools { position: sticky; top: 0; z-index: 20; display: grid; grid-template-columns: minmax(240px, 1.7fr) repeat(3, minmax(130px, .65fr)) auto; align-items: end; gap: var(--s-3); margin: var(--s-5) 0; padding: 14px; background: rgba(11,15,23,.92); border: 1px solid var(--line-2); border-radius: var(--r-md); backdrop-filter: blur(16px); box-shadow: var(--shadow-1); }
+.collectionTools label { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.collectionTools label > span { color: var(--muted); font: 700 10px var(--font-display); letter-spacing: .08em; text-transform: uppercase; }
+.collectionTools input, .collectionTools select { width: 100%; min-width: 0; height: 40px; box-sizing: border-box; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 0 11px; font: 13px var(--font-body); }
+.collectionTools input:focus, .collectionTools select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.collectionSearch input { font-family: var(--font-mono); }
+.clearFilters { height: 40px; border: 0; background: transparent; color: var(--accent); font: 600 12px var(--font-display); cursor: pointer; white-space: nowrap; }
+.collectionResultsHeader { display: flex; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-3); color: var(--muted); font-size: 12px; }
+.collectionNotice { display: flex; justify-content: space-between; gap: var(--s-3); margin-bottom: var(--s-4); padding: 10px 13px; color: var(--ink); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: var(--r-sm); }
+.collectionNotice button { border: 0; background: transparent; color: var(--accent-bright); cursor: pointer; }
+.collectionGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(218px, 1fr)); gap: var(--s-4); transition: opacity .15s var(--ease); }
+.collectionGrid.isLoading { opacity: .55; }
+.collectionPet { --pet-accent: var(--r-common); min-width: 0; overflow: hidden; background: linear-gradient(180deg, color-mix(in srgb, var(--pet-accent) 7%, var(--surface-0)), var(--surface-0) 46%); border: 1px solid color-mix(in srgb, var(--pet-accent) 34%, var(--line)); border-radius: var(--r-md); box-shadow: inset 0 1px var(--edge-hi); transition: transform .16s var(--ease), border-color .16s var(--ease), box-shadow .16s var(--ease); }
+.collectionPet:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--pet-accent) 68%, var(--line)); box-shadow: var(--shadow-2); }
+.collectionPet.isAvatar { box-shadow: 0 0 0 2px var(--accent), 0 0 28px rgba(95,190,235,.12); }
+.collectionPetArt { position: relative; display: flex; align-items: center; justify-content: center; height: 170px; color: inherit; text-decoration: none; border-bottom: 1px solid var(--line); background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--pet-accent) 13%, transparent), transparent 68%); }
+.collectionPetStatus { position: absolute; top: 10px; left: 10px; padding: 4px 7px; color: #061018; background: var(--accent-bright); border-radius: var(--r-pill); font: 700 9px var(--font-display); letter-spacing: .05em; text-transform: uppercase; }
+.collectionPetBody { padding: 13px; }
+.collectionPetTitle { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.collectionPetTitle a { overflow: hidden; color: var(--text); font: 700 15px var(--font-display); text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.collectionPetTitle a:hover { color: var(--accent-bright); }
+.oneOfOne { flex: none; padding: 2px 5px; color: #17100a; background: var(--r-legendary); border-radius: var(--r-xs); font: 800 9px var(--font-mono); }
+.collectionPetMeta { display: flex; flex-wrap: wrap; gap: 5px 10px; margin-top: 8px; color: var(--muted); font-size: 11px; }
+.collectionPetMeta strong { color: var(--pet-accent); }
+.collectionPetRarity { margin-top: 5px; color: var(--ink); font: 11px var(--font-mono); }
+.collectionPetOwner { display: inline-block; margin-top: 6px; color: var(--muted); font-size: 11px; text-decoration: none; }
+.collectionPetOwner:hover { color: var(--accent); }
+.collectionPetActions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 12px; }
+.collectionPetActions:has(.petAction:only-child) { grid-template-columns: 1fr; }
+.petAction { display: flex; align-items: center; justify-content: center; min-height: 32px; box-sizing: border-box; color: var(--ink); background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 6px 8px; font: 600 11px var(--font-display); text-decoration: none; cursor: pointer; }
+.petAction:hover { color: var(--text); border-color: var(--line-strong); }
+.petAction.primary { color: var(--accent-bright); background: var(--accent-soft); border-color: var(--accent-line); }
+.collectionEmpty { padding: var(--s-8) var(--s-4); text-align: center; background: var(--surface-inset); border: 1px dashed var(--line-strong); border-radius: var(--r-md); }
+.collectionEmpty p { color: var(--muted); }
+.collectionMore { display: flex; justify-content: center; margin-top: var(--s-6); }
+
+@media (max-width: 880px) {
+  .collectionTools { position: static; grid-template-columns: 1fr 1fr; }
+  .collectionSearch { grid-column: 1 / -1; }
+  .clearFilters { justify-self: start; }
+}
+@media (max-width: 620px) {
+  .collectionTopbar { align-items: flex-start; }
+  .collectionNav { align-items: stretch; flex-direction: column; }
+  .collectionNav button, .collectionNav a { padding: 5px 9px; text-align: left; }
+  .collectionHero { align-items: flex-start; flex-direction: column; gap: var(--s-4); padding-top: var(--s-5); }
+  .collectionCount { width: 100%; box-sizing: border-box; text-align: left; }
+  .collectionTools { grid-template-columns: 1fr; }
+  .collectionSearch { grid-column: auto; }
+  .collectionResultsHeader { align-items: flex-start; flex-direction: column; }
+  .collectionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-2); }
+  .collectionPetArt { height: 138px; }
+  .collectionPetBody { padding: 10px; }
+  .collectionPetActions { grid-template-columns: 1fr; }
+}
+@media (max-width: 420px) { .collectionGrid { grid-template-columns: 1fr; } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }

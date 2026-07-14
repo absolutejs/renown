@@ -4,10 +4,10 @@
 // belonged to another account). Linking a NEW login happens via the OAuth flow itself
 // (visit /oauth2/<provider>/authorization while signed in -> resolveAuthIntent links it).
 import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, lt, or, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
-import { achievements as achievementsTable, follows, playerAchievements, players, pushSubscriptions, webauthnCredentials } from "../../../../db/schema.ts";
+import { achievements as achievementsTable, follows, playerAchievements, players, pushSubscriptions, webauthnCredentials, wildSeedSources } from "../../../../db/schema.ts";
 import { getFollowingLogins } from "../rivals.ts";
 import { notifyFollowed } from "../push.ts";
 import { authIdentities } from "../../../db/schema";
@@ -28,6 +28,7 @@ import {
 } from "../handlers/userHandlers";
 import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookAssignment, type PetLookAssignments } from "../petLooks.ts";
 import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
+import { loadPetCollection } from "../petGallery.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
@@ -119,9 +120,10 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
   const player = (await resolvePlayerByUserSub(userSub)) ?? (ghLogin ? await resolvePlayerByGithubLogin(ghLogin) : null);
   const accounts = player ? await listPlayerAccounts(player.id) : [];
   const wild = Array.isArray(player?.wild) ? (player!.wild as string[]) : [];
-  const [petLookAssignments, following] = await Promise.all([
+  const [petLookAssignments, following, petCountRows] = await Promise.all([
     player?.id && wild.length > 0 ? getPlayerPetLookAssignments(player.id, wild) : Promise.resolve({} as PetLookAssignments),
     player ? getFollowingLogins(player.id) : Promise.resolve([] as string[]),
+    player ? gameDb.select({ total: sql<number>`count(*)::int` }).from(wildSeedSources).where(eq(wildSeedSources.playerId, player.id)) : Promise.resolve([]),
   ]);
   return {
     sub: userSub,
@@ -150,7 +152,7 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       petLookAssignments,
       avatarSeed: player?.avatarSeed ?? null,
       showcaseSeeds: Array.isArray(player?.showcaseSeeds) ? (player!.showcaseSeeds as string[]) : [],
-      petsCount: player?.petsCount ?? 0,
+      petsCount: petCountRows[0]?.total ?? player?.petsCount ?? 0,
       rarestPetScore: player?.rarestPetScore ?? 0,
       biggestPetSize: player?.biggestPetSize ?? 0,
       // Server-authoritative AI marker. Set by migration OR by a self-posted attestation
@@ -210,6 +212,15 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const rows = await gameDb.select({ id: playerAchievements.achievementId })
           .from(playerAchievements).where(eq(playerAchievements.playerId, player.id));
         return { ids: rows.map((row) => row.id) };
+      }),
+    )
+    // The signed-in inventory is independent from the account bootstrap: fully searchable,
+    // filterable, sortable, and keyset-paginated across every owned pet.
+    .get("/pets", ({ query, protectRoute }) =>
+      protectRoute(async (user) => {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return { pets: [], total: 0, nextCursor: null, mode: "latest", sort: "newest" };
+        return loadPetCollection(player, query);
       }),
     )
     // Choose which login is the canonical/primary one (drives the user's display name/email).
