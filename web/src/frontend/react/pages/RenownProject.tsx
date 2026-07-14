@@ -54,7 +54,7 @@ const ProjectNotFound = ({ keyParam }: { keyParam: string }) => (
       <h1>{keyParam} isn't on Renown yet</h1>
       <p className="muted">No one tracking this repo with renown has a verified contribution here yet. Be the first.</p>
       <div style={{ maxWidth: 560, margin: "18px auto 0", textAlign: "left" }}>
-        <Copyable text="npm install -g @absolutejs/renown" />
+        <Copyable text="bun add -g @absolutejs/renown" />
         <p className="muted" style={{ marginTop: 8 }}>Then <code>gh auth login</code> and <code>renown link</code> — your commits here start earning renown.</p>
       </div>
       <p style={{ marginTop: 16 }}><a href="/">← Browse the leaderboard</a></p>
@@ -170,7 +170,7 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
         <p className="muted hint">A top-5 board, right in your README — updates as contributors earn renown:</p>
         <div style={{ marginTop: 8 }}><Copyable text={boardMd} /></div>
         <p style={{ marginTop: 12 }}><img src={`${origin}/project/${project.key}/board.svg`} alt="renown leaderboard preview" style={{ maxWidth: "100%" }} /></p>
-        <p className="muted" style={{ marginTop: 12 }}>Not earning renown yet? <code>npm install -g @absolutejs/renown</code> → <code>renown link</code>.</p>
+        <p className="muted" style={{ marginTop: 12 }}>Not earning renown yet? <code>bun add -g @absolutejs/renown</code> → <code>renown link</code>.</p>
       </section>
     </main>
   );

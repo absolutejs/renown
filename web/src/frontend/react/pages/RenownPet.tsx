@@ -63,7 +63,7 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
 
       <section className="card" style={{ textAlign: "center" }}>
         <p className="muted" style={{ marginTop: 0 }}>This pet was procedurally generated from a real commit — every renown pet is a 1/1. Earn your own:</p>
-        <p style={{ marginBottom: 6 }}><code>npm install -g @absolutejs/renown</code></p>
+        <p style={{ marginBottom: 6 }}><code>bun add -g @absolutejs/renown</code></p>
         <p className="muted" style={{ fontSize: 13 }}>Then <code>gh auth login</code> and <code>renown link</code> — your commits start hatching pets.</p>
         <p style={{ marginTop: 14, fontSize: 13 }}><a href={pageUrl}>{pageUrl}</a></p>
       </section>

@@ -3,6 +3,7 @@ import { handleReactPageRequest } from "@absolutejs/absolute/react";
 import { Elysia } from "elysia";
 import { RenownAdmin } from "../../frontend/react/pages/RenownAdmin";
 import { RenownHome } from "../../frontend/react/pages/RenownHome";
+import { RenownGuide } from "../../frontend/react/pages/RenownGuide";
 import { RenownProfile } from "../../frontend/react/pages/RenownProfile";
 import { RenownProject } from "../../frontend/react/pages/RenownProject";
 import { RenownRecap } from "../../frontend/react/pages/RenownRecap";
@@ -63,6 +64,8 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     handleReactPageRequest({ index: asset(manifest, "RenownHomeIndex"), Page: RenownHome, props: { cssPath, initialView: "landing" }, request });
   const leaderboard = ({ request }: { request: Request }) =>
     handleReactPageRequest({ index: asset(manifest, "RenownHomeIndex"), Page: RenownHome, props: { cssPath, initialView: "board" }, request });
+  const guide = ({ request }: { request: Request }) =>
+    handleReactPageRequest({ index: asset(manifest, "RenownGuideIndex"), Page: RenownGuide, props: { cssPath, origin: originOf(request) }, request });
   const admin = ({ request }: { request: Request }) =>
     handleReactPageRequest({ index: asset(manifest, "RenownAdminIndex"), Page: RenownAdmin, props: { cssPath }, request });
   // /profile/:login — public, no-auth, SSR-prefetched profile data so OG tags
@@ -292,6 +295,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   return new Elysia()
     .get("/", home)
     .get("/leaderboard", leaderboard)
+    .get("/guide", guide)
     .get("/admin", admin)
     .get("/achievements", achievementsPage)
     .get("/achievement/:id/og.png", achievementOg)

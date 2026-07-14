@@ -280,6 +280,7 @@ const LandingPet = ({ seed, size = 68 }: { seed: string; size?: number }) => {
 const LiveLandingActivity = () => {
   const [pets, setPets] = useState<LandingPetRow[]>([]);
   const [unlocks, setUnlocks] = useState<UnlockRow[]>([]);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     let active = true;
     const load = async () => {
@@ -301,7 +302,22 @@ const LiveLandingActivity = () => {
     const unsubscribe = subscribeSync(["top", "unlock"], () => { void load(); });
     return () => { active = false; unsubscribe(); };
   }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   if (pets.length === 0 && unlocks.length === 0) return null;
+  const pulledAgo = (earnedAt: string | null) => {
+    if (!earnedAt) return "pulled recently";
+    const timestamp = Date.parse(earnedAt);
+    if (!Number.isFinite(timestamp)) return "pulled recently";
+    const minutes = Math.max(1, Math.floor((now - timestamp) / 60_000));
+    if (minutes < 60) return `pulled ${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return `pulled ${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+    const days = Math.floor(hours / 24);
+    return `pulled ${days} ${days === 1 ? "day" : "days"} ago`;
+  };
   const petItems = pets.slice(0, 8);
   const achievementItems = unlocks.slice(0, 8);
   return (
@@ -316,7 +332,7 @@ const LiveLandingActivity = () => {
             {petItems.map((pet) => (
               <a className="landingPetDrop" href={`/pet/${pet.seed}`} key={pet.seed} tabIndex={duplicate ? -1 : undefined}>
                 <LandingPet seed={pet.seed} />
-                <span><strong>{pet.name || generate(pet.seed).name}</strong><small>{pet.tier} {pet.species ? `· ${pet.species}` : ""}</small><em>{pet.login ? `@${pet.login}` : "New pet"}</em></span>
+                <span><strong>{pet.name || generate(pet.seed).name}</strong><small>{pet.tier} {pet.species ? `· ${pet.species}` : ""}</small><em>{pet.login ? `@${pet.login} · ` : ""}{pulledAgo(pet.earnedAt)}</em></span>
               </a>
             ))}
           </div>)}
@@ -336,7 +352,7 @@ const LiveLandingActivity = () => {
 };
 
 const CopyInstall = () => {
-  const command = "npm install -g @absolutejs/renown";
+  const command = "bun add -g @absolutejs/renown";
   const [copied, setCopied] = useState(false);
   return (
     <button className="landingInstall" onClick={async () => {
@@ -374,9 +390,9 @@ const LandingPage = ({ signedIn, onGetStarted }: { signedIn: boolean; onGetStart
     <section className="landingStart" aria-labelledby="landing-start-title">
       <div className="landingSectionHead"><div><span className="landingKicker">THREE MINUTES TO START</span><h2 id="landing-start-title">Your work is already worth XP</h2></div></div>
       <div className="landingSteps">
-        <article><span>01</span><h3>Install</h3><code>npm i -g @absolutejs/renown</code><p>One lightweight CLI. No editor lock-in.</p></article>
-        <article><span>02</span><h3>Link GitHub</h3><code>renown link</code><p>Verify your public work and mint the pets it earned.</p></article>
-        <article><span>03</span><h3>Play while you build</h3><code>renown install-agent all</code><p>Skills and quests progress in Codex, Claude, Cursor, or any editor.</p></article>
+        <article><span>01</span><h3>Install</h3><code>bun add -g @absolutejs/renown</code><p>One lightweight CLI. No editor lock-in.</p></article>
+        <article><span>02</span><h3>Link GitHub</h3><code>renown link</code><p>Run <code>gh auth login</code> if needed, then verify your public work and mint the pets it earned.</p></article>
+        <article><span>03</span><h3>Wire your tools</h3><code>renown install-agent all</code><p>Add first-party Codex and Claude hooks, plus the optional tmux HUD.</p></article>
       </div>
     </section>
 
@@ -387,7 +403,7 @@ const LandingPage = ({ signedIn, onGetStarted }: { signedIn: boolean; onGetStart
       <div className="landingWhyGrid"><article><strong>Pets</strong><span>Deterministic collectibles whose seed is the commit itself.</span></article><article><strong>Skills</strong><span>100 disciplines with an OSRS-style progression curve.</span></article><article><strong>Achievements</strong><span>Curated milestones plus deep procedural families.</span></article><article><strong>Competition</strong><span>Global, project, skill, merit, weekly, and season boards.</span></article></div>
     </section>
 
-    <section className="landingFinal"><span className="landingKicker">YOUR NEXT COMMIT COULD HATCH A MYTHIC</span><h2>Make the work visible.</h2><p>Install Renown, link GitHub, and see what your development history has already earned.</p>{signedIn ? <a className="btn solid" href="/pets">Open my collection</a> : <button className="btn solid" onClick={onGetStarted}>Start playing free</button>}</section>
+    <section className="landingFinal"><span className="landingKicker">YOUR NEXT COMMIT COULD HATCH A MYTHIC</span><h2>Make the work visible.</h2><p>Install Renown, link GitHub, and see what your development history has already earned.</p><div className="landingHeroActions">{signedIn ? <a className="btn solid" href="/pets">Open my collection</a> : <button className="btn solid" onClick={onGetStarted}>Start playing free</button>}<a className="btn ghost" href="/guide">Read the setup guide</a></div></section>
   </>
 );
 
@@ -2217,6 +2233,7 @@ const App = ({ initialView = "landing" }: { initialView?: "landing" | "board" })
         <a className="brand" href="/"><Logomark size={24} /><span>Renown</span></a>
         <nav className="nav">
           <a className={view === "landing" ? "on" : ""} href="/">Home</a>
+          <a href="/guide">Guide</a>
           <a className={view === "board" ? "on" : ""} href="/leaderboard">Leaderboard</a>
           <button className={view === "catalog" ? "on" : ""} onClick={() => setView("catalog")}>Catalog</button>
           <button onClick={() => { window.location.href = "/season"; }}>Season</button>

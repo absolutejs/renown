@@ -102,7 +102,7 @@ const OrgBody = ({ org, origin }: { org: OrgForUI; origin: string }) => {
         <p className="muted hint">Drop it in your org's profile README or a flagship repo — it links here. Markdown:</p>
         <div style={{ marginTop: 8 }}><Copyable text={badgeMd} /></div>
         <p style={{ marginTop: 12 }}><img src={`${origin}/org/${org.owner}/badge.svg`} alt="renown org badge preview" /></p>
-        <p className="muted" style={{ marginTop: 12 }}>Contributors verify their repos with <code>npm install -g @absolutejs/renown</code> → <code>renown link</code>, or the renown GitHub Action.</p>
+        <p className="muted" style={{ marginTop: 12 }}>Contributors verify their repos with <code>bun add -g @absolutejs/renown</code> → <code>renown link</code>, or the renown GitHub Action.</p>
       </section>
     </main>
   );

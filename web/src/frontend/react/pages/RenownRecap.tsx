@@ -105,7 +105,7 @@ const RecapBody = ({ recap, origin }: { recap: RecapForUI; origin: string }) => 
         <h2 style={{ fontSize: 16, margin: "0 0 8px" }}>Share your week</h2>
         <Copyable text={shareUrl} />
         <p style={{ marginTop: 12 }}><img src={`${origin}/recap/${encodeURIComponent(recap.login)}/og.png`} alt="renown weekly recap card" style={{ maxWidth: "100%", borderRadius: 12 }} /></p>
-        <p className="muted" style={{ marginTop: 12 }}>Earn your own: <code>npm install -g @absolutejs/renown</code> → <code>renown link</code>.</p>
+        <p className="muted" style={{ marginTop: 12 }}>Earn your own: <code>bun add -g @absolutejs/renown</code> → <code>renown link</code>.</p>
       </section>
     </main>
   );

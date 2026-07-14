@@ -67,7 +67,7 @@ const Body = ({ a }: { a: AchievementForUI }) => {
       <section className="card">
         <h2>Earn it</h2>
         <p className="muted">Renown awards thousands of achievements for real dev work — earned by the craft and importance of what you ship.</p>
-        <p className="muted" style={{ marginTop: 8 }}><code>npm install -g @absolutejs/renown</code> → <code>renown link</code>.</p>
+        <p className="muted" style={{ marginTop: 8 }}><code>bun add -g @absolutejs/renown</code> → <code>renown link</code>.</p>
       </section>
     </main>
   );
