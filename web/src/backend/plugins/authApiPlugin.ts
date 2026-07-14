@@ -4,7 +4,7 @@
 // belonged to another account). Linking a NEW login happens via the OAuth flow itself
 // (visit /oauth2/<provider>/authorization while signed in -> resolveAuthIntent links it).
 import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, lt, or } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
 import { achievements as achievementsTable, follows, playerAchievements, players, pushSubscriptions, webauthnCredentials } from "../../../../db/schema.ts";
@@ -30,6 +30,54 @@ import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookA
 import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
+const ACHIEVEMENT_PAGE_DEFAULT = 50;
+const ACHIEVEMENT_PAGE_MAX = 100;
+
+type AchievementCursor = { unlockedAt: string; id: string };
+const encodeAchievementCursor = (cursor: AchievementCursor) =>
+  Buffer.from(JSON.stringify(cursor)).toString("base64url");
+const decodeAchievementCursor = (raw: unknown): AchievementCursor | null => {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const value = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<AchievementCursor>;
+    if (typeof value.unlockedAt !== "string" || !Number.isFinite(Date.parse(value.unlockedAt)) || typeof value.id !== "string") return null;
+    return { unlockedAt: value.unlockedAt, id: value.id };
+  } catch { return null; }
+};
+
+const loadAchievementPage = async (player: typeof players.$inferSelect, rawLimit: unknown, rawCursor: unknown) => {
+  const limit = Math.max(1, Math.min(ACHIEVEMENT_PAGE_MAX, Number(rawLimit ?? ACHIEVEMENT_PAGE_DEFAULT) || ACHIEVEMENT_PAGE_DEFAULT));
+  const cursor = decodeAchievementCursor(rawCursor);
+  const cursorWhere = cursor
+    ? or(
+        lt(playerAchievements.unlockedAt, new Date(cursor.unlockedAt)),
+        and(eq(playerAchievements.unlockedAt, new Date(cursor.unlockedAt)), lt(playerAchievements.achievementId, cursor.id)),
+      )
+    : undefined;
+  const rows = await gameDb
+    .select({
+      id: achievementsTable.id,
+      name: achievementsTable.name,
+      description: achievementsTable.description,
+      tier: achievementsTable.tier,
+      category: achievementsTable.category,
+      unlockCount: achievementsTable.unlockCount,
+      unlockedAt: playerAchievements.unlockedAt,
+    })
+    .from(playerAchievements)
+    .innerJoin(achievementsTable, eq(achievementsTable.id, playerAchievements.achievementId))
+    .where(and(eq(playerAchievements.playerId, player.id), cursorWhere))
+    .orderBy(desc(playerAchievements.unlockedAt), desc(playerAchievements.achievementId))
+    .limit(limit + 1);
+  const hasMore = rows.length > limit;
+  const items = rows.slice(0, limit);
+  const last = items.at(-1);
+  return {
+    items,
+    total: player.achievements,
+    nextCursor: hasMore && last ? encodeAchievementCursor({ unlockedAt: last.unlockedAt.toISOString(), id: last.id }) : null,
+  };
+};
 
 // Small in-memory cache for the authoritative-cursor lookup. Cursors fire frequently
 // (every hover, throttled at ~150ms client-side) but the (login → avatarSeed/isAi)
@@ -71,9 +119,10 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
   const player = (await resolvePlayerByUserSub(userSub)) ?? (ghLogin ? await resolvePlayerByGithubLogin(ghLogin) : null);
   const accounts = player ? await listPlayerAccounts(player.id) : [];
   const wild = Array.isArray(player?.wild) ? (player!.wild as string[]) : [];
-  const petLookAssignments: PetLookAssignments = player?.id && wild.length > 0
-    ? await getPlayerPetLookAssignments(player.id, wild)
-    : {};
+  const [petLookAssignments, following] = await Promise.all([
+    player?.id && wild.length > 0 ? getPlayerPetLookAssignments(player.id, wild) : Promise.resolve({} as PetLookAssignments),
+    player ? getFollowingLogins(player.id) : Promise.resolve([] as string[]),
+  ]);
   return {
     sub: userSub,
     billing: {
@@ -113,18 +162,6 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       pushPrefs: (player as { pushPrefs?: { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean } } | undefined)?.pushPrefs ?? {},
       rateLimitCount: (player as { rateLimitCount?: number } | undefined)?.rateLimitCount ?? 0,
       quirks: (player as { quirks?: Record<string, number> } | undefined)?.quirks ?? {},
-      // Logins this user follows — drives the Follow button state + the Rivals view.
-      following: player ? await getFollowingLogins(player.id) : [],
-      // Earned achievements — same join shape as /api/profile/:login so the panel
-      // component can render from either endpoint with no client-side massaging.
-      achievements: player
-        ? await gameDb
-            .select({ id: achievementsTable.id, name: achievementsTable.name, description: achievementsTable.description, tier: achievementsTable.tier, category: achievementsTable.category, unlockCount: achievementsTable.unlockCount })
-            .from(playerAchievements)
-            .innerJoin(achievementsTable, eq(achievementsTable.id, playerAchievements.achievementId))
-            .where(eq(playerAchievements.playerId, player.id))
-            .orderBy(desc(achievementsTable.tier))
-        : [],
       // Registered WebAuthn credentials for the key-management UI. Public-key bytes
       // intentionally not exposed; only metadata the user needs to recognize each key.
       webauthnCredentials: player
@@ -135,6 +172,8 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
             .orderBy(desc(webauthnCredentials.createdAt))
         : [],
     } : null,
+    following,
+    achievementCount: player?.achievements ?? 0,
     identities: identities.map((i) => ({
       id: i.id,
       provider: i.auth_provider,
@@ -153,6 +192,26 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     .use(protectRoutePlugin<User>({ authSessionStore }))
     // Everything attached to my account.
     .get("/", ({ protectRoute }) => protectRoute((user) => accountPayload(db, user.sub)))
+    // Keyset-paginated achievement details. The account bootstrap carries only the
+    // denormalized count; rows are fetched when the trophy cabinet is actually visible.
+    .get("/achievements", ({ query, protectRoute }) =>
+      protectRoute(async (user) => {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return { items: [], total: 0, nextCursor: null };
+        return loadAchievementPage(player, query.limit, query.cursor);
+      }),
+    )
+    // The catalog needs membership checks, not names/descriptions. Load compact IDs only
+    // when that view opens instead of bloating every account bootstrap response.
+    .get("/achievement-ids", ({ protectRoute }) =>
+      protectRoute(async (user) => {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return { ids: [] };
+        const rows = await gameDb.select({ id: playerAchievements.achievementId })
+          .from(playerAchievements).where(eq(playerAchievements.playerId, player.id));
+        return { ids: rows.map((row) => row.id) };
+      }),
+    )
     // Choose which login is the canonical/primary one (drives the user's display name/email).
     .post("/identities/:id/primary", ({ params, protectRoute, status }) =>
       protectRoute(async (user) => {

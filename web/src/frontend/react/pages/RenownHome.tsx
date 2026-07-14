@@ -1,6 +1,5 @@
 import { Head } from "@absolutejs/absolute/react/components";
-import { createLiveQuery, createSyncSubscriber } from "@absolutejs/sync/client";
-import { type FormEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { type FormEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, playSadTrombone, setSoundOn, startAmbientPad, stopAmbientPad } from "../../audio";
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { GhostAvatar, PetViewer, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
@@ -9,6 +8,7 @@ import { DEFAULT_PET_LOOK_ID, isPetLookId, PET_LOOKS, type PetLookId } from "../
 import { generate } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
 import { SKILLS } from "../../../shared/skills.ts";
+import { subscribeSync } from "../../syncClient";
 
 type Tier = "free" | "supporter" | "pro";
 type PetLookMap = Record<string, PetLookId>;
@@ -23,11 +23,11 @@ type Identity = { id: string; provider: string; subject: string; isPrimary: bool
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
 type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean; expiresAt?: string };
-type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number };
+type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number; unlockedAt?: string };
 type WebauthnCredential = { id: string; label: string; transports: string[]; createdAt: string; lastUsedAt: string | null };
 type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean };
 type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; activePetLookId?: string; petLookAssignments?: PetLookMap; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[]; rateLimitCount?: number; quirks?: Record<string, number> };
-type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievements?: AchievementRow[]; following?: string[] };
+type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievementCount: number; following: string[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
 type StripeConfig = { configured: boolean; tiers: Record<Tier, TierInfo>; prices: Record<string, string | null>; amounts: Record<string, Amount> };
@@ -79,8 +79,26 @@ const TierBadge = ({ tier }: { tier?: Tier }) =>
 // own) and ProfileModal (someone else's) — same data shape coming from /api/profile and
 // /api/account, no client-side massaging.
 const TIER_ORDER: Record<string, number> = { mythic: 0, platinum: 1, gold: 2, silver: 3, bronze: 4, secret: 5 };
-const AchievementsPanel = ({ items, title = "Achievements" }: { items: AchievementRow[]; title?: string }) => {
-  if (items.length === 0) return null;
+const AchievementsPanel = ({ total }: { total: number }) => {
+  const [items, setItems] = useState<AchievementRow[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const load = useCallback(async (nextCursor?: string | null) => {
+    if (loading) return;
+    setLoading(true);
+    const suffix = nextCursor ? `&cursor=${encodeURIComponent(nextCursor)}` : "";
+    const r = await api(`/api/account/achievements?limit=50${suffix}`);
+    if (r.ok) {
+      const page = r.data as { items?: AchievementRow[]; nextCursor?: string | null };
+      setItems((current) => nextCursor ? [...current, ...(page.items ?? [])] : (page.items ?? []));
+      setCursor(page.nextCursor ?? null);
+    }
+    setLoaded(true);
+    setLoading(false);
+  }, [loading]);
+  useEffect(() => { if (total > 0 && !loaded) void load(null); }, [total, loaded, load]);
+  if (total === 0) return null;
   // Group by category; within each group, sort by tier (rarer first) for visual weight.
   const groups = new Map<string, AchievementRow[]>();
   for (const a of items) {
@@ -91,7 +109,8 @@ const AchievementsPanel = ({ items, title = "Achievements" }: { items: Achieveme
   for (const arr of groups.values()) arr.sort((a, b) => (TIER_ORDER[a.tier] ?? 9) - (TIER_ORDER[b.tier] ?? 9));
   return (
     <section className="card">
-      <h2>{title} <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {items.length} earned</span></h2>
+      <h2>Your achievements <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {total.toLocaleString()} earned</span></h2>
+      {!loaded && <p className="muted">Loading achievements…</p>}
       <div className="achGroups">
         {[...groups.entries()].map(([cat, arr]) => (
           <div className="achGroup" key={cat}>
@@ -107,6 +126,13 @@ const AchievementsPanel = ({ items, title = "Achievements" }: { items: Achieveme
           </div>
         ))}
       </div>
+      {cursor && (
+        <div className="cta" style={{ marginTop: 16 }}>
+          <button className="btn ghost" disabled={loading} onClick={() => void load(cursor)}>
+            {loading ? "Loading…" : `Load more · ${items.length.toLocaleString()} of ${total.toLocaleString()}`}
+          </button>
+        </div>
+      )}
     </section>
   );
 };
@@ -166,8 +192,7 @@ const FollowingFeed = ({ myLogin, openProfile }: { myLogin: string | null; openP
     if (!myLogin) { setFeed([]); return; }
     const load = () => fetch(`/api/rivals/${encodeURIComponent(myLogin)}`).then((r) => r.json()).then((d) => { if (d && Array.isArray(d.feed)) setFeed(d.feed); }).catch(() => {});
     load();
-    const sub = createSyncSubscriber({ topics: ["unlock"], onEvent: () => load() });
-    return () => sub.close();
+    return subscribeSync(["unlock"], () => load());
   }, [myLogin]);
   if (!myLogin || feed.length === 0) return null;
   const ago = (iso: string) => { const s = Math.max(1, Math.round((Date.now() - Date.parse(iso)) / 1000)); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
@@ -200,11 +225,7 @@ const RecentUnlocks = ({ openProfile }: { openProfile: (login: string) => void }
     load();
     // Live: every batch grant publishes on the 'unlock' topic. Cheap to re-fetch
     // (one indexed join, 20-row cap). No polling — SSE only.
-    const sub = createSyncSubscriber({
-      topics: ["unlock"],
-      onEvent: () => load(),
-    });
-    return () => sub.close();
+    return subscribeSync(["unlock"], () => load());
   }, []);
   if (rows.length === 0) return null;
   // Friendly relative-time formatter (avoid pulling intl libs for a few rows).
@@ -274,14 +295,11 @@ const MeritPanel = ({ login, title = "Merit" }: { login: string; title?: string 
       } catch { /* keep last data */ }
     };
     load();
-    const sub = createSyncSubscriber({
-      topics: ["merit"],
-      onEvent: (evt) => {
+    const unsubscribe = subscribeSync(["merit"], (evt) => {
         const p = evt.payload as { login?: string } | undefined;
         if (p?.login?.toLowerCase() === login.toLowerCase()) load();
-      },
     });
-    return () => { cancelled = true; sub.close(); };
+    return () => { cancelled = true; unsubscribe(); };
   }, [login]);
   if (error) return (
     <section className="card">
@@ -364,14 +382,10 @@ const Logomark = ({ size = 22 }: { size?: number }) => (
 // gated on isSoundOn (toggle in the header) — silent when sound is off.
 const RateLimitedAudioAnnouncer = () => {
   useEffect(() => {
-    const sub = createSyncSubscriber({
-      topics: ["rate-limited"],
-      onEvent: (evt) => {
+    return subscribeSync(["rate-limited"], (evt) => {
         if (evt.topic !== "rate-limited") return;
         playSadTrombone();
-      },
     });
-    return () => sub.close();
   }, []);
   return null;
 };
@@ -395,9 +409,7 @@ const VerifiedAttestationAnnouncer = ({ openProfile, enabled }: { openProfile: (
     // the OS notification — opting out is consistent across surfaces. Anonymous /
     // logged-out viewers default to opted-in (enabled=true at the call site).
     if (!enabled) return;
-    const sub = createSyncSubscriber({
-      topics: ["verified-attestation"],
-      onEvent: (evt) => {
+    return subscribeSync(["verified-attestation"], (evt) => {
         const payload = evt.payload as { login: string; provider: string; claimedAt: string } | undefined;
         if (evt.topic !== "verified-attestation" || !payload) return;
         const id = nextIdRef.current++;
@@ -413,9 +425,7 @@ const VerifiedAttestationAnnouncer = ({ openProfile, enabled }: { openProfile: (
           });
           notif.onclick = () => { window.focus(); openProfile(ann.login); notif.close(); };
         }
-      },
     });
-    return () => sub.close();
   }, [openProfile, enabled]);
   if (queue.length === 0) return null;
   return (
@@ -696,9 +706,7 @@ const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => vo
     // Two subscriptions: 'weekly-ai-leader' for leader-change events (cheap, fires only
     // when the login changes), 'top' as a fallback nudge to re-pull delta numbers since
     // the leader's own attribution might update without a leader-change.
-    const sub = createSyncSubscriber({
-      topics: ["weekly-ai-leader", "top"],
-      onEvent: (evt) => {
+    return subscribeSync(["weekly-ai-leader", "top"], (evt) => {
         const payload = evt.payload as { login?: string; verifiedScore?: number; aiAttestation?: Entry["aiAttestation"]; avatarSeed?: string | null } | undefined;
         if (evt.topic === "weekly-ai-leader" && payload?.login) {
           setEntry((cur) => ({ ...(cur ?? { name: payload.login!, level: 0, xp: 0, streak: 0, ach: 0 }), login: payload.login!, score: payload.verifiedScore, aiAttestation: payload.aiAttestation, avatarSeed: payload.avatarSeed ?? null, isAi: true }));
@@ -706,9 +714,7 @@ const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => vo
         } else if (evt.topic === "top") {
           load();
         }
-      },
     });
-    return () => sub.close();
   }, []);
   if (!entry?.login) return null;
   return (
@@ -816,9 +822,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, boardWindow, setBo
   // SSE: subscribe once; update the cursor map per incoming event. Cleanup interval
   // discards entries older than the fade window so the overlay self-empties.
   useEffect(() => {
-    const sub = createSyncSubscriber({
-      topics: ["cursors"],
-      onEvent: (evt) => {
+    const unsubscribe = subscribeSync(["cursors"], (evt) => {
         const payload = evt.payload as { sid: string; rowId: string | null; board: string | null; label: string | null; avatarSeed: string | null; avatarLookId?: string; isAi?: boolean; at: number } | undefined;
         if (evt.topic !== "cursors" || !payload) return;
         const { sid, rowId, board: b, label, avatarSeed, avatarLookId, isAi, at } = payload;
@@ -829,7 +833,6 @@ const Board = ({ top, board, setBoard, audience, setAudience, boardWindow, setBo
           n.set(sid, { rowId, board: b, label: label ?? null, avatarSeed: avatarSeed ?? null, avatarLookId: resolvedLook, isAi: !!isAi, at });
           return n;
         });
-      },
     });
     const sweep = window.setInterval(() => {
       const cutoff = Date.now() - 2500;
@@ -840,7 +843,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, boardWindow, setBo
         return changed ? n : m;
       });
     }, 600);
-    return () => { sub.close(); window.clearInterval(sweep); };
+    return () => { unsubscribe(); window.clearInterval(sweep); };
   }, [mySid]);
   // For each row, structured ghost entries currently hovering it (other tabs only, same
   // board). Returns the raw cursor info per sid so the renderer can choose between
@@ -1332,31 +1335,37 @@ const WebauthnKeyRow = ({ cred, act }: { cred: WebauthnCredential; act: (fn: () 
   );
 };
 
-// Thin React bridge over @absolutejs/sync/client's createLiveQuery. One useMemo for
-// the query (re-created when topics/fetcher change via the `deps` key), one
-// useSyncExternalStore for state, one cleanup effect. Replaces the
-// useEffect+fetch+setState+subscriber+close ceremony in any subscriber whose only
-// side-effect is "store the data" (RecapCard, WeeklyGrowthStat, skills sheet…).
-// Subscribers that DO more on each update (leaderboard freshIds diff + sound) stay on
-// createSyncSubscriber where the explicit control is worth the verbosity.
+// Thin React bridge over the page-wide sync stream. Each query owns only its fetch
+// lifecycle; subscribeSync multiplexes every component's topics through one
+// EventSource and dispatches matching events locally.
 function useLiveQuery<T>(topics: string[], fetcher: (signal: AbortSignal) => Promise<T>, deps: ReadonlyArray<unknown>): { data: T | undefined; loading: boolean } {
-  // SSR guard: createLiveQuery → createSyncSubscriber requires globalThis.EventSource,
-  // which doesn't exist during server render. Return a no-op stub during SSR; the
-  // browser hydration pass re-creates a real query. (The previous SSR throw was
-  // crashing the whole streaming render with "SSR Error - AbsoluteJS".)
-  const isBrowser = typeof globalThis !== "undefined" && typeof (globalThis as { EventSource?: unknown }).EventSource !== "undefined";
-  const query = useMemo(
-    () => (isBrowser ? createLiveQuery<T>({ topics, fetcher }) : { subscribe: () => () => {}, get: () => undefined as { data: T | undefined; loading: boolean } | undefined, close: () => {} }),
+  const [data, setData] = useState<T | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let closed = false;
+    let controller: AbortController | null = null;
+    let sequence = 0;
+    const load = async () => {
+      const current = ++sequence;
+      controller?.abort();
+      controller = new AbortController();
+      try {
+        const next = await fetcher(controller.signal);
+        if (!closed && current === sequence) setData(next);
+      } catch (error) {
+        if (!controller.signal.aborted) console.warn("live query failed", error);
+      } finally {
+        if (!closed && current === sequence) setLoading(false);
+      }
+    };
+    setLoading(true);
+    void load();
+    const unsubscribe = subscribeSync(topics, () => { void load(); });
+    return () => { closed = true; controller?.abort(); unsubscribe(); };
+    // The caller supplies the semantic dependency key; fetcher/topics are render-local.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    deps,
-  );
-  const state = useSyncExternalStore(
-    useCallback((cb: () => void) => query.subscribe(cb), [query]),
-    useCallback(() => query.get(), [query]),
-    () => undefined as { data: T | undefined; loading: boolean } | undefined,
-  );
-  useEffect(() => () => query.close(), [query]);
-  return { data: state?.data, loading: state?.loading ?? true };
+  }, deps);
+  return { data, loading };
 }
 
 // Weekly recap — pulls /api/recap/:login (attribution delta + verified delta +
@@ -1365,7 +1374,7 @@ function useLiveQuery<T>(topics: string[], fetcher: (signal: AbortSignal) => Pro
 type RecapPayload = { login: string; windowDays: number; attributionDelta: number; verifiedDelta: number; currentScore: number; totalLevel: number; petsCount: number; newAchievements: { id: string; name: string; tier: string; category: string; at: string }[]; snapshots: number };
 const RecapCard = ({ login }: { login: string }) => {
   // Lives on the player's own topic + the global "top" topic — refetches whenever this
-  // player syncs or the leaderboard cadence ticks. createLiveQuery handles the abort/
+  // player syncs or the leaderboard cadence ticks. useLiveQuery handles the abort/
   // refetch/state machine so the component is data-shape-only.
   const { data: r } = useLiveQuery<RecapPayload | null>(
     [`player:${login}`, "top"],
@@ -1654,9 +1663,10 @@ const AttestationFeed = ({ openProfile }: { openProfile: (login: string) => void
 // rare in the catalog vs. what you've earned." Generated (10k+) achievements aren't
 // rendered here — too heavy for one page; pagination would land in a later iteration.
 type CatalogItem = { id: string; name: string; description: string; category: string; tier: string; visibility: string; unlockCount: number; rarity: number };
-const CatalogView = ({ earnedIds }: { earnedIds: Set<string> }) => {
+const CatalogView = ({ signedIn }: { signedIn: boolean }) => {
   const [items, setItems] = useState<CatalogItem[] | null>(null);
   const [players, setPlayers] = useState(0);
+  const [earnedIds, setEarnedIds] = useState<Set<string>>(() => new Set());
   const [filter, setFilter] = useState<"all" | "earned" | "unearned">("all");
   useEffect(() => {
     fetch("/api/catalog").then((r) => r.json()).then((d: { players: number; items: CatalogItem[] }) => {
@@ -1664,6 +1674,14 @@ const CatalogView = ({ earnedIds }: { earnedIds: Set<string> }) => {
       setPlayers(d.players);
     }).catch(() => setItems([]));
   }, []);
+  useEffect(() => {
+    if (!signedIn) { setEarnedIds(new Set()); return; }
+    api("/api/account/achievement-ids").then((r) => {
+      if (!r.ok) return;
+      const ids = (r.data as { ids?: string[] })?.ids ?? [];
+      setEarnedIds(new Set(ids));
+    });
+  }, [signedIn]);
   if (items === null) return <section className="card"><p className="muted">Loading catalog…</p></section>;
   const filtered = filter === "all" ? items
     : filter === "earned" ? items.filter((i) => earnedIds.has(i.id))
@@ -1766,7 +1784,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
         act={act}
         onSetLook={(lookId) => post("/api/account/pet-look", { lookId })}
       />}
-      {account.achievements && <AchievementsPanel items={account.achievements} title="Your achievements" />}
+      <AchievementsPanel total={account.achievementCount} />
       {account.github?.login && <MeritPanel login={account.github.login} title="Your merit" />}
       {account.github?.quirks && <QuirksPanel quirks={account.github.quirks} title="Your quirks" />}
       {account.github && account.github.wild.length > 0 && (
@@ -1941,6 +1959,7 @@ const App = () => {
   const [audience, setAudience] = useState<"all" | "humans" | "ai">("all");
   const [boardWindow, setBoardWindow] = useState<"all" | "week" | "season">("all");
   const [profileLogin, setProfileLogin] = useState<string | null>(null);
+  const openProfile = useCallback((login: string) => setProfileLogin(login), []);
   // Summon payload for the post-/api/verify cinematic. Keep per-pet look assignments
   // with each seed so newly-earned pets preserve the look they were minted with.
   const [summonPets, setSummonPets] = useState<SummonPet[] | null>(null);
@@ -2002,9 +2021,8 @@ const App = () => {
 
   // selected player's full skill sheet — live on that player's topic (and any "top"
   // change). Uses the same useLiveQuery helper as RecapCard / WeeklyGrowthStat so the
-  // data-loading story is unified across single-fetch-per-event subscribers. Subscriber-
-  // with-side-effects (leaderboard top with its freshIds diff + sound) stays on
-  // createSyncSubscriber where the explicit per-event control is worth the verbosity.
+  // data-loading story is unified across single-fetch-per-event subscribers. The
+  // leaderboard keeps its explicit callback because it also diffs freshIds and plays sound.
   const { data: skillsData } = useLiveQuery<SkillSheet | null>(
     sel ? [`player:${sel}`, "top"] : [],
     (signal) => sel ? fetch(`/api/skills?id=${encodeURIComponent(sel)}`, { signal }).then((r) => r.json()) : Promise.resolve(null),
@@ -2074,7 +2092,7 @@ const App = () => {
   const signedIn = !!account;
   return (
     <main className="wrap">
-      <VerifiedAttestationAnnouncer openProfile={(login) => setProfileLogin(login)} enabled={account?.github?.pushPrefs?.verifiedAttestation !== false} />
+      <VerifiedAttestationAnnouncer openProfile={openProfile} enabled={account?.github?.pushPrefs?.verifiedAttestation !== false} />
       <RateLimitedAudioAnnouncer />
       <header className="topbar">
         <div className="brand" onClick={() => setView("board")}><Logomark size={24} /><span>Renown</span></div>
@@ -2116,15 +2134,15 @@ const App = () => {
               </div>
             </section>
           )}
-          <Board top={top} board={board} setBoard={setBoard} audience={audience} setAudience={setAudience} boardWindow={boardWindow} setBoardWindow={setBoardWindow} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={(login) => setProfileLogin(login)} freshIds={freshIds} myLogin={account?.github?.login ?? null} />
-          <TopThisWeek openProfile={(login) => setProfileLogin(login)} />
+          <Board top={top} board={board} setBoard={setBoard} audience={audience} setAudience={setAudience} boardWindow={boardWindow} setBoardWindow={setBoardWindow} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={openProfile} freshIds={freshIds} myLogin={account?.github?.login ?? null} />
+          <TopThisWeek openProfile={openProfile} />
           <TrendingRepos />
         </>
       )}
       {view === "pricing" && <Pricing cfg={cfg} account={account ?? null} onSubscribe={subscribe} busy={busy} onLogIn={() => { setAuthMode("login"); setView("auth"); }} />}
       {view === "catalog" && <>
-        <AttestationFeed openProfile={(login) => setProfileLogin(login)} />
-        <CatalogView earnedIds={new Set((account?.achievements ?? []).map((a) => a.id))} />
+        <AttestationFeed openProfile={openProfile} />
+        <CatalogView signedIn={signedIn} />
       </>}
       {view === "account" && (signedIn
         ? <AccountView account={account!} cfg={cfg} user={user} refresh={loadAccount} onManage={manage} onSubscribe={subscribe} busy={busy} act={act} onBanner={setBanner} onSummon={(pets) => setSummonPets(pets)} />

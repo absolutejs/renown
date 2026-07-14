@@ -128,4 +128,16 @@ else
   echo "   Add the DNS A record, then re-run this script to issue the cert."
 fi
 
+# 10. Let nginx terminate HTTP/2 at the public edge while keeping the upstream
+# Bun hop on HTTP/1.1. Renown holds several SSE streams open at once; without
+# HTTP/2 multiplexing, browsers exhaust the HTTP/1.1 per-origin connection pool
+# and ordinary page/API requests queue behind those streams. Certbot owns the
+# TLS listen directives, so add `http2` only after a certificate exists. The
+# guard makes this idempotent across bootstrap reruns and Certbot renewals.
+if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+  sed -i -E '/listen .*443 ssl/ { /http2/! s/ ssl/ ssl http2/; }' "/etc/nginx/sites-available/$SERVICE_USER"
+  nginx -t
+  systemctl reload nginx
+fi
+
 echo "=== bootstrap done for $DOMAIN ==="

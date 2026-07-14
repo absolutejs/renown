@@ -387,14 +387,14 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
   display: inline-flex; gap: 2px; margin: 0 0 var(--s-4); padding: 3px;
   background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-pill);
 }
-.audienceTabs button {
+.audienceTabs button, .audienceTabs a {
   background: transparent; border: 0; color: var(--muted);
   font-family: var(--font-display); font-size: 12px; letter-spacing: .04em;
-  padding: 5px 13px; cursor: pointer; border-radius: var(--r-pill);
+  padding: 5px 13px; cursor: pointer; border-radius: var(--r-pill); text-decoration: none;
   transition: background .12s var(--ease), color .12s var(--ease);
 }
-.audienceTabs button:hover { color: var(--text); }
-.audienceTabs button.on { background: var(--accent-soft); color: var(--accent-bright); }
+.audienceTabs button:hover, .audienceTabs a:hover { color: var(--text); }
+.audienceTabs button.on, .audienceTabs a.on { background: var(--accent-soft); color: var(--accent-bright); }
 
 /* ── skills (the level sheet) ──────────────────────────────────────────────*/
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--s-2); }

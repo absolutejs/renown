@@ -142,8 +142,9 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     return handleReactPageRequest({ index: asset(manifest, "RenownPetIndex"), Page: RenownPet, props: { cssPath, pet, owner, origin: originOf(request) }, request });
   };
   const petsPage = async ({ request }: { request: Request }) => {
-    const pets = await loadRecentPets(48);
-    return handleReactPageRequest({ index: asset(manifest, "RenownPetsIndex"), Page: RenownPets, props: { cssPath, pets, origin: originOf(request) }, request });
+    const url = new URL(request.url);
+    const page = await loadRecentPets({ limit: 24, mode: url.searchParams.get("mode") });
+    return handleReactPageRequest({ index: asset(manifest, "RenownPetsIndex"), Page: RenownPets, props: { cssPath, ...page, origin: originOf(request) }, request });
   };
   const achievementsPage = async ({ request }: { request: Request }) => {
     const index = await loadAchievementsIndex();

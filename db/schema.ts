@@ -2,7 +2,7 @@
 // Cloud holds the competitive truth: players, the achievement catalog (with global
 // unlock counts → rarity %), per-player unlocks (with date achieved), and per-project
 // boards. Rich local activity/recap data stays on-device; only scores/unlocks sync.
-import { bigint, boolean, integer, jsonb, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
 
 export const players = pgTable("players", {
   id: text("id").primaryKey(),                                  // client-generated player id
@@ -147,7 +147,11 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
   petSeed: text("pet_seed").notNull(),
   githubLogin: text("github_login").notNull(),
-}, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.petSeed] }) }));
+  earnedAt: timestamp("earned_at").notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.playerId, t.petSeed] }),
+  recentIdx: index("wild_seed_sources_recent_idx").on(t.earnedAt, t.petSeed),
+}));
 
 // Weekly quest progress. Per (player, ISO-week, quest): the baseline signal value captured on
 // first view that week (so progress = current - baseline for "this week" goals) and the
@@ -197,7 +201,10 @@ export const playerAchievements = pgTable("player_achievements", {
   playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
   achievementId: text("achievement_id").notNull().references(() => achievements.id, { onDelete: "cascade" }),
   unlockedAt: timestamp("unlocked_at").notNull().defaultNow(),
-}, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.achievementId] }) }));
+}, (t) => ({
+  pk: primaryKey({ columns: [t.playerId, t.achievementId] }),
+  historyIdx: index("player_achievements_history_idx").on(t.playerId, t.unlockedAt, t.achievementId),
+}));
 
 export const projects = pgTable("projects", {
   key: text("key").primaryKey(),                                // owner/name

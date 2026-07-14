@@ -27,6 +27,7 @@ import { getPlayerPetLookAssignmentsForRows, setPetLookAssignmentsForSeeds } fro
 import { resolvePetLookId } from "../../../../core/petLooks.ts";
 import { QUIRKS } from "../quirks.ts";
 import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
+import { loadRecentPets } from "../petGallery.ts";
 
 // Deterministic ISO-week index → quirk id rotation so the "quirk of the week" is the
 // same for every viewer in the same week, and cycles through the whole registry over
@@ -91,6 +92,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     authorization ? resolveApiPrincipal({ accessTokenStore, authorization }) : Promise.resolve(undefined);
 
   return new Elysia({ prefix: "/api" })
+    .get("/pets", ({ query }) => loadRecentPets({ limit: Number(query.limit ?? 24), cursor: query.cursor, mode: query.mode }))
     .get("/top", async ({ query }) => {
       const n = Math.min(TOP_MAX, Number(query.n ?? 20));
       if (query.skill) {
