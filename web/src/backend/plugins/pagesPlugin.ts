@@ -60,7 +60,9 @@ const originOf = (request: Request) => {
 export const pagesPlugin = (manifest: Record<string, string>) => {
   const cssPath = asset(manifest, "RenownCSS");
   const home = ({ request }: { request: Request }) =>
-    handleReactPageRequest({ index: asset(manifest, "RenownHomeIndex"), Page: RenownHome, props: { cssPath }, request });
+    handleReactPageRequest({ index: asset(manifest, "RenownHomeIndex"), Page: RenownHome, props: { cssPath, initialView: "landing" }, request });
+  const leaderboard = ({ request }: { request: Request }) =>
+    handleReactPageRequest({ index: asset(manifest, "RenownHomeIndex"), Page: RenownHome, props: { cssPath, initialView: "board" }, request });
   const admin = ({ request }: { request: Request }) =>
     handleReactPageRequest({ index: asset(manifest, "RenownAdminIndex"), Page: RenownAdmin, props: { cssPath }, request });
   // /profile/:login — public, no-auth, SSR-prefetched profile data so OG tags
@@ -289,6 +291,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   };
   return new Elysia()
     .get("/", home)
+    .get("/leaderboard", leaderboard)
     .get("/admin", admin)
     .get("/achievements", achievementsPage)
     .get("/achievement/:id/og.png", achievementOg)

@@ -269,6 +269,128 @@ const RecentUnlocks = ({ openProfile }: { openProfile: (login: string) => void }
   );
 };
 
+type LandingPetRow = { seed: string; login: string | null; name: string; tier: string; species: string; earnedAt: string | null };
+
+const LandingPet = ({ seed, size = 68 }: { seed: string; size?: number }) => {
+  const { svg, width, height } = spriteToSvg(generate(seed), { box: size });
+  const html = `<svg width="${size}" height="${size}" viewBox="0 0 ${width.toFixed(1)} ${height.toFixed(1)}" xmlns="http://www.w3.org/2000/svg" style="display:block;overflow:visible">${svg}</svg>`;
+  return <span className="landingPetSprite" style={{ width: size, height: size }} dangerouslySetInnerHTML={{ __html: html }} />;
+};
+
+const LiveLandingActivity = () => {
+  const [pets, setPets] = useState<LandingPetRow[]>([]);
+  const [unlocks, setUnlocks] = useState<UnlockRow[]>([]);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const [petResponse, unlockResponse] = await Promise.all([
+        fetch("/api/pets?limit=10&sort=newest"),
+        fetch("/api/recent-unlocks?limit=12"),
+      ]);
+      if (!active) return;
+      if (petResponse.ok) {
+        const page = await petResponse.json() as { pets?: LandingPetRow[] };
+        setPets(page.pets ?? []);
+      }
+      if (unlockResponse.ok) {
+        const rows = await unlockResponse.json();
+        if (Array.isArray(rows)) setUnlocks(rows);
+      }
+    };
+    void load();
+    const unsubscribe = subscribeSync(["top", "unlock"], () => { void load(); });
+    return () => { active = false; unsubscribe(); };
+  }, []);
+  if (pets.length === 0 && unlocks.length === 0) return null;
+  const petItems = pets.slice(0, 8);
+  const achievementItems = unlocks.slice(0, 8);
+  return (
+    <section className="landingLive" aria-labelledby="landing-live-title">
+      <div className="landingSectionHead">
+        <div><span className="landingKicker">LIVE NETWORK</span><h2 id="landing-live-title">People are earning right now</h2></div>
+        <span className="liveSignal"><i /> Synced live</span>
+      </div>
+      {petItems.length > 0 && <div className="landingTicker" aria-label="Recently earned pets">
+        <div className="landingTickerTrack">
+          {[false, true].map((duplicate) => <div className="landingTickerGroup" aria-hidden={duplicate || undefined} key={String(duplicate)}>
+            {petItems.map((pet) => (
+              <a className="landingPetDrop" href={`/pet/${pet.seed}`} key={pet.seed} tabIndex={duplicate ? -1 : undefined}>
+                <LandingPet seed={pet.seed} />
+                <span><strong>{pet.name || generate(pet.seed).name}</strong><small>{pet.tier} {pet.species ? `· ${pet.species}` : ""}</small><em>{pet.login ? `@${pet.login}` : "New pet"}</em></span>
+              </a>
+            ))}
+          </div>)}
+        </div>
+      </div>}
+      {achievementItems.length > 0 && <div className="landingUnlockGrid">
+        {achievementItems.slice(0, 6).map((row, index) => (
+          <a href={profileHref(row.player.login)} className={`landingUnlock tier-${row.achievement.tier}`} key={`${row.player.login}:${row.achievement.id}:${index}`}>
+            <span className="landingUnlockIcon">◆</span>
+            <span><small>@{row.player.login}{row.player.isAi ? " 🤖" : ""} unlocked</small><strong>{row.achievement.name}</strong><em>{row.achievement.category} · {row.achievement.tier}</em></span>
+          </a>
+        ))}
+      </div>}
+      <div className="landingLiveLinks"><a href="/pets">Explore all pets →</a><a href="/achievements">Browse achievements →</a></div>
+    </section>
+  );
+};
+
+const CopyInstall = () => {
+  const command = "npm install -g @absolutejs/renown";
+  const [copied, setCopied] = useState(false);
+  return (
+    <button className="landingInstall" onClick={async () => {
+      try { await navigator.clipboard.writeText(command); setCopied(true); window.setTimeout(() => setCopied(false), 1600); } catch { /* clipboard unavailable */ }
+    }} title="Copy install command">
+      <span className="landingPrompt">$</span><code>{command}</code><span>{copied ? "Copied" : "Copy"}</span>
+    </button>
+  );
+};
+
+const LandingPage = ({ signedIn, onGetStarted }: { signedIn: boolean; onGetStarted: () => void }) => (
+  <>
+    <section className="landingHero">
+      <div className="landingHeroCopy">
+        <span className="landingKicker">A GAME LAYER FOR REAL DEVELOPMENT</span>
+        <h1>Ship code.<br /><span>Hatch legends.</span></h1>
+        <p>Renown turns the work you already do into skills, achievements, quests, rankings, and unique pets generated from your real commits.</p>
+        <div className="landingHeroActions">
+          {signedIn
+            ? <a className="btn solid" href="/pets">Open my collection</a>
+            : <button className="btn solid" onClick={onGetStarted}>Start playing free</button>}
+          <a className="btn ghost" href="/leaderboard">See the leaderboard</a>
+        </div>
+        <CopyInstall />
+        <p className="landingFinePrint">Free forever · Any editor · Humans and coding agents · GitHub-verified</p>
+      </div>
+      <div className="landingHeroGame" aria-label="Renown game systems">
+        <div className="landingHeroPet"><LandingPet seed="renown:landing:legend" size={190} /><span>LEGENDARY DROP</span></div>
+        <div className="landingStatCard landingStatSkills"><strong>100</strong><span>skills to master</span></div>
+        <div className="landingStatCard landingStatAchievements"><strong>10K+</strong><span>achievements</span></div>
+        <div className="landingStatCard landingStatPets"><strong>1/1</strong><span>commit-born pets</span></div>
+      </div>
+    </section>
+
+    <section className="landingStart" aria-labelledby="landing-start-title">
+      <div className="landingSectionHead"><div><span className="landingKicker">THREE MINUTES TO START</span><h2 id="landing-start-title">Your work is already worth XP</h2></div></div>
+      <div className="landingSteps">
+        <article><span>01</span><h3>Install</h3><code>npm i -g @absolutejs/renown</code><p>One lightweight CLI. No editor lock-in.</p></article>
+        <article><span>02</span><h3>Link GitHub</h3><code>renown link</code><p>Verify your public work and mint the pets it earned.</p></article>
+        <article><span>03</span><h3>Play while you build</h3><code>renown install-agent all</code><p>Skills and quests progress in Codex, Claude, Cursor, or any editor.</p></article>
+      </div>
+    </section>
+
+    <LiveLandingActivity />
+
+    <section className="landingWhy">
+      <div><span className="landingKicker">NOT A COMMIT-COUNT CASINO</span><h2>Good work beats busywork.</h2><p>Craft scoring discounts generated files, lockfiles, formatting churn, tiny commits, and duplicates. Tests, docs, substantive changes, open source, and contributing to projects you don’t own matter more.</p><a href="https://github.com/absolutejs/renown/blob/main/docs/trust-model.md">Read the trust model →</a></div>
+      <div className="landingWhyGrid"><article><strong>Pets</strong><span>Deterministic collectibles whose seed is the commit itself.</span></article><article><strong>Skills</strong><span>100 disciplines with an OSRS-style progression curve.</span></article><article><strong>Achievements</strong><span>Curated milestones plus deep procedural families.</span></article><article><strong>Competition</strong><span>Global, project, skill, merit, weekly, and season boards.</span></article></div>
+    </section>
+
+    <section className="landingFinal"><span className="landingKicker">YOUR NEXT COMMIT COULD HATCH A MYTHIC</span><h2>Make the work visible.</h2><p>Install Renown, link GitHub, and see what your development history has already earned.</p>{signedIn ? <a className="btn solid" href="/pets">Open my collection</a> : <button className="btn solid" onClick={onGetStarted}>Start playing free</button>}</section>
+  </>
+);
+
 // MeritPanel — the meritorious half of the leaderboard. One row per signal with
 // current sub-counter, tier (I-V), and a progress bar toward the next threshold.
 // Sourced from /api/merit/:login. Re-fetches on `merit` SSE topic so a player
@@ -1941,8 +2063,9 @@ const ResetView = ({ token, onDone }: { token: string; onDone: (ok: boolean, msg
   );
 };
 
-const App = () => {
-  const [view, setView] = useState<"board" | "pricing" | "catalog" | "account" | "auth" | "reset">("board");
+type HomeView = "landing" | "board" | "pricing" | "catalog" | "account" | "auth" | "reset";
+const App = ({ initialView = "landing" }: { initialView?: "landing" | "board" }) => {
+  const [view, setView] = useState<HomeView>(initialView);
   const [authMode, setAuthMode] = useState<"login" | "register" | "forgot">("login");
   const [resetToken, setResetToken] = useState<string | null>(null);
   const [board, setBoard] = useState<Board>("score");
@@ -1971,10 +2094,12 @@ const App = () => {
   const [busy, setBusy] = useState<string | null>(null);
 
   const loadAccount = useCallback(async () => {
+    const s = await api("/oauth2/status");
+    const sessionUser = s.ok ? ((s.data as { user?: { email?: string; first_name?: string } }).user ?? null) : null;
+    setUser(sessionUser);
+    if (!sessionUser) { setAccount(null); return; }
     const r = await api("/api/account/");
     setAccount(r.ok ? (r.data as Account) : null);
-    if (r.ok) { const s = await api("/oauth2/status"); setUser(s.ok ? ((s.data as { user?: { email?: string; first_name?: string } }).user ?? null) : null); }
-    else setUser(null);
   }, []);
 
   // leaderboard — live via useLiveQuery on the 'top' topic. Board / audience changes
@@ -2089,12 +2214,13 @@ const App = () => {
       <VerifiedAttestationAnnouncer openProfile={openProfile} enabled={account?.github?.pushPrefs?.verifiedAttestation !== false} />
       <RateLimitedAudioAnnouncer />
       <header className="topbar">
-        <div className="brand" onClick={() => setView("board")}><Logomark size={24} /><span>Renown</span></div>
+        <a className="brand" href="/"><Logomark size={24} /><span>Renown</span></a>
         <nav className="nav">
-          <button className={view === "board" ? "on" : ""} onClick={() => setView("board")}>Leaderboard</button>
+          <a className={view === "landing" ? "on" : ""} href="/">Home</a>
+          <a className={view === "board" ? "on" : ""} href="/leaderboard">Leaderboard</a>
           <button className={view === "catalog" ? "on" : ""} onClick={() => setView("catalog")}>Catalog</button>
           <button onClick={() => { window.location.href = "/season"; }}>Season</button>
-          <button onClick={() => { window.location.href = "/pets"; }}>Pets</button>
+          <button onClick={() => { window.location.href = "/pets"; }}>Collection</button>
           <button onClick={() => { window.location.href = "/achievements"; }}>Achievements</button>
           {account?.github?.login && <button onClick={() => { window.location.href = `/quests/${account.github!.login}`; }}>Quests</button>}
           {account?.github?.login && <button onClick={() => { window.location.href = `/rivals/${account.github!.login}`; }}>Rivals</button>}
@@ -2116,18 +2242,9 @@ const App = () => {
 
       {banner && <div className={`banner ${banner.kind}`}><span>{banner.text}</span><button onClick={() => setBanner(null)}>✕</button></div>}
 
+      {view === "landing" && <LandingPage signedIn={signedIn} onGetStarted={() => { setAuthMode("register"); setView("auth"); }} />}
       {view === "board" && (
         <>
-          {!signedIn && (
-            <section className="hero">
-              <h1>Earn <span className="accent">renown</span> for real dev work</h1>
-              <p className="tag">XP, 100 skills, achievements and 1-of-1s for meritorious work — in any editor. Free, forever.</p>
-              <div className="cta">
-                <button className="btn solid" onClick={() => { setAuthMode("register"); setView("auth"); }}>Get started</button>
-                <button className="btn ghost" onClick={() => { setAuthMode("login"); setView("auth"); }}>I have an account</button>
-              </div>
-            </section>
-          )}
           <Board top={top} board={board} setBoard={setBoard} audience={audience} setAudience={setAudience} boardWindow={boardWindow} setBoardWindow={setBoardWindow} sel={sel} setSel={(id) => setSel(id)} sheet={sheet} openProfile={openProfile} freshIds={freshIds} myLogin={account?.github?.login ?? null} />
           <TopThisWeek openProfile={openProfile} />
           <TrendingRepos />
@@ -2160,12 +2277,18 @@ const App = () => {
   );
 };
 
-type RenownHomeProps = { cssPath?: string; url?: string };
-export const RenownHome = ({ cssPath }: RenownHomeProps) => (
+type RenownHomeProps = { cssPath?: string; url?: string; initialView?: "landing" | "board" };
+export const RenownHome = ({ cssPath, initialView = "landing" }: RenownHomeProps) => (
   <html lang="en">
-    <Head cssPath={cssPath} title="Renown — earn XP for real dev work" />
+    <Head
+      cssPath={cssPath}
+      title={initialView === "board" ? "Leaderboard — Renown" : "Renown — turn real dev work into a game"}
+      description={initialView === "board"
+        ? "Rank developers and coding agents by verified score, merit, skills, achievements, and unique pets."
+        : "Turn real development work into skills, achievements, quests, rankings, and unique pets generated from your commits."}
+    />
     <body>
-      <App />
+      <App initialView={initialView} />
     </body>
   </html>
 );
