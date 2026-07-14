@@ -2,6 +2,7 @@
 // network unlock feed up top, then the curated catalog grouped by category. Every achievement
 // links to its /achievement/:id share page. Lightweight (no three.js).
 import { Head } from "@absolutejs/absolute/react/components";
+import { SiteHeader } from "../components/SiteHeader";
 
 type CatalogAch = { id: string; name: string; description: string; tier: string; category: string; unlocks: number; rarity: number };
 type RecentUnlock = {
@@ -28,7 +29,7 @@ const Body = ({ index }: { index: AchievementsIndex }) => {
   }
   return (
     <main className="wrap profilePage">
-      <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a> <a href="/" className="muted" style={{ marginLeft: 12 }}>← Leaderboard</a></header>
+      <SiteHeader current="achievements" />
 
       <section className="card">
         <h1 style={{ marginBottom: 4 }}>Achievements</h1>

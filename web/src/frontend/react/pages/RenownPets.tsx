@@ -4,6 +4,7 @@ import { Head } from "@absolutejs/absolute/react/components";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { generate, TIER_RGB, type Tier } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { SiteHeader } from "../components/SiteHeader";
 
 type RGB = readonly [number, number, number];
 const hex = ([r, g, b]: RGB) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
@@ -139,14 +140,12 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
         twitter={{ card: "summary", title, description: desc }} />
       <body>
         <main className="wrap collectionPage">
-          <header className="topbar collectionTopbar">
-            <a href="/" className="brand"><span>Renown</span></a>
-            <nav className="collectionNav" aria-label="Pet navigation">
+          <SiteHeader current="pets" />
+          <nav className="collectionNav collectionWorkspaceNav" aria-label="Collection workspace">
               {signedIn && <button className={workspace === "collection" ? "on" : ""} onClick={() => setWorkspace("collection")}>My collection</button>}
               <button className={workspace === "discover" ? "on" : ""} onClick={() => setWorkspace("discover")}>Discover</button>
               {signedIn ? <a href="/?view=account">Account settings</a> : <a href="/">Log in</a>}
-            </nav>
-          </header>
+          </nav>
 
           <section className="collectionHero">
             <div>

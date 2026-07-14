@@ -10,6 +10,7 @@
 // invites discovery without bundling everything.
 
 import { Head } from "@absolutejs/absolute/react/components";
+import { SiteHeader } from "../components/SiteHeader";
 import { useEffect, useState } from "react";
 import { SinglePet } from "../components/PetViewer";
 import { isPetLookId, resolvePetLookId, type PetLookId } from "../../../shared/petLooks.ts";
@@ -114,16 +115,7 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
 
   return (
     <main className="wrap profilePage">
-      <header className="topbar">
-        <a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}>
-          <span>Renown</span>
-        </a>
-        <nav className="nav">
-          <a href="/" style={{ color: "inherit", textDecoration: "none", fontSize: 14, opacity: 0.75 }}>
-            ← Browse leaderboard
-          </a>
-        </nav>
-      </header>
+      <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
 
       <section className="card">
         <div className="profileHead">
@@ -272,17 +264,10 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
 // leaderboard / sign up.
 const ProfileNotFound = ({ login }: { login: string }) => (
   <main className="wrap profilePage">
-    <header className="topbar">
-      <a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}>
-        <span>Renown</span>
-      </a>
-    </header>
+    <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
     <section className="card" style={{ textAlign: "center" }}>
       <h1>No renown for @{login}</h1>
       <p className="muted">Either this GitHub login isn't on renown yet, or they haven't verified ownership.</p>
-      <p style={{ marginTop: 16 }}>
-        <a href="/">← Browse the leaderboard</a>
-      </p>
     </section>
   </main>
 );

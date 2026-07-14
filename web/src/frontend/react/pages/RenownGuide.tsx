@@ -1,4 +1,5 @@
 import { Head } from "@absolutejs/absolute/react/components";
+import { SiteHeader } from "../components/SiteHeader";
 import { useState } from "react";
 
 const Command = ({ children }: { children: string }) => {
@@ -52,10 +53,7 @@ export const RenownGuide = ({ cssPath, origin = "" }: RenownGuideProps) => {
       twitter={{ card: "summary", title, description }} />
     <body>
       <main className="wrap guidePage">
-        <header className="topbar guideTopbar">
-          <a className="brand" href="/">Renown</a>
-          <nav className="guideNav"><a href="/">Home</a><a className="on" href="/guide">Guide</a><a href="/pets">Collection</a><a href="/leaderboard">Leaderboard</a></nav>
-        </header>
+        <SiteHeader current="guide" />
 
         <section className="guideHero">
           <span className="landingKicker">FROM ZERO TO EARNING</span>

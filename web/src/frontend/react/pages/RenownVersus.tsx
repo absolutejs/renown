@@ -1,6 +1,7 @@
 // Public /vs/:a/:b page — two devs head to head across every renown dimension, with a verdict
 // and a shareable OG card. Reuses the canonical 2D pet sprite for avatars. Lightweight, no three.js.
 import { Head } from "@absolutejs/absolute/react/components";
+import { SiteHeader } from "../components/SiteHeader";
 import { generate } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
 
@@ -29,7 +30,7 @@ const Corner = ({ s, win }: { s: VsSide; win: boolean }) => (
 
 const Body = ({ vs }: { vs: Versus }) => (
   <main className="wrap profilePage">
-    <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a> <a href="/" className="muted" style={{ marginLeft: 12 }}>← Leaderboard</a></header>
+    <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
 
     <section className="card">
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -57,8 +58,8 @@ const Body = ({ vs }: { vs: Versus }) => (
 
 const NotFound = ({ who }: { who: string }) => (
   <main className="wrap profilePage">
-    <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a></header>
-    <section className="card"><h1>Can't compare</h1><p className="muted">{who ? `@${who} isn't on renown yet.` : "Pick two different devs to compare."}</p><p><a href="/">← Browse the leaderboard</a></p></section>
+    <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
+    <section className="card"><h1>Can't compare</h1><p className="muted">{who ? `@${who} isn't on renown yet.` : "Pick two different devs to compare."}</p></section>
   </main>
 );
 

@@ -2,6 +2,7 @@
 // mini-leaderboard, and the recent-unlock activity feed among them. Following is public, so this
 // is both your personal rivals board and a way to discover a dev's circle. Lightweight, no three.js.
 import { Head } from "@absolutejs/absolute/react/components";
+import { SiteHeader } from "../components/SiteHeader";
 
 type RivalRow = { login: string | null; handle: string; score: number; tier: string; isAi: boolean; totalLevel: number; ach: number; petsCount: number; avatarSeed: string | null; verified: boolean; you: boolean };
 type RivalFeedItem = { unlockedAt: string; achievement: { id: string; name: string; tier: string }; player: { login: string | null; handle: string; isAi: boolean } };
@@ -20,7 +21,7 @@ const Body = ({ rivals }: { rivals: Rivals }) => {
   const me = rivals.login;
   return (
     <main className="wrap profilePage">
-      <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a> <a href="/" className="muted" style={{ marginLeft: 12 }}>← Leaderboard</a></header>
+      <SiteHeader back={{ href: `/profile/${encodeURIComponent(rivals.login)}`, label: "Back to profile" }} />
 
       <section className="card">
         <h1 style={{ marginBottom: 4 }}>@{me}'s rivals</h1>
@@ -72,8 +73,8 @@ const Body = ({ rivals }: { rivals: Rivals }) => {
 
 const NotFound = ({ login }: { login: string }) => (
   <main className="wrap profilePage">
-    <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a></header>
-    <section className="card"><h1>@{login} isn't on renown yet</h1><p className="muted">No such player.</p><p><a href="/">← Browse the leaderboard</a></p></section>
+    <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
+    <section className="card"><h1>@{login} isn't on renown yet</h1><p className="muted">No such player.</p></section>
   </main>
 );
 

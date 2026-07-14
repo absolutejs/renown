@@ -1,6 +1,7 @@
 // Public /quests/:login page — this week's directed goals, their progress, and the quest pets
 // earned for completing them. Completion settles server-side on load (idempotent). Lightweight.
 import { Head } from "@absolutejs/absolute/react/components";
+import { SiteHeader } from "../components/SiteHeader";
 import { generate } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
 
@@ -14,7 +15,7 @@ const RewardPet = ({ seed }: { seed: string }) => {
 
 const Body = ({ q }: { q: Quests }) => (
   <main className="wrap profilePage">
-    <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a> <a href="/" className="muted" style={{ marginLeft: 12 }}>← Leaderboard</a></header>
+    <SiteHeader back={{ href: `/profile/${encodeURIComponent(q.login)}`, label: "Back to profile" }} />
 
     <section className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
       <div>
@@ -53,8 +54,8 @@ const Body = ({ q }: { q: Quests }) => (
 
 const NotFound = ({ login }: { login: string }) => (
   <main className="wrap profilePage">
-    <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a></header>
-    <section className="card"><h1>@{login} isn't on renown yet</h1><p className="muted">No such player.</p><p><a href="/">← Browse the leaderboard</a></p></section>
+    <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
+    <section className="card"><h1>@{login} isn't on renown yet</h1><p className="muted">No such player.</p></section>
   </main>
 );
 

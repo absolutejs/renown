@@ -3,6 +3,7 @@
 // from /project: an org adopts renown → every repo (and contributor) is discoverable from here.
 // Lightweight (no three.js); contributor pets render as the canonical 2D sprite.
 import { Head } from "@absolutejs/absolute/react/components";
+import { SiteHeader } from "../components/SiteHeader";
 import { useState } from "react";
 import { generate } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
@@ -40,11 +41,10 @@ const Copyable = ({ text }: { text: string }) => {
 
 const OrgNotFound = ({ owner }: { owner: string }) => (
   <main className="wrap profilePage">
-    <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a></header>
+    <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
     <section className="card" style={{ textAlign: "center" }}>
       <h1>{owner} isn't on Renown yet</h1>
       <p className="muted">No one tracking a repo under <code>{owner}/</code> with renown has a verified contribution yet. Be the first.</p>
-      <p style={{ marginTop: 16 }}><a href="/">← Browse the leaderboard</a></p>
     </section>
   </main>
 );
@@ -54,7 +54,7 @@ const OrgBody = ({ org, origin }: { org: OrgForUI; origin: string }) => {
   const badgeMd = `[![renown](${origin}/org/${org.owner}/badge.svg)](${pageUrl})`;
   return (
     <main className="wrap profilePage">
-      <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a>  <a href="/" className="muted" style={{ marginLeft: 12 }}>← Browse leaderboard</a></header>
+      <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
 
       <section className="card" style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>

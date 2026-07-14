@@ -1,6 +1,7 @@
 // Public /season page — the monthly competition. A live board ranking devs by renown gained this
 // month, a countdown to the reset, and the Hall of Champions of past seasons. Lightweight, no three.js.
 import { Head } from "@absolutejs/absolute/react/components";
+import { SiteHeader } from "../components/SiteHeader";
 
 type SeasonInfo = { id: string; label: string; daysLeft: number };
 type SeasonStanding = { login: string | null; handle: string; gain: number; score: number; tier: string; isAi: boolean; avatarSeed: string | null };
@@ -19,7 +20,7 @@ const Body = ({ data }: { data: Season }) => {
   }
   return (
     <main className="wrap profilePage">
-      <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a> <a href="/" className="muted" style={{ marginLeft: 12 }}>← Leaderboard</a></header>
+      <SiteHeader current="season" />
 
       <section className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>

@@ -6,6 +6,7 @@ import { Head } from "@absolutejs/absolute/react/components";
 import { useState } from "react";
 import { generate } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { SiteHeader } from "../components/SiteHeader";
 
 const petSvgHtml = (seed: string, box: number) => {
   const { svg, width, height } = spriteToSvg(generate(seed), { box });
@@ -42,11 +43,10 @@ const Copyable = ({ text }: { text: string }) => {
 
 const RecapNotFound = ({ login }: { login: string }) => (
   <main className="wrap profilePage">
-    <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a></header>
+    <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
     <section className="card" style={{ textAlign: "center" }}>
       <h1>No week to recap for {login}</h1>
       <p className="muted">This person isn't on Renown yet — so there's no week to show.</p>
-      <p style={{ marginTop: 16 }}><a href="/">← Browse the leaderboard</a></p>
     </section>
   </main>
 );
@@ -57,7 +57,7 @@ const RecapBody = ({ recap, origin }: { recap: RecapForUI; origin: string }) => 
   const shareUrl = `${origin}/recap/${encodeURIComponent(recap.login)}`;
   return (
     <main className="wrap profilePage">
-      <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a>  <a href={`/profile/${encodeURIComponent(recap.login)}`} className="muted" style={{ marginLeft: 12 }}>full profile →</a></header>
+      <SiteHeader back={{ href: `/profile/${encodeURIComponent(recap.login)}`, label: "Back to profile" }} />
 
       <section className="card" style={{ display: "flex", alignItems: "center", gap: 20 }}>
         <div style={{ flex: 1, minWidth: 0 }}>

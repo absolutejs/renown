@@ -7,6 +7,7 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { generate, TIER_RGB, type Tier } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { SiteHeader } from "../components/SiteHeader";
 
 type RGB = readonly [number, number, number];
 const hex = ([r, g, b]: RGB) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
@@ -34,7 +35,7 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
   const pullOdds = pet.card?.pullOdds ?? pet.statRarity;
   return (
     <main className="wrap profilePage">
-      <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a> <a href="/" className="muted" style={{ marginLeft: 12 }}>← Browse leaderboard</a></header>
+      <SiteHeader back={{ href: "/pets", label: "Back to collection" }} />
 
       <section className="card" style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
         <div style={{ flexShrink: 0, width: 220, height: 220, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 20, background: "rgba(255,255,255,.04)", border: `2px solid ${accent}66` }}>
@@ -97,7 +98,7 @@ export const RenownPet = ({ cssPath, pet = null, owner = null, origin = "", shar
       />
       <body>
         {pet ? <PetBody pet={pet} owner={owner} origin={origin} /> : (
-          <main className="wrap profilePage"><section className="card"><h1>No such pet</h1><p className="muted">That seed doesn't resolve to a pet.</p><p><a href="/">← Browse the leaderboard</a></p></section></main>
+          <main className="wrap profilePage"><SiteHeader back={{ href: "/pets", label: "Back to collection" }} /><section className="card"><h1>No such pet</h1><p className="muted">That seed doesn't resolve to a pet.</p></section></main>
         )}
       </body>
     </html>

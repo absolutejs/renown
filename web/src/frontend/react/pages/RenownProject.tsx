@@ -7,6 +7,7 @@
 // page stays fast + crawlable. Contributor pets live on their own /profile pages; the top pet
 // renders server-side in the OG card only.
 import { Head } from "@absolutejs/absolute/react/components";
+import { SiteHeader } from "../components/SiteHeader";
 import { useEffect, useState } from "react";
 import { generate } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
@@ -49,7 +50,7 @@ const Copyable = ({ text }: { text: string }) => {
 
 const ProjectNotFound = ({ keyParam }: { keyParam: string }) => (
   <main className="wrap profilePage">
-    <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a></header>
+    <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
     <section className="card" style={{ textAlign: "center" }}>
       <h1>{keyParam} isn't on Renown yet</h1>
       <p className="muted">No one tracking this repo with renown has a verified contribution here yet. Be the first.</p>
@@ -57,7 +58,6 @@ const ProjectNotFound = ({ keyParam }: { keyParam: string }) => (
         <Copyable text="bun add -g @absolutejs/renown" />
         <p className="muted" style={{ marginTop: 8 }}>Then <code>gh auth login</code> and <code>renown link</code> — your commits here start earning renown.</p>
       </div>
-      <p style={{ marginTop: 16 }}><a href="/">← Browse the leaderboard</a></p>
     </section>
   </main>
 );
@@ -84,7 +84,7 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
   const myIndex = me ? project.contributors.findIndex((c) => c.login.toLowerCase() === me) : -1;
   return (
     <main className="wrap profilePage">
-      <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a>  <a href="/" className="muted" style={{ marginLeft: 12 }}>← Browse leaderboard</a></header>
+      <SiteHeader back={{ href: "/leaderboard", label: "Back to leaderboard" }} />
 
       <section className="card" style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>

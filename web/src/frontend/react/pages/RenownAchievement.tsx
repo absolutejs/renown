@@ -2,6 +2,7 @@
 // description, live rarity %, and recent earners (with pets, linking to profiles). Secret/hidden
 // achievements are shown redacted. Lightweight (no three.js). OG meta → the achievement OG card.
 import { Head } from "@absolutejs/absolute/react/components";
+import { SiteHeader } from "../components/SiteHeader";
 import { generate } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
 
@@ -24,11 +25,10 @@ const TIER_EMOJI: Record<string, string> = { mythic: "🏆", platinum: "💠", g
 
 const NotFound = ({ id }: { id: string }) => (
   <main className="wrap profilePage">
-    <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a></header>
+    <SiteHeader back={{ href: "/achievements", label: "Back to achievements" }} />
     <section className="card" style={{ textAlign: "center" }}>
       <h1>No such achievement</h1>
       <p className="muted"><code>{id}</code> isn't in the catalog.</p>
-      <p style={{ marginTop: 16 }}><a href="/">← Browse the leaderboard</a></p>
     </section>
   </main>
 );
@@ -38,7 +38,7 @@ const Body = ({ a }: { a: AchievementForUI }) => {
   const rarityText = a.unlocks === 0 ? "No one has unlocked it yet — be the first." : `${a.rarity}% of ${fmt(a.players)} players have it (${fmt(a.unlocks)} unlock${a.unlocks === 1 ? "" : "s"}).`;
   return (
     <main className="wrap profilePage">
-      <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a>  <a href="/" className="muted" style={{ marginLeft: 12 }}>← Browse leaderboard</a></header>
+      <SiteHeader back={{ href: "/achievements", label: "Back to achievements" }} />
 
       <section className="card" style={{ display: "flex", alignItems: "center", gap: 18 }}>
         <div style={{ fontSize: 64, lineHeight: 1, flexShrink: 0 }}>{emoji}</div>
