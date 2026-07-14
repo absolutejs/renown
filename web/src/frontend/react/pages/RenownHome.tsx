@@ -664,7 +664,7 @@ const registerWebPush = async () => {
   }
 };
 
-const SoundToggle = () => {
+const SoundToggle = ({ labeled = false }: { labeled?: boolean }) => {
   const [on, setOn] = useState(false);
   useEffect(() => setOn(isSoundOn()), []);
   // Toggling sound off mid-session should kill the pad too; turning sound back on while
@@ -693,8 +693,71 @@ const SoundToggle = () => {
       title={on ? "Sound on — click to mute" : "Sound off — click to enable (also asks for notifications)"}
       aria-label={on ? "Mute sound" : "Enable sound"}
     >
-      {on ? "🔊" : "🔇"}
+      <span aria-hidden>{on ? "🔊" : "🔇"}</span>
+      {labeled && <span>{on ? "Sound on" : "Sound off"}</span>}
     </button>
+  );
+};
+
+type ThemeChoice = "light" | "dark";
+const THEME_KEY = "renown:theme";
+
+const AccountMenu = ({ account, user, onAccount, onSignOut }: {
+  account: Account;
+  user: { email?: string; first_name?: string } | null;
+  onAccount: () => void;
+  onSignOut: () => void;
+}) => {
+  const menuRef = useRef<HTMLDetailsElement>(null);
+  const [theme, setTheme] = useState<ThemeChoice>("dark");
+  useEffect(() => {
+    const saved = window.localStorage.getItem(THEME_KEY);
+    const initial: ThemeChoice = saved === "light" || saved === "dark"
+      ? saved
+      : window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    setTheme(initial);
+    document.documentElement.dataset.theme = initial;
+  }, []);
+  useEffect(() => {
+    const closeOnOutside = (event: PointerEvent) => {
+      if (menuRef.current?.open && !menuRef.current.contains(event.target as Node)) menuRef.current.removeAttribute("open");
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") menuRef.current?.removeAttribute("open");
+    };
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => { document.removeEventListener("pointerdown", closeOnOutside); document.removeEventListener("keydown", closeOnEscape); };
+  }, []);
+  const chooseTheme = (next: ThemeChoice) => {
+    setTheme(next);
+    window.localStorage.setItem(THEME_KEY, next);
+    document.documentElement.dataset.theme = next;
+  };
+  const login = account.github?.login;
+  const label = login ? `@${login}` : user?.first_name || user?.email || "Account";
+  return (
+    <details className="accountMenu" ref={menuRef}>
+      <summary aria-label="Open account menu">
+        <span className="accountAvatar" aria-hidden>
+          {account.github?.avatarSeed ? <LandingPet seed={account.github.avatarSeed} size={32} /> : label.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="accountMenuName">{label}</span>
+        <span className="accountChevron" aria-hidden>⌄</span>
+      </summary>
+      <div className="accountMenuPanel">
+        <div className="accountMenuIdentity"><strong>{label}</strong><span>{user?.email && user.email !== label ? user.email : `${account.billing.tier} plan`}</span></div>
+        {login && <a href={profileHref(login)}><span aria-hidden>◉</span><span>Profile</span></a>}
+        <button onClick={() => { menuRef.current?.removeAttribute("open"); onAccount(); }}><span aria-hidden>⚙</span><span>Account &amp; plans</span></button>
+        {login && <a href={`/quests/${encodeURIComponent(login)}`}><span aria-hidden>◆</span><span>Quests</span></a>}
+        {login && <a href={`/rivals/${encodeURIComponent(login)}`}><span aria-hidden>↗</span><span>Rivals</span></a>}
+        <div className="accountMenuDivider" />
+        <div className="themeRow"><span>Appearance</span><div role="group" aria-label="Color theme"><button className={theme === "light" ? "on" : ""} onClick={() => chooseTheme("light")}>Light</button><button className={theme === "dark" ? "on" : ""} onClick={() => chooseTheme("dark")}>Dark</button></div></div>
+        <SoundToggle labeled />
+        <div className="accountMenuDivider" />
+        <button className="accountLogout" onClick={() => { menuRef.current?.removeAttribute("open"); onSignOut(); }}><span aria-hidden>↪</span><span>Log out</span></button>
+      </div>
+    </details>
   );
 };
 
@@ -1877,6 +1940,11 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
   const paid = billing.tier !== "free";
   return (
     <>
+      <header className="accountTitle">
+        <span className="landingKicker">ACCOUNT</span>
+        <h1>Account &amp; plans</h1>
+        <p>Manage your collection, subscription, linked identities, privacy, and integrations.</p>
+      </header>
       {account.github && (
         <section className="card collectionAccountCard">
           <div>
@@ -1994,7 +2062,6 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
         <p className="muted hint" style={{ marginTop: 8 }}>Off by default. Tabs that hover the same leaderboard rows you do are shown as anonymous colored dots either way; enabling this just adds your name and avatar pet next to your dot.</p>
       </section>
       {account.github && <PushPrefsCard gh={account.github} act={act} />}
-      <button className="link signout" onClick={() => act(async () => { const r = await api("/oauth2/signout", { method: "DELETE" }); refresh(); return r; })}>Sign out</button>
     </>
   );
 };
@@ -2108,6 +2175,13 @@ const App = ({ initialView = "landing" }: { initialView?: "landing" | "board" })
   const [cfg, setCfg] = useState<StripeConfig | null>(null);
   const [banner, setBanner] = useState<{ kind: "ok" | "info" | "warn"; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(THEME_KEY);
+    document.documentElement.dataset.theme = saved === "light" || saved === "dark"
+      ? saved
+      : window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }, []);
 
   const loadAccount = useCallback(async () => {
     const s = await api("/oauth2/status");
@@ -2224,37 +2298,38 @@ const App = ({ initialView = "landing" }: { initialView?: "landing" | "board" })
     else { setBusy(null); setBanner({ kind: "warn", text: "Couldn't open the billing portal." }); }
   }, []);
 
+  const signOut = useCallback(async () => {
+    await api("/oauth2/signout", { method: "DELETE" });
+    await loadAccount();
+    setView("landing");
+    setBanner({ kind: "info", text: "You’re logged out." });
+  }, [loadAccount]);
+
   const signedIn = !!account;
   return (
     <main className="wrap">
       <VerifiedAttestationAnnouncer openProfile={openProfile} enabled={account?.github?.pushPrefs?.verifiedAttestation !== false} />
       <RateLimitedAudioAnnouncer />
-      <header className="topbar">
+      <header className="topbar siteHeader">
         <a className="brand" href="/"><Logomark size={24} /><span>Renown</span></a>
-        <nav className="nav">
+        <nav className="nav primaryNav" aria-label="Primary navigation">
           <a className={view === "landing" ? "on" : ""} href="/">Home</a>
-          <a href="/guide">Guide</a>
           <a className={view === "board" ? "on" : ""} href="/leaderboard">Leaderboard</a>
-          <button className={view === "catalog" ? "on" : ""} onClick={() => setView("catalog")}>Catalog</button>
-          <button onClick={() => { window.location.href = "/season"; }}>Season</button>
-          <button onClick={() => { window.location.href = "/pets"; }}>Collection</button>
-          <button onClick={() => { window.location.href = "/achievements"; }}>Achievements</button>
-          {account?.github?.login && <button onClick={() => { window.location.href = `/quests/${account.github!.login}`; }}>Quests</button>}
-          {account?.github?.login && <button onClick={() => { window.location.href = `/rivals/${account.github!.login}`; }}>Rivals</button>}
-          <button className={view === "pricing" ? "on" : ""} onClick={() => setView("pricing")}>Plans</button>
-          {signedIn && <button className={view === "account" ? "on" : ""} onClick={() => setView("account")}>Account</button>}
+          <a href="/pets">Collection</a>
+          <a href="/achievements">Achievements</a>
+          <details className="moreMenu"><summary>More <span aria-hidden>⌄</span></summary><div><a href="/season">Season</a><a href="/guide">Setup guide</a></div></details>
         </nav>
         <div className="authbox">
-          <SoundToggle />
           {account === undefined ? null : signedIn ? (
-            <button className="me" onClick={() => setView("account")}>
-              <TierBadge tier={account!.billing.tier} />
-              <span>{user?.first_name || user?.email || "Account"}</span>
-            </button>
+            <AccountMenu account={account!} user={user} onAccount={() => setView("account")} onSignOut={() => { void signOut(); }} />
           ) : (
             <button className="btn solid sm" onClick={() => { setAuthMode("login"); setView("auth"); }}>Log in</button>
           )}
         </div>
+        <details className="mobileNav">
+          <summary aria-label="Open navigation"><span aria-hidden>☰</span></summary>
+          <nav aria-label="Mobile navigation"><a href="/">Home</a><a href="/leaderboard">Leaderboard</a><a href="/pets">Collection</a><a href="/achievements">Achievements</a><a href="/season">Season</a><a href="/guide">Setup guide</a></nav>
+        </details>
       </header>
 
       {banner && <div className={`banner ${banner.kind}`}><span>{banner.text}</span><button onClick={() => setBanner(null)}>✕</button></div>}
