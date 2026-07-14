@@ -39,7 +39,7 @@ export const tierToPrice = (tier: Tier): string | undefined =>
 export const TIER_INFO: Record<Tier, { name: string; blurb: string; perks: string[] }> = {
   free: {
     name: "Free", blurb: "The whole game, forever.",
-    perks: ["All skills, achievements & procedural 1/1s", "Public leaderboard ranking", "On-chain ownership of what you genuinely earn"],
+    perks: ["All skills, achievements & serialized pets", "Public leaderboard ranking", "On-chain ownership of what you genuinely earn"],
   },
   pro: {
     name: "Pro", blurb: "For power users & small teams.",

@@ -51,7 +51,7 @@ export const renderRecapOgPng = (r: Recap) => {
   if (r.newAchievements.length > 0) stats.push(["achievements", `+${r.newAchievements.length}`]);
   if (r.verifiedDelta > 0) stats.push(["score this week", `+${fmt(r.verifiedDelta)}`]);
   stats.push(["total level", fmt(r.totalLevel)]);
-  if (stats.length < 3) stats.push(["1/1 pets", fmt(r.petsCount)]);
+  if (stats.length < 3) stats.push(["pet cards", fmt(r.petsCount)]);
   const cards = stats.slice(0, 3);
 
   const pet = seed

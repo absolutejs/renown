@@ -142,8 +142,8 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   const petPage = async ({ request, params }: { request: Request; params: { seed: string } }) => {
     const seed = String(params.seed ?? "").trim();
     const c = seed ? generate(seed) : null;   // a seed deterministically generates the creature (pure, no DB)
-    const pet = c ? { seed, name: c.name, tier: c.tier, sizeN: c.sizeN, statRarity: c.statRarity, rarestTrait: c.rarestTrait, oneOfOne: c.oneOfOne, mythicAura: c.mythicAura, traits: c.traits } : null;
-    const owner = c ? await findPetOwner(seed) : null;   // 1/1 → at most one owner; links back to their profile
+    const pet = c ? { seed, name: c.name, tier: c.tier, sizeN: c.sizeN, statRarity: c.statRarity, rarestTrait: c.rarestTrait, oneOfOne: c.oneOfOne, mythicAura: c.mythicAura, traits: c.traits, card: c.card } : null;
+    const owner = c ? await findPetOwner(seed) : null;   // copy seed → at most one owner; links back to their profile
     return handleReactPageRequest({ index: asset(manifest, "RenownPetIndex"), Page: RenownPet, props: { cssPath, pet, owner, origin: originOf(request) }, request });
   };
   const petsPage = async ({ request }: { request: Request }) => {

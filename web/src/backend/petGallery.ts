@@ -21,6 +21,9 @@ export type GalleryPet = {
   species: string;
   aura: string;
   oneOfOne: boolean;
+  printingId: string | null;
+  serialNumber: number | null;
+  printRun: number | null;
   isAvatar?: boolean;
   lookId?: string;
 };
@@ -93,6 +96,7 @@ const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string 
       login: players.githubLogin, handle: players.handle, accountTier: players.tier, isAi: players.isAi,
       name: wildSeedSources.name, petTier: wildSeedSources.tier, rarityScore: wildSeedSources.rarityScore,
       size: wildSeedSources.size, species: wildSeedSources.species, aura: wildSeedSources.aura, oneOfOne: wildSeedSources.oneOfOne,
+      printingId: wildSeedSources.printingId, serialNumber: wildSeedSources.serialNumber, printRun: wildSeedSources.printRun,
     })
     .from(wildSeedSources)
     .innerJoin(players, eq(players.id, wildSeedSources.playerId))
@@ -107,6 +111,7 @@ const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string 
     isAi: row.isAi, earnedAt: row.earnedAt.toISOString(), name: row.name,
     rarityScore: row.rarityScore, size: row.size, species: row.species, aura: row.aura,
     oneOfOne: row.oneOfOne, isAvatar: row.seed === avatarSeed, lookId: assignments[row.seed],
+    printingId: row.printingId, serialNumber: row.serialNumber, printRun: row.printRun,
   }));
   const last = pageRows.at(-1);
   return {
@@ -134,7 +139,8 @@ export const loadRecentPets = async (query: PetQuery = {}): Promise<GalleryPage>
     const seed = (Array.isArray(row.wild) ? row.wild : [])[0];
     if (!seed) return [];
     return [{ seed, login: row.login, handle: row.handle, tier: normalizeTier(row.accountTier), isAi: row.isAi,
-      earnedAt: row.verifiedAt?.toISOString() ?? null, name: "", rarityScore: 0, size: 0, species: "", aura: "none", oneOfOne: false }];
+      earnedAt: row.verifiedAt?.toISOString() ?? null, name: "", rarityScore: 0, size: 0, species: "", aura: "none", oneOfOne: false,
+      printingId: null, serialNumber: null, printRun: null }];
   });
   return { mode, sort: "newest", total: pets.length, pets, nextCursor: null };
 };

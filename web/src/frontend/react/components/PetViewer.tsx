@@ -27,7 +27,7 @@ const resolveLookId = (value: string | undefined | null): PetLookId => isPetLook
 const lookDepthPush = (c: Creature, lookId: PetLookId) => (clampVoxelDepth(resolveLookId(lookId), c) - 1) / 2;
 const PET_LOOK_OPTIONS = Object.values(PET_LOOKS);
 type PetLookMap = Record<string, PetLookId>;
-export type SummonPet = { seed: string; lookId: PetLookId };
+export type SummonPet = { seed: string; lookId: PetLookId; serialNumber?: number; printRun?: number };
 
 // One merged BoxGeometry for the whole pet body (per-voxel translation baked in + a custom
 // `voxColor` attribute carrying the procgen gradient color per cube). One draw call per pet
@@ -606,6 +606,8 @@ export const SummonCinematic = ({ summons, onClose }: { summons: SummonPet[]; on
   }, [onClose]);
 
   if (!seed || !c) return null;
+  const serial = summon.serialNumber ?? c.card?.serialNumber;
+  const total = summon.printRun ?? c.card?.printRun;
   return (
     <div className="summonScrim" role="dialog" aria-modal onClick={onClose}>
       <header className="summonHead" onClick={(e) => e.stopPropagation()}>
@@ -619,7 +621,8 @@ export const SummonCinematic = ({ summons, onClose }: { summons: SummonPet[]; on
       <div className="summonMeta" onClick={(e) => e.stopPropagation()}>
         <h2 className={`summonName tier-${c.tier.toLowerCase()}`}>{c.name}</h2>
         <p className="muted">
-          {c.tier}{c.oneOfOne ? " · 1/1" : c.mythicAura ? " · Mythic aura" : ""} · size {c.sizeN} · {c.traits.species}
+          {c.tier}{serial != null && total != null ? ` · #${serial.toLocaleString()} / ${total.toLocaleString()}` : ""}{c.mythicAura ? " · Mythic aura" : ""} · size {c.sizeN} · {c.traits.species}
+          {c.card && <> · pull odds ≈ 1 in {c.card.pullOdds.toLocaleString()}</>}
         </p>
       </div>
     </div>

@@ -570,8 +570,9 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         if (!ghLogin) return status("Bad Request", "link GitHub first");
         const p = (await resolvePlayerByUserSub(user.sub)) ?? await resolvePlayerByGithubLogin(ghLogin);
         if (!p) return status("Not Found", "player not found");
-        const wild = Array.isArray(p.wild) ? (p.wild as string[]) : [];
-        if (!wild.includes(seed)) return status("Bad Request", "you don't own that pet");
+        const owned = (await gameDb.select({ seed: wildSeedSources.petSeed }).from(wildSeedSources)
+          .where(and(eq(wildSeedSources.playerId, p.id), eq(wildSeedSources.petSeed, seed))).limit(1))[0];
+        if (!owned) return status("Bad Request", "you don't own that pet");
         await gameDb.update(players).set({ avatarSeed: seed }).where(eq(players.id, p.id));
         return { ok: true, ...(await accountPayload(db, user.sub)) };
       }),
@@ -590,7 +591,8 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const nextLookId = resolvePetLookId(b.lookId);
         const currentLookId = resolvePetLookId(p.activePetLookId);
         if (nextLookId !== currentLookId) {
-          const wild = Array.isArray(p.wild) ? (p.wild as string[]) : [];
+          const wild = (await gameDb.select({ seed: wildSeedSources.petSeed }).from(wildSeedSources)
+            .where(eq(wildSeedSources.playerId, p.id))).map((pet) => pet.seed);
           // Freeze historical pets to the look they currently have (current portal style)
           // before changing the portal default for future summons.
           if (wild.length > 0) await setPetLookAssignmentsForSeeds(p.id, wild, currentLookId);
@@ -612,8 +614,9 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const p = (await resolvePlayerByUserSub(user.sub)) ?? await resolvePlayerByGithubLogin(ghLogin);
         if (!p) return status("Not Found", "player not found");
         const seed = String(params.seed ?? "").trim();
-        const wild = Array.isArray(p.wild) ? (p.wild as string[]) : [];
-        if (!wild.includes(seed)) return status("Bad Request", "you don't own that pet");
+        const owned = (await gameDb.select({ seed: wildSeedSources.petSeed }).from(wildSeedSources)
+          .where(and(eq(wildSeedSources.playerId, p.id), eq(wildSeedSources.petSeed, seed))).limit(1))[0];
+        if (!owned) return status("Bad Request", "you don't own that pet");
         await setPetLookAssignment(p.id, seed, b.lookId as PetLookId);
         playerInfoCache.delete(ghLogin);
         return { ok: true, ...(await accountPayload(db, user.sub)) };

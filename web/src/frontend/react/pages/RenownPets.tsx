@@ -16,6 +16,7 @@ type GalleryPet = {
   seed: string; login: string | null; handle: string; tier: string; isAi: boolean;
   earnedAt: string | null; name: string; rarityScore: number; size: number;
   species: string; aura: string; oneOfOne: boolean; isAvatar?: boolean; lookId?: string;
+  printingId?: string | null; serialNumber?: number | null; printRun?: number | null;
 };
 type PetPage = { pets: GalleryPet[]; nextCursor?: string | null; total?: number; sort?: PetSort };
 type PetSort = "newest" | "rarest" | "biggest" | "name";
@@ -32,6 +33,9 @@ const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; on
   const species = pet.species || generated.traits.species;
   const size = pet.size || generated.sizeN;
   const rarity = pet.rarityScore || generated.score;
+  const serial = pet.serialNumber ?? generated.card?.serialNumber ?? null;
+  const total = pet.printRun ?? generated.card?.printRun ?? null;
+  const pullOdds = generated.card?.pullOdds ?? generated.statRarity;
   const accent = hex(TIER_RGB[tier as Tier] ?? [160, 160, 180]);
   return (
     <article className={`collectionPet tier-${tier.toLowerCase()}${pet.isAvatar ? " isAvatar" : ""}`} style={{ "--pet-accent": accent } as CSSProperties}>
@@ -42,10 +46,10 @@ const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; on
       <div className="collectionPetBody">
         <div className="collectionPetTitle">
           <a href={`/pet/${pet.seed}`}>{name}</a>
-          {pet.oneOfOne && <span className="oneOfOne">1/1</span>}
+          {serial != null && total != null && <span className="oneOfOne">#{serial.toLocaleString()} / {total.toLocaleString()}</span>}
         </div>
         <div className="collectionPetMeta"><strong>{tier}</strong><span>{species}</span><span>size {size}</span></div>
-        <div className="collectionPetRarity">Rarity score {rarity.toFixed(2)}</div>
+        <div className="collectionPetRarity">Rarity score {rarity.toFixed(2)} · pull odds ≈ 1 in {pullOdds.toLocaleString()}</div>
         {!owned && pet.login && <a className="collectionPetOwner" href={`/profile/${encodeURIComponent(pet.login)}`}>@{pet.login}{pet.isAi ? " 🤖" : ""}</a>}
         <div className="collectionPetActions">
           <a className="petAction" href={`/pet/${pet.seed}`}>View details</a>

@@ -1,11 +1,12 @@
 // Weekly quests — a directed loop on top of passive scoring. Five goals refresh each ISO week;
 // progress is measured against the player's verified signals ("delta" goals use a per-week
 // baseline captured on first view; "threshold" goals check an absolute value). Completing a quest
-// mints a deterministic quest pet into the player's wild — a non-score reward that respects the
+// issues a serialized quest pet into the player's collection — a non-score reward that respects the
 // verified-renown model (no fabricated score). Completion is idempotent (completed_at guard), so
 // any load (yours or a visitor's) settles to the same correct state.
-import { and, eq } from "drizzle-orm";
-import { players, questProgress } from "../../../db/schema.ts";
+import { and, eq, sql } from "drizzle-orm";
+import { players, questProgress, wildSeedSources } from "../../../db/schema.ts";
+import { issuePetCopies } from "./petIssuance.ts";
 import { gameDb } from "./sync.ts";
 
 type Mode = "delta" | "threshold";
@@ -71,18 +72,25 @@ export const loadQuests = async (login: string): Promise<Quests | null> => {
     const progress = q.mode === "delta" ? Math.max(0, current - baseline) : current;
     const completed = progress >= q.target;
     const wasCompleted = !!row?.completedAt;
-    const rewardSeed = `quest:${login}:${weekKey}:${q.id}`;   // login (public), not the internal id
+    const rewardProvenance = `quest:${login}:${weekKey}:${q.id}`;   // stable, public provenance
     if (completed && !wasCompleted) {
       await gameDb.update(questProgress).set({ completedAt: new Date() }).where(and(eq(questProgress.playerId, p.id), eq(questProgress.weekKey, weekKey), eq(questProgress.questId, q.id)));
-      // Mint the quest pet (idempotent — only if not already in the wild).
-      if (!newWild.includes(rewardSeed)) { newWild.unshift(rewardSeed); wildChanged = true; }
     }
-    out.push({ id: q.id, name: q.name, desc: q.desc, icon: q.icon, progress, target: q.target, pct: Math.min(100, Math.round((progress / q.target) * 100)), completed, rewardSeed: completed || wasCompleted ? rewardSeed : null });
+    // Resolve both newly-completed and previously-completed quests through the same idempotent
+    // issuer. The reward link is the owned copy seed, which carries its serial/total.
+    const issued = completed || wasCompleted
+      ? (await issuePetCopies({ playerId: p.id, githubLogin: p.githubLogin ?? login, provenanceSeeds: [rewardProvenance] }))[0]
+      : null;
+    const rewardSeed = issued?.seed ?? null;
+    if (rewardSeed && !newWild.includes(rewardSeed)) { newWild.unshift(rewardSeed); wildChanged = true; }
+    out.push({ id: q.id, name: q.name, desc: q.desc, icon: q.icon, progress, target: q.target, pct: Math.min(100, Math.round((progress / q.target) * 100)), completed, rewardSeed });
   }
 
   if (wildChanged) {
     const capped = newWild.slice(0, 100);   // match /verify's wild cap so the two write paths agree
-    await gameDb.update(players).set({ wild: capped, petsCount: capped.length }).where(eq(players.id, p.id));
+    const [{ total = 0 } = { total: 0 }] = await gameDb.select({ total: sql<number>`count(*)::int` })
+      .from(wildSeedSources).where(eq(wildSeedSources.playerId, p.id));
+    await gameDb.update(players).set({ wild: capped, petsCount: total }).where(eq(players.id, p.id));
   }
 
   return { login, handle: p.handle, weekKey, quests: out, completedCount: out.filter((q) => q.completed).length };

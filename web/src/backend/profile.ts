@@ -113,7 +113,7 @@ export const profileShareSnippet = (p: NonNullable<ProfileData>): string => {
   if (p.merit.reviews > 0) bits.push(`${p.merit.reviews.toLocaleString()} reviews`);
   if (p.merit.merged > 0 && bits.length < 3) bits.push(`${p.merit.merged.toLocaleString()} PRs merged`);
   if (p.merit.substanceSampleSize >= 10 && bits.length < 3) bits.push(`${Math.round(p.merit.substanceScore * 100)}% substance`);
-  if (p.petsCount > 0 && bits.length < 3) bits.push(`${p.petsCount} 1/1 pets`);
+  if (p.petsCount > 0 && bits.length < 3) bits.push(`${p.petsCount} pet cards`);
   if (bits.length === 0) return "Earning renown for real dev work.";
   return bits.slice(0, 3).join(" · ");
 };

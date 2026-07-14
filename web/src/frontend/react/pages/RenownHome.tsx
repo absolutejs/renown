@@ -12,7 +12,7 @@ import { subscribeSync } from "../../syncClient";
 
 type Tier = "free" | "supporter" | "pro";
 type PetLookMap = Record<string, PetLookId>;
-type SummonPet = { seed: string; lookId: PetLookId };
+type SummonPet = { seed: string; lookId: PetLookId; serialNumber?: number; printRun?: number };
 type Entry = { id?: string; name: string; login?: string; score?: number; weekXp?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number; distinctSkills?: number; skillXp?: Record<string, number>; activePetLookId?: string; petLookAssignments?: PetLookMap };
 // Board ids: well-known fixed strings + a "quirk:<name>" dynamic family for the
 // cope leaderboards (one per registered quirk in web/src/backend/quirks.ts).
@@ -383,7 +383,7 @@ const LandingPage = ({ signedIn, onGetStarted }: { signedIn: boolean; onGetStart
         <div className="landingHeroPet"><LandingPet seed="renown:landing:legend" size={190} /><span>LEGENDARY DROP</span></div>
         <div className="landingStatCard landingStatSkills"><strong>100</strong><span>skills to master</span></div>
         <div className="landingStatCard landingStatAchievements"><strong>10K+</strong><span>achievements</span></div>
-        <div className="landingStatCard landingStatPets"><strong>1/1</strong><span>commit-born pets</span></div>
+        <div className="landingStatCard landingStatPets"><strong>#1</strong><span>serialized pet pulls</span></div>
       </div>
     </section>
 
@@ -874,7 +874,7 @@ const BOARDS: { id: Board; label: string; hint: string; statOf: (e: Entry) => st
   { id: "merit:shipper", label: "Shipper", hint: "PRs you opened and landed.", statOf: (e) => `${(e.prsMergedCount ?? 0).toLocaleString()} merged`, seedOf: (e) => e.avatarSeed },
   { id: "merit:downloads", label: "Maintainer", hint: "Monthly downloads across all npm packages you maintain.", statOf: (e) => `${(e.packageDownloads ?? 0).toLocaleString()}/mo`, seedOf: (e) => e.avatarSeed },
   { id: "merit:substance", label: "Substance", hint: "RAG-classified mean substance of your commits (typo fixes count for less).", statOf: (e) => `${((e.substanceScore ?? 0) * 100).toFixed(0)}%`, seedOf: (e) => e.avatarSeed },
-  { id: "pets-count", label: "Most pets", hint: "Total unique 1/1 creatures collected from your attributed commits.", statOf: (e) => `${e.petsCount ?? 0} pets`, seedOf: (e) => e.avatarSeed },
+  { id: "pets-count", label: "Most pets", hint: "Total serialized pet copies pulled from your attributed commits.", statOf: (e) => `${e.petsCount ?? 0} pets`, seedOf: (e) => e.avatarSeed },
   { id: "rarest-pet", label: "Rarest pet", hint: "OpenRarity score of the rarest pet in your menagerie.", statOf: (e) => `${(e.rarestPetScore ?? 0).toFixed(2)} rarity`, seedOf: (e) => e.rarestPetSeed ?? e.avatarSeed },
   { id: "biggest-pet", label: "Biggest pet", hint: "Size of your largest pet (1-100, drives voxel count).", statOf: (e) => `size ${e.biggestPetSize ?? 0}`, seedOf: (e) => e.biggestPetSeed ?? e.avatarSeed },
   { id: "achievements", label: "Achievements", hint: "Total achievements unlocked — the trophy cabinet. Ranks the most decorated devs on renown.", statOf: (e) => `${(e.ach ?? 0).toLocaleString()} unlocked`, seedOf: (e) => e.avatarSeed },
@@ -1716,7 +1716,7 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
     setBusy(true);
     const r = await post("/api/verify", { login: gh.login });
     setBusy(false);
-    const j = r.data as { ok?: boolean; score?: number; attributionDelta?: number; throttled?: boolean; tier?: string; error?: string; newPets?: number; newPetSeeds?: string[]; newPetLooks?: Record<string, string> } | null;
+    const j = r.data as { ok?: boolean; score?: number; attributionDelta?: number; throttled?: boolean; tier?: string; error?: string; newPets?: number; newPetSeeds?: string[]; newPetLooks?: Record<string, string>; newPetCopies?: { seed: string; serialNumber: number; printRun: number }[] } | null;
     if (!r.ok || j?.error) { onBanner({ kind: "warn", text: j?.error ?? "Sync failed." }); return; }
     refresh();
     if (j?.throttled) onBanner({ kind: "info", text: `Sync cooldown hit (${j.tier ?? "your tier"}). Showing the last verified score.` });
@@ -1725,11 +1725,14 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
       onBanner({ kind: "ok", text: `✓ Synced from GitHub — verified score ${(j?.score ?? gh.verifiedScore).toLocaleString()}${delta ? ` (+${delta.toLocaleString()} new attributions)` : ""}.` });
       // If the verify produced new pets, trigger the cinematic. Server caps the seed list
       // at 6 so this can't run forever; remaining pets land in the menagerie silently.
-      const fresh = j?.newPetSeeds ?? [];
+      const copies = j?.newPetCopies ?? [];
+      const fresh = copies.length > 0 ? copies.map((copy) => copy.seed) : (j?.newPetSeeds ?? []);
       const lookMap = j?.newPetLooks ?? {};
       const summonPets: SummonPet[] = fresh.map((seed) => ({
         seed,
         lookId: resolvePetLookId(lookMap[seed], gh.activePetLookId),
+        serialNumber: copies.find((copy) => copy.seed === seed)?.serialNumber,
+        printRun: copies.find((copy) => copy.seed === seed)?.printRun,
       }));
       if (summonPets.length > 0) onSummon(summonPets);
     }

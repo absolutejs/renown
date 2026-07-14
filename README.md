@@ -75,7 +75,7 @@ password before this repo is public.**
 ## GitHub Action — auto-sync from CI
 
 Drop the renown Action into a repo and every push refreshes that repo's contributors'
-renown — their score, **Co-Authored-By attribution**, freshly-minted 1/1 pets, **and the
+renown — their score, **Co-Authored-By attribution**, freshly-pulled serialized pets, **and the
 repo's own `/project` leaderboard** — with **no manual `renown sync` and no secrets in
 the workflow**. The Action reads GitHub's own context (the pusher + the authors GitHub names
 in the event) and asks your renown server to recompute each *linked* contributor from the

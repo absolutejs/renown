@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { generate, makeRng, rollWild, type Tier } from "../core/procgen.ts";
+import { CARD_SET, CARD_VARIANTS, builtInCardSubjectSeed, cardCopyToken, generate, makeRng, parseCardSeed, rollWild, serializedCardSeed, type Tier } from "../core/procgen.ts";
 
 describe("procgen determinism (the seed is the asset)", () => {
   test("the same seed always reproduces the exact same creature", () => {
@@ -17,6 +17,46 @@ describe("procgen determinism (the seed is the asset)", () => {
   test("makeRng is a deterministic stream", () => {
     const r1 = makeRng("seed"), r2 = makeRng("seed");
     expect([r1(), r1(), r1()]).toEqual([r2(), r2(), r2()]);
+  });
+});
+
+describe("serialized card printings", () => {
+  const subjectSeed = builtInCardSubjectSeed(7);
+  const copy = (serialNumber: number, owner: string) => serializedCardSeed({
+    setId: CARD_SET, subjectSeed, variant: "legendary", serialNumber,
+    printRun: CARD_VARIANTS.legendary.printRun, copyToken: cardCopyToken(owner, `sha-${serialNumber}`),
+  });
+
+  test("every copy carries an immutable serial and total supply", () => {
+    const seed = copy(34, "alex");
+    const identity = parseCardSeed(seed);
+    expect(identity).not.toBeNull();
+    expect(identity?.serialNumber).toBe(34);
+    expect(identity?.printRun).toBe(500);
+    expect(generate(seed).card).toEqual(identity!);
+  });
+
+  test("copies in one printing are recognizable siblings with bounded variation", () => {
+    const first = generate(copy(1, "alex"));
+    const later = generate(copy(34, "sam"));
+    expect(first.name).toBe(later.name);
+    expect(first.traits).toEqual(later.traits);
+    expect(first.card?.printingId).toBe(later.card?.printingId);
+    expect(Math.abs(first.sizeN - later.sizeN)).toBeLessThanOrEqual(12);
+    expect(first.seed).not.toBe(later.seed);
+  });
+
+  test("one-of-one is supply, not a generic uniqueness claim", () => {
+    const seed = serializedCardSeed({ setId: CARD_SET, subjectSeed, variant: "one-of-one", serialNumber: 1, printRun: 1, copyToken: "only" });
+    const pet = generate(seed);
+    expect(pet.oneOfOne).toBe(true);
+    expect(pet.card?.serialNumber).toBe(1);
+    expect(pet.card?.printRun).toBe(1);
+  });
+
+  test("a forged serial or total does not parse as a serialized card", () => {
+    expect(parseCardSeed(`card:v1:${CARD_SET}:${encodeURIComponent(subjectSeed)}:legendary:501:500:nope`)).toBeNull();
+    expect(parseCardSeed(`card:v1:${CARD_SET}:${encodeURIComponent(subjectSeed)}:legendary:1:999:nope`)).toBeNull();
   });
 });
 

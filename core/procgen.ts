@@ -66,6 +66,10 @@ const NOUN: Record<string, string[]> = {
 export interface Creature {
   seed: string; traits: Traits; tier: Tier; score: number; statRarity: number; rarestTrait: string;
   oneOfOne: boolean; mythicAura: boolean; name: string; palette: [RGB, RGB]; eyeColor: RGB;
+  // Serialized cards split the stable printing DNA from the individual copy seed.
+  // Legacy creatures omit both fields and therefore render exactly as they always have.
+  visualSeed?: string;
+  card?: CardCopyIdentity;
   // Continuous size (1-100), biased smoothly within the categorical size trait. Drives the
   // voxel grid dimensions — bigger sizeN = more pixels/voxels = a physically bigger creature.
   // Sortable: "biggest" leaderboard ranks by max(sizeN) across a player's wild.
@@ -92,6 +96,74 @@ export const dimsFor = (sizeN: number) => {
 const ONE_OF_ONE = 1 / 250000;   // ultra-rare flag (true uniqueness is enforced by the chain layer)
 const MYTHIC_PREDICATE = 0x37;   // hidden "shiny" combo on the seed hash (~1/256)
 
+// ── serialized card lineage ────────────────────────────────────────────────
+// A pet subject is the recognizable character; a printing is that subject in a
+// specific variant with an immutable run; a copy owns one sequential serial.
+// `/N` is therefore always supply. Pull odds are a separate field.
+export type CardVariant = "base" | "uncommon" | "rare" | "epic" | "legendary" | "mythic" | "one-of-one";
+type CardVariantConfig = { tier: Tier; printRun: number; weight: number; pullOdds: number };
+export const CARD_VARIANTS: Record<CardVariant, CardVariantConfig> = {
+  base:         { tier: "Common",    printRun: 10_000_000, weight: 780_000, pullOdds: 1 },
+  uncommon:     { tier: "Uncommon",  printRun: 1_000_000,  weight: 140_000, pullOdds: 7 },
+  rare:         { tier: "Rare",      printRun: 100_000,    weight: 50_000,  pullOdds: 20 },
+  epic:         { tier: "Epic",      printRun: 10_000,     weight: 20_000,  pullOdds: 50 },
+  legendary:    { tier: "Legendary", printRun: 500,        weight: 8_000,   pullOdds: 125 },
+  mythic:       { tier: "Mythic",    printRun: 25,         weight: 1_900,   pullOdds: 526 },
+  "one-of-one": { tier: "Mythic",    printRun: 1,          weight: 100,     pullOdds: 10_000 },
+};
+const CARD_VARIANT_ORDER = Object.keys(CARD_VARIANTS) as CardVariant[];
+export const CARD_SET = "genesis-2026";
+export const BUILTIN_CARD_SUBJECTS = 64;
+
+export type CardCopyIdentity = {
+  setId: string;
+  subjectSeed: string;
+  variant: CardVariant;
+  printingId: string;
+  serialNumber: number;
+  printRun: number;
+  pullOdds: number;
+};
+
+export const stableToken = (value: string) => {
+  const h = xmur3(value);
+  return [h(), h(), h()].map((n) => n.toString(36).padStart(7, "0")).join("").slice(0, 18);
+};
+export const cardPrintingId = (setId: string, subjectSeed: string, variant: CardVariant) =>
+  `${setId}:${stableToken(subjectSeed)}:${variant}`;
+export const builtInCardSubjectSeed = (index: number, setId = CARD_SET) =>
+  `card-subject:${setId}:${Math.max(0, Math.floor(index)).toString(36).padStart(2, "0")}`;
+export const cardSubjectIndex = (pullSeed: string, count: number, attempt = 0) =>
+  count > 0 ? rint(makeRng(`card-subject-pick:${pullSeed}:${attempt}`), count) : 0;
+export const chooseCardVariant = (pullSeed: string, attempt = 0): CardVariant => {
+  let roll = makeRng(`card-variant:${pullSeed}:${attempt}`)() * 1_000_000;
+  for (const variant of CARD_VARIANT_ORDER) {
+    roll -= CARD_VARIANTS[variant].weight;
+    if (roll < 0) return variant;
+  }
+  return "base";
+};
+export const cardCopyToken = (ownerKey: string, provenanceSeed: string) => stableToken(`${ownerKey}:${provenanceSeed}`);
+export const cardSeedPrefix = (setId: string, subjectSeed: string, variant: CardVariant) =>
+  `card:v1:${encodeURIComponent(setId)}:${encodeURIComponent(subjectSeed)}:${variant}`;
+export const serializedCardSeed = ({ setId, subjectSeed, variant, serialNumber, printRun, copyToken }: {
+  setId: string; subjectSeed: string; variant: CardVariant; serialNumber: number; printRun: number; copyToken: string;
+}) => `${cardSeedPrefix(setId, subjectSeed, variant)}:${serialNumber}:${printRun}:${copyToken}`;
+
+export const parseCardSeed = (seed: string): CardCopyIdentity | null => {
+  const parts = seed.split(":");
+  if (parts.length !== 8 || parts[0] !== "card" || parts[1] !== "v1") return null;
+  const variant = parts[4] as CardVariant;
+  const cfg = CARD_VARIANTS[variant];
+  const serialNumber = Number(parts[5]), printRun = Number(parts[6]);
+  if (!cfg || !Number.isInteger(serialNumber) || serialNumber < 1 || printRun !== cfg.printRun || serialNumber > printRun || !parts[7]) return null;
+  try {
+    const setId = decodeURIComponent(parts[2]), subjectSeed = decodeURIComponent(parts[3]);
+    if (!setId || !subjectSeed) return null;
+    return { setId, subjectSeed, variant, printingId: cardPrintingId(setId, subjectSeed, variant), serialNumber, printRun, pullOdds: cfg.pullOdds };
+  } catch { return null; }
+};
+
 // ---- ASCII sprite: symmetric silhouette (CA + mirror) + parts + palette ----
 const EYE: Record<string, string> = { dot: "•", round: "o", sleepy: "‿", fierce: ">", star: "*", void: "◦", cyclops: "O", many: "∷" };
 const MOUTH: Record<string, [string, number]> = { smile: ["‿", 1], neutral: ["—", 1], fangs: ["ᴥ", 1], agape: ["o", 1], none: ["", 0], grin: ["▿", 1], tongue: ["ᵕ", 1] };
@@ -109,7 +181,7 @@ const MOUTH: Record<string, [string, number]> = { smile: ["‿", 1], neutral: ["
 // rolls) so each engine can continue the EXACT same stream it always did — the console
 // for pattern speckle, the voxelizer for z-stack depth — preserving determinism.
 export const buildBody = (c: Creature) => {
-  const rng = makeRng(c.seed + ":sprite");
+  const rng = makeRng((c.visualSeed ?? c.seed) + ":sprite");
   const { H, halfW, fillP } = dimsFor(c.sizeN);
   // 1) random half-grid
   let half: boolean[][] = Array.from({ length: H }, () => Array.from({ length: halfW }, () => rng() < fillP));
@@ -357,6 +429,7 @@ export const rarerThan = (score: number) => {                    // fraction of 
   return Math.max(0.0001, 1 - pctile);                           // fraction RARER (floored so 1-in-N is finite)
 };
 export const rarityLabel = (c: Creature) => {
+  if (c.card) return `#${c.card.serialNumber.toLocaleString()} / ${c.card.printRun.toLocaleString()} · pull odds ≈ 1 in ${c.card.pullOdds.toLocaleString()}`;
   if (c.oneOfOne) return "THE ONLY ONE — 1 of 1";
   if (c.mythicAura) return "mythic aura · ≈ 1 in 256";
   const frac = rarerThan(c.score);                               // fraction this-rare-or-rarer
@@ -378,7 +451,7 @@ export const renderCard = (c: Creature): string => {
   ].join("\n");
 };
 
-export const generate = (seed: string): Creature => {
+const generateLegacy = (seed: string): Creature => {
   const rng = makeRng(seed);
   const traits: Traits = {};
   for (const slot of SLOTS) traits[slot.key] = draw(rng, slot.opts);
@@ -404,6 +477,47 @@ export const generate = (seed: string): Creature => {
   // logic in the future doesn't shift sizeN for existing seeds.
   const sizeN = computeSizeN(makeRng(seed + ":size"), traits.size);
   const creature: Creature = { seed, traits, tier, score: +score.toFixed(2), statRarity, rarestTrait: rarest, oneOfOne, mythicAura, name, palette, eyeColor, sizeN, sprite: () => "" };
+  creature.sprite = () => renderCreature(creature, 0);
+  return creature;
+};
+
+const clampChannel = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
+const copyTint = (rgb: RGB, factor: number, bias: number): RGB => [
+  clampChannel(rgb[0] * factor + bias), clampChannel(rgb[1] * factor + bias / 2), clampChannel(rgb[2] * factor - bias / 3),
+];
+const SCORE_FLOOR: Record<CardVariant, number> = { base: 10, uncommon: 15.45, rare: 18.14, epic: 20.31, legendary: 22.34, mythic: 24.36, "one-of-one": 34 };
+
+// Serialized copies share their subject's name, traits and line silhouette. The copy
+// token introduces bounded size/palette variation, so two cards in the same printing
+// are clearly related without being pixel-identical.
+export const generate = (seed: string): Creature => {
+  const card = parseCardSeed(seed);
+  if (!card) return generateLegacy(seed);
+  const base = generateLegacy(card.subjectSeed);
+  const cfg = CARD_VARIANTS[card.variant];
+  const copyRng = makeRng(`card-copy:${seed}`);
+  const sizeDelta = rint(copyRng, 13) - 6;
+  const sizeN = Math.max(1, Math.min(100, base.sizeN + sizeDelta));
+  const factor = 0.94 + copyRng() * 0.12;
+  const bias = (copyRng() - 0.5) * 18;
+  const palette: [RGB, RGB] = [copyTint(base.palette[0], factor, bias), copyTint(base.palette[1], factor, -bias)];
+  const eyeColor = copyTint(base.eyeColor, 0.96 + copyRng() * 0.08, -bias / 2);
+  const oneOfOne = card.printRun === 1;
+  const creature: Creature = {
+    ...base,
+    seed,
+    visualSeed: `card-line:${card.printingId}`,
+    card,
+    tier: cfg.tier,
+    score: +Math.max(SCORE_FLOOR[card.variant], base.score).toFixed(2),
+    statRarity: cfg.pullOdds,
+    oneOfOne,
+    mythicAura: card.variant === "mythic" || oneOfOne,
+    palette,
+    eyeColor,
+    sizeN,
+    sprite: () => "",
+  };
   creature.sprite = () => renderCreature(creature, 0);
   return creature;
 };

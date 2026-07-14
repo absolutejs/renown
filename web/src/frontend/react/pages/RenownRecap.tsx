@@ -82,7 +82,7 @@ const RecapBody = ({ recap, origin }: { recap: RecapForUI; origin: string }) => 
           {recap.verifiedDelta > 0 && <Stat label="score this week" value={`+${fmt(recap.verifiedDelta)}`} />}
           <Stat label="achievements" value={`+${recap.newAchievements.length}`} />
           <Stat label="total level" value={fmt(recap.totalLevel)} />
-          <Stat label="1/1 pets" value={fmt(recap.petsCount)} />
+          <Stat label="Pet cards" value={fmt(recap.petsCount)} />
         </div>
         {recap.newAchievements.length > 0 && (
           <div style={{ marginTop: 14 }}>

@@ -57,7 +57,7 @@ const statsFor = (profile: Profile) => {
   if (profile.merit.reviews > 0) stats.push(["PR reviews", formatCompact(profile.merit.reviews)]);
   if (profile.merit.merged > 0 && stats.length < 3) stats.push(["PRs merged", formatCompact(profile.merit.merged)]);
   if (profile.merit.substanceSampleSize >= 10 && stats.length < 3) stats.push(["substance", `${Math.round(profile.merit.substanceScore * 100)}%`]);
-  if (profile.petsCount > 0 && stats.length < 3) stats.push(["1/1 pets", formatCompact(profile.petsCount)]);
+  if (profile.petsCount > 0 && stats.length < 3) stats.push(["pet cards", formatCompact(profile.petsCount)]);
   if (stats.length < 3) stats.push(["total level", formatCompact(profile.totalLevel)]);
   if (stats.length < 3) stats.push(["rarest pet", profile.rarestPetScore.toFixed(2)]);
   if (stats.length < 3) stats.push(["merit", formatCompact(profile.meritScore)]);

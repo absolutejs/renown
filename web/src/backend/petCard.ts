@@ -22,14 +22,14 @@ export const renderPetCard = (seed: string): string => {
   const pet = spriteToSvg(c, { box: ART });
   const px = (W - pet.width) / 2;
   const py = PAD + (ART - pet.height) / 2;
-  const one = c.oneOfOne
-    ? `<text x="${(W - PAD).toFixed(1)}" y="${(PAD + 14).toFixed(1)}" text-anchor="end" font-family="${FONT}" font-size="12" font-weight="700" fill="${hex(tint)}">1/1</text>`
+  const edition = c.card
+    ? `<text x="${(W - PAD).toFixed(1)}" y="${(PAD + 14).toFixed(1)}" text-anchor="end" font-family="${FONT}" font-size="12" font-weight="700" fill="${hex(tint)}">#${c.card.serialNumber.toLocaleString()} / ${c.card.printRun.toLocaleString()}</text>`
     : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(c.name)} — ${c.tier}">
   <rect width="${W}" height="${H}" rx="14" fill="${BG}"/>
   <rect x="6" y="6" width="${W - 12}" height="${H - 12}" rx="12" fill="${hex(tint)}" fill-opacity="0.10"/>
   <rect x="6.5" y="6.5" width="${W - 13}" height="${H - 13}" rx="12" fill="none" stroke="${hex(tint)}" stroke-opacity="0.5"/>
-  ${one}
+  ${edition}
   <g transform="translate(${px.toFixed(1)},${py.toFixed(1)})">${idleBob(pet.svg)}</g>
   <text x="${W / 2}" y="${(PAD + ART + 32).toFixed(1)}" text-anchor="middle" font-family="${FONT}" font-size="18" font-weight="700" fill="${TITLE}">${esc(truncate(c.name, 22))}</text>
   <text x="${W / 2}" y="${(PAD + ART + 54).toFixed(1)}" text-anchor="middle" font-family="${FONT}" font-size="12" fill="${hex(tint)}">${c.tier} · size ${c.sizeN}</text>

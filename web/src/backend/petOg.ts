@@ -19,7 +19,8 @@ export const renderPetOgPng = (seed: string) => {
   const accent = TIER_RGB[c.tier];
   const { svg, width, height } = spriteToSvg(c, { box: 300 });
   const px = 880 - width / 2, py = 300 - height / 2;
-  const rarity = c.oneOfOne ? "the only one — 1 of 1" : `1 in ${compact(c.statRarity)}`;
+  const edition = c.card ? `#${compact(c.card.serialNumber)} / ${compact(c.card.printRun)}` : "legacy pet";
+  const rarity = `pull odds ≈ 1 in ${compact(c.card?.pullOdds ?? c.statRarity)}`;
 
   const page = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -40,7 +41,7 @@ export const renderPetOgPng = (seed: string) => {
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bg)" />
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#flare)" />
   <rect x="46" y="46" width="1108" height="538" rx="34" fill="rgba(4,7,11,0.32)" stroke="rgba(255,255,255,0.12)" />
-  <text x="82" y="132" font-family="Inter, Arial, sans-serif" font-size="30" fill="rgba(224,229,238,0.68)" font-weight="800">1/1 renown pet</text>
+  <text x="82" y="132" font-family="Inter, Arial, sans-serif" font-size="30" fill="rgba(224,229,238,0.68)" font-weight="800">${esc(edition)} · renown pet</text>
   <text x="82" y="214" font-family="Inter, Arial, sans-serif" font-size="68" fill="#f5f7fb" font-weight="950">${esc(c.name)}</text>
   <g transform="translate(82 250)">
     <rect width="${c.tier.length * 22 + 40}" height="44" rx="22" fill="${rgb(accent, 0.18)}" stroke="${rgb(accent, 0.5)}" />

@@ -34,7 +34,7 @@ const emptyCard = (login: string): string => {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="@${esc(login)} has no pets yet">
   <rect width="${W}" height="${H}" rx="12" fill="${BG}"/>
   <text x="${W / 2}" y="${H / 2 - 8}" text-anchor="middle" font-family="${FONT}" font-size="14" fill="${TITLE}" font-weight="700">No pets yet</text>
-  <text x="${W / 2}" y="${H / 2 + 14}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="${MUTED}">Commit verified work to hatch your first 1/1.</text>
+  <text x="${W / 2}" y="${H / 2 + 14}" text-anchor="middle" font-family="${FONT}" font-size="11" fill="${MUTED}">Commit verified work to pull your first serialized pet.</text>
 </svg>`;
 };
 
@@ -56,13 +56,13 @@ export const renderProfilePets = (p: Profile): string => {
     const pet = spriteToSvg(c, { box: CARD - 30 });
     const px = cx + (CARD - pet.width) / 2;
     const py = cy + (CARD - pet.height) / 2;
-    const one = c.oneOfOne
-      ? `<text x="${(cx + CARD - 8).toFixed(1)}" y="${(cy + 16).toFixed(1)}" text-anchor="end" font-family="${FONT}" font-size="10" font-weight="700" fill="${hex(tint)}">1/1</text>`
+    const edition = c.card
+      ? `<text x="${(cx + CARD - 8).toFixed(1)}" y="${(cy + 16).toFixed(1)}" text-anchor="end" font-family="${FONT}" font-size="10" font-weight="700" fill="${hex(tint)}">#${c.card.serialNumber.toLocaleString()} / ${c.card.printRun.toLocaleString()}</text>`
       : "";
     return `<g>
     <rect x="${cx}" y="${cy}" width="${CARD}" height="${cardH}" rx="10" fill="${hex(tint)}" fill-opacity="0.12"/>
     <rect x="${cx + 0.5}" y="${cy + 0.5}" width="${CARD - 1}" height="${cardH - 1}" rx="10" fill="none" stroke="${hex(tint)}" stroke-opacity="0.45"/>
-    ${one}
+    ${edition}
     <g transform="translate(${px.toFixed(1)},${py.toFixed(1)})">${idleBob(pet.svg, (i % cols) * 0.25 + Math.floor(i / cols) * 0.15)}</g>
     <text x="${(cx + CARD / 2).toFixed(1)}" y="${(cy + CARD + 12).toFixed(1)}" text-anchor="middle" font-family="${FONT}" font-size="11" font-weight="700" fill="${TITLE}">${esc(truncate(c.name, 16))}</text>
     <text x="${(cx + CARD / 2).toFixed(1)}" y="${(cy + CARD + 26).toFixed(1)}" text-anchor="middle" font-family="${FONT}" font-size="9" fill="${hex(tint)}">${c.tier}${c.sizeN ? ` · sz ${c.sizeN}` : ""}</text>

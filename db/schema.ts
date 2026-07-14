@@ -2,7 +2,7 @@
 // Cloud holds the competitive truth: players, the achievement catalog (with global
 // unlock counts → rarity %), per-player unlocks (with date achieved), and per-project
 // boards. Rich local activity/recap data stays on-device; only scores/unlocks sync.
-import { bigint, boolean, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const players = pgTable("players", {
   id: text("id").primaryKey(),                                  // client-generated player id
@@ -141,12 +141,38 @@ export const playerAccounts = pgTable("player_accounts", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.githubLogin] }) }));
 
-// Which linked github earned each wild pet seed (commit SHA). `players.wild` stays the flat,
-// rarest-100-capped union across accounts; this side map only adds provenance for display.
+// Stable characters available in a card set. A subject is the recognizable pet (the
+// "player" on a baseball card); printings and owned copies live below it.
+export const petSubjects = pgTable("pet_subjects", {
+  id: text("id").primaryKey(),
+  setId: text("set_id").notNull(),
+  subjectSeed: text("subject_seed").notNull().unique(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ setIdx: index("pet_subjects_set_idx").on(t.setId, t.id) }));
+
+// One supply-capped variant of a subject. `issued` is the authoritative next serial;
+// it only advances inside issue_pet_copy(), in the same transaction that creates the copy.
+export const petPrintings = pgTable("pet_printings", {
+  id: text("id").primaryKey(),
+  subjectId: text("subject_id").notNull().references(() => petSubjects.id),
+  setId: text("set_id").notNull(),
+  variant: text("variant").notNull(),
+  printRun: integer("print_run").notNull(),
+  issued: integer("issued").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ subjectVariantUniq: uniqueIndex("pet_printings_subject_variant_uniq").on(t.subjectId, t.variant) }));
+
+// Which linked github earned each owned copy. `players.wild` stays the flat,
+// rarest-100-capped list used by existing clients; this is the authoritative copy ledger.
 export const wildSeedSources = pgTable("wild_seed_sources", {
   playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
   petSeed: text("pet_seed").notNull(),
   githubLogin: text("github_login").notNull(),
+  provenanceSeed: text("provenance_seed"),
+  printingId: text("printing_id").references(() => petPrintings.id),
+  serialNumber: integer("serial_number"),
+  printRun: integer("print_run"),
   earnedAt: timestamp("earned_at").notNull().defaultNow(),
   // Materialized deterministic procgen fields make collection search/filter/sort a
   // normal indexed database query instead of regenerating every pet on each request.
@@ -163,6 +189,8 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   ownerRecentIdx: index("wild_seed_sources_owner_recent_idx").on(t.playerId, t.earnedAt, t.petSeed),
   ownerRarityIdx: index("wild_seed_sources_owner_rarity_idx").on(t.playerId, t.rarityScore, t.petSeed),
   ownerSizeIdx: index("wild_seed_sources_owner_size_idx").on(t.playerId, t.size, t.petSeed),
+  copySerialUniq: uniqueIndex("wild_seed_sources_printing_serial_uniq").on(t.printingId, t.serialNumber),
+  provenanceUniq: uniqueIndex("wild_seed_sources_player_provenance_uniq").on(t.playerId, t.provenanceSeed),
 }));
 
 // Weekly quest progress. Per (player, ISO-week, quest): the baseline signal value captured on

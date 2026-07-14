@@ -1,4 +1,4 @@
-// Public /pet/:seed page — a single 1/1 pet's own page. A seed deterministically generates the
+// Public /pet/:seed page — a single serialized pet copy's page. A seed deterministically generates the
 // creature (pure, no DB), so any valid seed renders. The pet cards in the VS Code extension (and
 // the OG/share links) point here, making every sprite a doorway into renown.
 //
@@ -21,13 +21,17 @@ type PetForUI = {
   seed: string; name: string; tier: string; sizeN: number;
   statRarity: number; rarestTrait: string; oneOfOne: boolean; mythicAura: boolean;
   traits: Record<string, string>;
+  card?: { serialNumber: number; printRun: number; pullOdds: number };
 };
 
-type PetOwner = { login: string | null; handle: string; tier: string; isAi: boolean; earnedVia: string | null } | null;
+type PetOwner = { login: string | null; handle: string; tier: string; isAi: boolean; earnedVia: string | null; printingId: string | null; serialNumber: number | null; printRun: number | null } | null;
 
 const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origin: string }) => {
   const accent = hex(TIER_RGB[pet.tier as Tier] ?? [160, 160, 180]);
   const pageUrl = `${origin}/pet/${pet.seed}`;
+  const serial = owner?.serialNumber ?? pet.card?.serialNumber ?? null;
+  const total = owner?.printRun ?? pet.card?.printRun ?? null;
+  const pullOdds = pet.card?.pullOdds ?? pet.statRarity;
   return (
     <main className="wrap profilePage">
       <header className="topbar"><a href="/" className="brand" style={{ textDecoration: "none", color: "inherit" }}><span>Renown</span></a> <a href="/" className="muted" style={{ marginLeft: 12 }}>← Browse leaderboard</a></header>
@@ -37,10 +41,10 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
           <span dangerouslySetInnerHTML={{ __html: heroSvgHtml(pet.seed, 176) }} />
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <h1 style={{ marginBottom: 8 }}>{pet.name}{pet.oneOfOne && <span style={{ marginLeft: 10, fontSize: 14, color: accent, fontWeight: 800, verticalAlign: "middle" }}>1/1</span>}</h1>
+          <h1 style={{ marginBottom: 8 }}>{pet.name}{serial != null && total != null && <span style={{ marginLeft: 10, fontSize: 14, color: accent, fontWeight: 800, verticalAlign: "middle" }}>#{serial.toLocaleString()} / {total.toLocaleString()}</span>}</h1>
           <p style={{ margin: "0 0 6px" }}>
             <span style={{ display: "inline-block", padding: "3px 12px", borderRadius: 999, background: `${accent}2e`, border: `1px solid ${accent}80`, color: accent, fontWeight: 800 }}>{pet.tier}</span>
-            <span className="muted" style={{ marginLeft: 10 }}>size {pet.sizeN} · {pet.oneOfOne ? "the only one" : `1 in ${pet.statRarity.toLocaleString()}`}</span>
+            <span className="muted" style={{ marginLeft: 10 }}>size {pet.sizeN} · pull odds ≈ 1 in {pullOdds.toLocaleString()}</span>
           </p>
           <p className="muted" style={{ margin: 0 }}>rarest trait · <strong style={{ color: "inherit" }}>{pet.rarestTrait}</strong>{pet.mythicAura ? " · mythic aura" : ""}</p>
           {owner?.login
@@ -62,7 +66,7 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
       </section>
 
       <section className="card" style={{ textAlign: "center" }}>
-        <p className="muted" style={{ marginTop: 0 }}>This pet was procedurally generated from a real commit — every renown pet is a 1/1. Earn your own:</p>
+        <p className="muted" style={{ marginTop: 0 }}>This serialized pet was pulled from a real commit. Copies in the same line share recognizable DNA, with room for individual variation. Earn your own:</p>
         <p style={{ marginBottom: 6 }}><code>bun add -g @absolutejs/renown</code></p>
         <p className="muted" style={{ fontSize: 13 }}>Then <code>gh auth login</code> and <code>renown link</code> — your commits start hatching pets.</p>
         <p style={{ marginTop: 14, fontSize: 13 }}><a href={pageUrl}>{pageUrl}</a></p>
@@ -74,9 +78,11 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
 type RenownPetProps = { cssPath?: string; pet?: PetForUI | null; owner?: PetOwner; origin?: string; shareSnippet?: string };
 
 export const RenownPet = ({ cssPath, pet = null, owner = null, origin = "", shareSnippet }: RenownPetProps) => {
-  const an = pet && /^[AEIOU]/.test(pet.tier) ? "an" : "a";
-  const title = pet ? `${pet.name} — ${an} ${pet.tier} 1/1 pet on Renown` : "A renown pet";
-  const desc = shareSnippet ?? (pet ? `${pet.tier} · size ${pet.sizeN} · ${pet.oneOfOne ? "the only one (1 of 1)" : `1 in ${pet.statRarity.toLocaleString()}`} — a 1/1 pet minted from a real commit.` : "A 1/1 pet on Renown.");
+  const serial = owner?.serialNumber ?? pet?.card?.serialNumber ?? null;
+  const total = owner?.printRun ?? pet?.card?.printRun ?? null;
+  const edition = serial != null && total != null ? ` #${serial.toLocaleString()} / ${total.toLocaleString()}` : "";
+  const title = pet ? `${pet.name}${edition} — ${pet.tier} pet on Renown` : "A renown pet";
+  const desc = shareSnippet ?? (pet ? `${pet.tier}${edition} · size ${pet.sizeN} · pull odds ≈ 1 in ${(pet.card?.pullOdds ?? pet.statRarity).toLocaleString()} — a serialized pet pulled from a real commit.` : "A serialized pet on Renown.");
   const fullUrl = pet ? `${origin}/pet/${pet.seed}` : `${origin}/`;
   const image = pet ? `${origin}/pet/${pet.seed}/og.png` : undefined;
   return (

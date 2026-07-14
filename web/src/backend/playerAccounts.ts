@@ -3,9 +3,8 @@
 // substance contribution (mirroring the per-github columns the single-github world wrote to
 // `players`); the player's headline numbers are the SUM across accounts so the leaderboard
 // ranks one combined identity. See resolvePlayer.ts + db/migrate-add-user-sub.ts.
-import { eq, sql } from "drizzle-orm";
-import { players, playerAccounts } from "../../../db/schema.ts";
-import { generate } from "../../../core/procgen.ts";
+import { desc, eq, sql } from "drizzle-orm";
+import { players, playerAccounts, wildSeedSources } from "../../../db/schema.ts";
 import { computeMeritScore } from "./merit.ts";
 import { gameDb } from "./sync.ts";
 
@@ -74,23 +73,29 @@ export const foldPlayersForMerge = async ({ sourceUserSub, targetUserSub }: { so
 
   // Move the per-github ledger (github_login is globally unique, so no PK/uniq collision).
   await gameDb.execute(sql`UPDATE player_accounts SET player_id = ${target.id} WHERE player_id = ${source.id}`);
-  // Move pet-seed provenance, dropping any seed the target already has (PK player_id,pet_seed).
-  await gameDb.execute(sql`DELETE FROM wild_seed_sources s WHERE s.player_id = ${source.id} AND EXISTS (SELECT 1 FROM wild_seed_sources t WHERE t.player_id = ${target.id} AND t.pet_seed = s.pet_seed)`);
+  // Move serialized copies. The merged player gets one copy per provenance event, so discard a
+  // source duplicate by either copy seed or non-null provenance before changing the owner key.
+  await gameDb.execute(sql`DELETE FROM wild_seed_sources s WHERE s.player_id = ${source.id} AND EXISTS (
+    SELECT 1 FROM wild_seed_sources t WHERE t.player_id = ${target.id} AND (
+      t.pet_seed = s.pet_seed OR (s.provenance_seed IS NOT NULL AND t.provenance_seed = s.provenance_seed)
+    )
+  )`);
   await gameDb.execute(sql`UPDATE wild_seed_sources SET player_id = ${target.id} WHERE player_id = ${source.id}`);
   // Union achievements (idempotent on the (player,achievement) PK).
   await gameDb.execute(sql`INSERT INTO player_achievements (player_id, achievement_id, unlocked_at) SELECT ${target.id}, achievement_id, unlocked_at FROM player_achievements WHERE player_id = ${source.id} ON CONFLICT DO NOTHING`);
 
-  // Union the wild pets, keep the rarest 100, recompute denormalized pet aggregates.
-  const sw = Array.isArray(source.wild) ? (source.wild as string[]) : [];
-  const tw = Array.isArray(target.wild) ? (target.wild as string[]) : [];
-  const creatures = Array.from(new Set([...tw, ...sw])).map((s) => ({ s, c: generate(s) })).sort((a, b) => b.c.score - a.c.score).slice(0, 100);
-  const mergedWild = creatures.map((x) => x.s);
-  const bySize = [...creatures].sort((a, b) => b.c.sizeN - a.c.sizeN || b.c.score - a.c.score)[0];
+  // The ledger remains unbounded; only the compatibility `wild` cache is capped.
+  const ledger = await gameDb.select({ seed: wildSeedSources.petSeed, score: wildSeedSources.rarityScore, size: wildSeedSources.size })
+    .from(wildSeedSources).where(eq(wildSeedSources.playerId, target.id))
+    .orderBy(desc(wildSeedSources.rarityScore), desc(wildSeedSources.petSeed));
+  const mergedWild = ledger.slice(0, 100).map((x) => x.seed);
+  const bySize = [...ledger].sort((a, b) => b.size - a.size || b.score - a.score)[0];
+  const avatarOwned = target.avatarSeed ? ledger.some((pet) => pet.seed === target.avatarSeed) : false;
   await gameDb.update(players).set({
-    wild: mergedWild, petsCount: mergedWild.length,
-    rarestPetScore: creatures[0]?.c.score ?? 0, rarestPetSeed: creatures[0]?.s ?? null,
-    biggestPetSize: bySize?.c.sizeN ?? 0, biggestPetSeed: bySize?.s ?? null,
-    avatarSeed: target.avatarSeed && mergedWild.includes(target.avatarSeed) ? target.avatarSeed : (creatures[0]?.s ?? null),
+    wild: mergedWild, petsCount: ledger.length,
+    rarestPetScore: ledger[0]?.score ?? 0, rarestPetSeed: ledger[0]?.seed ?? null,
+    biggestPetSize: bySize?.size ?? 0, biggestPetSeed: bySize?.seed ?? null,
+    avatarSeed: avatarOwned ? target.avatarSeed : (ledger[0]?.seed ?? null),
   }).where(eq(players.id, target.id));
 
   // Delete the now-empty source player (FK-cascade clears any remaining child rows), then roll up.

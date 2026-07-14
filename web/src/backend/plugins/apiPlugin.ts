@@ -28,6 +28,7 @@ import { resolvePetLookId } from "../../../../core/petLooks.ts";
 import { QUIRKS } from "../quirks.ts";
 import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
 import { loadRecentPets } from "../petGallery.ts";
+import { issuePetCopies } from "../petIssuance.ts";
 
 // Deterministic ISO-week index → quirk id rotation so the "quirk of the week" is the
 // same for every viewer in the same week, and cycles through the whole registry over
@@ -342,37 +343,49 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       if (acctQuery) {
         const since = acct?.lastAttributionSyncAt ?? row.createdAt;
         attrDelta = await searchAttributions(acctQuery, since);
-      // Pet seeds: pull up to 30 fresh SHAs from this window. Each = a unique procgen 1/1.
+      // Pull up to 30 fresh commit provenance IDs from this attribution window.
       if (attrDelta > 0) newShas = await fetchAttributionShas(acctQuery, since, 30);
       }
       // This github's own verified score (base + its attribution); rolls up to the player below.
       const acctAttribution = Number(acct?.attributionScore ?? 0) + attrDelta;
       const acctScore = v.score + acctAttribution;
-      // Append new SHAs to the player's wild; cap at the 100 newest so it doesn't grow forever.
+      // Turn commit provenance into supply-limited serialized copies. PostgreSQL assigns the
+      // next serial atomically; replaying this sync returns the same already-issued copy.
+      const issuedPets = newShas.length > 0
+        ? await issuePetCopies({ playerId: row.id, githubLogin: login, provenanceSeeds: newShas })
+        : [];
+      const issuedSeeds = issuedPets.map((pet) => pet.seed);
+      const createdPets = issuedPets.filter((pet) => pet.created);
+      // Append issued copies to the player's wild; cap at the 100 newest so it doesn't grow forever.
       const wild: string[] = Array.isArray(row.wild) ? row.wild : [];
-      const mergedWild = Array.from(new Set([...newShas, ...wild])).slice(0, 100);
+      const mergedWild = Array.from(new Set([...issuedSeeds, ...wild])).slice(0, 100);
       const newLookId = resolvePetLookId(row.activePetLookId);
-      const newPetSeeds = newShas.slice(0, 6);
+      const newPetSeeds = createdPets.slice(0, 6).map((pet) => pet.seed);
       const newPetLooks = Object.fromEntries(newPetSeeds.map((seed) => [seed, newLookId]));
       await setPetLookAssignmentsForSeeds(row.id, newPetSeeds, newLookId);
-      // Recompute denormalized pet aggregates for the leaderboards (cheap pure generate calls).
-      const creatures = mergedWild.map((s) => ({ s, c: generate(s) }));
-      const sortedByScore = [...creatures].sort((a, b) => b.c.score - a.c.score);
-      const rarestPetScore = sortedByScore[0]?.c.score ?? 0;
-      const rarestPetSeed = sortedByScore[0]?.s ?? null;
-      // Biggest by sizeN (the numeric voxel-driving size). Tie-break by score so the bigger pet
-      // shown is also the more interesting one when several share a size cap.
-      const sortedBySize = [...creatures].sort((a, b) => b.c.sizeN - a.c.sizeN || b.c.score - a.c.score);
-      const biggestPetSize = sortedBySize[0]?.c.sizeN ?? 0;
-      const biggestPetSeed = sortedBySize[0]?.s ?? null;
-      // Avatar: keep the player's pick if still owned, else default to the rarest.
-      const currentAvatar = row.avatarSeed && mergedWild.includes(row.avatarSeed) ? row.avatarSeed : (sortedByScore[0]?.s ?? null);
+      // The ledger is the authoritative, unbounded inventory. `players.wild` remains only a
+      // small compatibility/render cache; it must never cap collection totals or rankings.
+      const [{ totalPets = 0 } = { totalPets: 0 }] = await gameDb.select({ totalPets: sql<number>`count(*)::int` })
+        .from(wildSeedSources).where(eq(wildSeedSources.playerId, row.id));
+      const sortedByScore = await gameDb.select({ seed: wildSeedSources.petSeed, score: wildSeedSources.rarityScore })
+        .from(wildSeedSources).where(eq(wildSeedSources.playerId, row.id))
+        .orderBy(desc(wildSeedSources.rarityScore), desc(wildSeedSources.petSeed)).limit(8);
+      const [biggest] = await gameDb.select({ seed: wildSeedSources.petSeed, size: wildSeedSources.size })
+        .from(wildSeedSources).where(eq(wildSeedSources.playerId, row.id))
+        .orderBy(desc(wildSeedSources.size), desc(wildSeedSources.rarityScore), desc(wildSeedSources.petSeed)).limit(1);
+      const rarestPetScore = sortedByScore[0]?.score ?? 0;
+      const rarestPetSeed = sortedByScore[0]?.seed ?? null;
+      const biggestPetSize = biggest?.size ?? 0;
+      const biggestPetSeed = biggest?.seed ?? null;
+      // Avatar copy seeds are immutable ledger identities, so a selection remains valid even
+      // after it ages out of the small `wild` compatibility cache.
+      const currentAvatar = row.avatarSeed ?? rarestPetSeed;
       // Showcase: tier-gated slot count, defaulted to top-N by score. Honors a player's explicit
       // pick if they've curated one (length-trimmed to current tier slots).
       const slots = normalizeTier(row.tier) === "pro" ? 8 : normalizeTier(row.tier) === "supporter" ? 4 : 2;
       const currentShowcase: string[] = Array.isArray(row.showcaseSeeds) ? row.showcaseSeeds : [];
-      const curated = currentShowcase.filter((s) => mergedWild.includes(s)).slice(0, slots);
-      const showcase = curated.length > 0 ? curated : sortedByScore.slice(0, slots).map((x) => x.s);
+      const curated = currentShowcase.slice(0, slots);
+      const showcase = curated.length > 0 ? curated : sortedByScore.slice(0, slots).map((x) => x.seed);
       // Server-verified skill XP — recompute from this github's recent commits using the SAME
       // routing the local engine uses, so /top?skill ranks GitHub-scored skill XP, not /submit's.
       // GUARD: this costs a Search-API call + ~25 commit fetches, so only recompute when there's
@@ -387,7 +400,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const recomputedSkillXp = (attrDelta > 0 || !acctHasSkill) ? await computeVerifiedSkillXp(login).catch((): Record<string, number> => ({})) : null;
       await gameDb.update(players).set({
         avatarSeed: currentAvatar, biggestPetSeed, biggestPetSize,
-        petsCount: mergedWild.length, rarestPetScore, rarestPetSeed,
+        petsCount: totalPets, rarestPetScore, rarestPetSeed,
         showcaseSeeds: showcase, verifiedAt: new Date(), wild: mergedWild,
       }).where(eq(players.id, row.id));   // verified_skill_xp is rolled up from accounts below
       // Write THIS github's account row (its score + attribution + sync cursor), tag any new pet
@@ -398,14 +411,6 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         lastAttributionSyncAt: acctQuery ? new Date() : acct?.lastAttributionSyncAt ?? null,
         ...(recomputedSkillXp ? { verifiedSkillXp: recomputedSkillXp } : {}),
       }).where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`));
-      if (newShas.length > 0) await gameDb.insert(wildSeedSources).values(newShas.map((s) => {
-        const pet = generate(s);
-        return {
-          playerId: row.id, petSeed: s, githubLogin: login, name: pet.name,
-          tier: pet.tier, rarityScore: pet.score, size: pet.sizeN,
-          species: pet.traits.species, aura: pet.traits.aura, oneOfOne: pet.oneOfOne,
-        };
-      })).onConflictDoNothing();
       const agg = await rollupPlayerFromAccounts(row.id);
       const aggAttribution = agg?.attributionScore ?? acctAttribution;
       const aggScore = agg?.verifiedScore ?? acctScore;
@@ -456,7 +461,9 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // small (<= 6) — the cinematic burns ~2s per pet on-screen so dumping 30 at once
       // would be tedious. Anything beyond the cap still lands in `wild` (the player owns
       // every pet they earned this sync), it just doesn't get a screen-takeover entrance.
-      return { ok: true, score: aggScore, baseScore: v.score, attributionScore: aggAttribution, attributionDelta: attrDelta, newPets: newShas.length, newPetSeeds, newPetLooks, totalPets: mergedWild.length, rarestPetScore, biggestPetSize, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
+      return { ok: true, score: aggScore, baseScore: v.score, attributionScore: aggAttribution, attributionDelta: attrDelta, newPets: createdPets.length, newPetSeeds, newPetLooks,
+        newPetCopies: createdPets.slice(0, 6).map(({ seed, printingId, serialNumber, printRun }) => ({ seed, printingId, serialNumber, printRun })),
+        totalPets, rarestPetScore, biggestPetSize, totalStars: v.totalStars, publicRepos: v.publicRepos, extContribs: v.extContribs, accountAgeDays: v.accountAgeDays };
     })
     // Browserless CLI link: the CLI presents its existing GitHub OAuth token (gh auth token).
     // We verify it against GitHub (GET /user) — which PROVES the caller owns that login, no
