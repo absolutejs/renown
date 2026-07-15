@@ -36,6 +36,8 @@ import {
 import { providersConfiguration } from "./providersConfiguration";
 import { assertReservedAiClaim, markReservedAiClaimed } from "../reservedAiClaim.ts";
 import { oauthAccessToken, oauthErrorCode, replaceSessionAccessToken } from "./oauthCallback.ts";
+import type { LinkedProviderBindingStore, LinkedProviderGrantStore } from "@absolutejs/linked-providers";
+import { persistGithubRepoGrant } from "./githubRepoGrants.ts";
 
 // On a verified GitHub login, bind + verify the canonical player row (keyed by the login
 // under OAuth control, so nobody can impersonate someone's login) and recompute their score.
@@ -92,12 +94,13 @@ const onGithubVerified = async (login: string) => {
   await rollupPlayerFromAccounts(player.id);
 };
 
-export const authConfig = (db: NeonHttpDatabase<SchemaType>) =>
+export const authConfig = (db: NeonHttpDatabase<SchemaType>, linkedProviders: { bindingStore: LinkedProviderBindingStore; grantStore: LinkedProviderGrantStore }) =>
   defineAuthConfig<User>({
     getUser: (sub) => getDBUser({ db, userSub: sub }).then((user) => user ?? null),
     providersConfiguration,
-    // Signed in already? Then this OAuth round-trip is LINKING another login to the current
-    // account, not a fresh login. (renown has no connectors yet, so we never link_connector.)
+    // Signed in already? Then this OAuth round-trip links another login to the current account.
+    // GitHub's repository connector grant is persisted alongside that identity below so one
+    // consent round-trip proves ownership and records the separately scoped API credential.
     resolveAuthIntent: ({ currentUser }) =>
       currentUser !== undefined ? "link_identity" : "login",
     onCallbackSuccess: async ({ authProvider, providerConfiguration, providerInstance, redirect, session, tokenResponse, unregisteredSession, cookie: { user_session_id } }) => {
@@ -114,7 +117,7 @@ export const authConfig = (db: NeonHttpDatabase<SchemaType>) =>
         console.error("renown: oauth identity resolution failed", { authProvider, error: error instanceof Error ? error.message : String(error) });
         return redirect(authProvider === "github" ? "/repos?github=oauth-error" : "/?oauth_error=provider");
       }
-      return instantiateUserSession<User>({
+      const response = await instantiateUserSession<User>({
         authProvider,
         providerConfiguration,
         providerInstance,
@@ -130,6 +133,11 @@ export const authConfig = (db: NeonHttpDatabase<SchemaType>) =>
           return user;
         }
       });
+      if (authProvider === "github" && !response) {
+        const user = await getUser({ authProvider, db, userIdentity: resolvedAuthorization.userIdentity });
+        if (user) await persistGithubRepoGrant({ ...linkedProviders, authorization: resolvedAuthorization, configuredScopes: ["read:user", "user:email", "repo"], ownerRef: user.sub, tokenResponse });
+      }
+      return response;
     },
     // Add a second (or third) login to the already-signed-in user.
     onLinkIdentity: async ({ authProvider, currentUser, providerConfiguration, providerInstance, redirect, session, tokenResponse, userSessionId }) => {
@@ -149,10 +157,10 @@ export const authConfig = (db: NeonHttpDatabase<SchemaType>) =>
       const linked = await linkUserIdentity({ authProvider, db, userIdentity, userSub: currentUser.sub });
       // Linking a GitHub login also verifies the player (same as a first-time GitHub login).
       if (authProvider === "github") {
-        // The auth library keeps one provider token on the active session. Reconnecting GitHub
-        // must replace an older GitHub/Google token or `/api/account/repos` cannot use the newly
-        // granted private-repository scope.
+        // Keep the active session coherent for Auth's provider profile/revoke routes. Private
+        // repository access itself resolves the durable per-GitHub grant, not this session slot.
         replaceSessionAccessToken(session, userSessionId, authorization.accessToken, authorization.refreshToken);
+        await persistGithubRepoGrant({ ...linkedProviders, authorization, configuredScopes: ["read:user", "user:email", "repo"], ownerRef: currentUser.sub, tokenResponse });
         const login = (userIdentity as { login?: string }).login;
         if (login) await onGithubVerified(login).catch((e) => console.error("renown: github verify failed", e));
       }

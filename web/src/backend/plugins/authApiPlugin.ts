@@ -4,6 +4,7 @@
 // belonged to another account). Linking a NEW login happens via the OAuth flow itself
 // (visit /oauth2/<provider>/authorization while signed in -> resolveAuthIntent links it).
 import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
+import type { LinkedProviderBindingStore, LinkedProviderCredentialResolver, LinkedProviderGrantStore } from "@absolutejs/linked-providers";
 import { and, desc, eq, lt, or, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia } from "elysia";
@@ -34,9 +35,9 @@ import { loadPetCollection } from "../petGallery.ts";
 import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots, selectOfficialPetBookCopy } from "../petBooks.ts";
 import { acceptMarketTrade, buyMarketListing, cancelMarketAuction, cancelMarketBuyOrder, cancelMarketListing, cancelMarketTrade, createMarketAuction, createMarketBuyOrder, createMarketListing, createMarketTrade, declineMarketTrade, fillMarketBuyOrder, loadCollectorTradePets, loadMarketPetTemplate, loadMarketTrades, loadWallet, placeMarketBid } from "../marketplace.ts";
 import { deleteSubjectWatch, loadSubjectWatch, saveSubjectWatch } from "../petExchange.ts";
-import { loadAccessiblePrivateRepos } from "../privateRepos.ts";
+import { bootstrapGithubRepoGrantFromSession, loadPrivateReposFromGithubGrants } from "../auth/githubRepoGrants.ts";
 
-type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
+type Deps = { authSessionStore: AuthSessionStore<User>; bindingStore: LinkedProviderBindingStore; credentialResolver: LinkedProviderCredentialResolver; db: NeonHttpDatabase<SchemaType>; grantStore: LinkedProviderGrantStore };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
 const ACHIEVEMENT_PAGE_MAX = 100;
 
@@ -206,7 +207,7 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
   };
 };
 
-export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
+export const authApiPlugin = ({ authSessionStore, bindingStore, credentialResolver, db, grantStore }: Deps) =>
   new Elysia({ prefix: "/api/account" })
     .use(protectRoutePlugin<User>({ authSessionStore }))
     .onAfterHandle(({ set }) => { set.headers["cache-control"] = "private, no-store"; set.headers.pragma = "no-cache"; })
@@ -214,18 +215,26 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     .get("/", ({ protectRoute }) => protectRoute((user) => accountPayload(db, user.sub)))
     // Live, owner-only private repository list. The OAuth token is session-scoped and the
     // response inherits this plugin's `private, no-store` policy. Nothing is persisted.
-    .get("/repos", ({ protectRoute, cookie }) => protectRoute(async (user) => {
-      const sessionId = cookie.user_session_id.value;
-      const session = sessionId ? await authSessionStore.getSession(sessionId) : undefined;
-      if (!session?.accessToken || session.user.sub !== user.sub) {
-        return { repos: [], needsGithubAuth: true, reason: "Sign in with GitHub to load private repositories." };
-      }
+    .get("/repos", ({ cookie, protectRoute }) => protectRoute(async (user) => {
       const identities = await listDBAuthIdentitiesByUser({ db, userSub: user.sub });
       const allowedLogins = identities
         .filter((identity) => identity.auth_provider === "github")
         .map((identity) => githubIdentityLogin(identity) ?? "")
         .filter(Boolean);
-      return loadAccessiblePrivateRepos(session.accessToken, allowedLogins);
+      let result = await loadPrivateReposFromGithubGrants({ allowedLogins, credentialResolver, ownerRef: user.sub });
+      // One-time bridge for sessions established before grant storage shipped. The token is
+      // accepted only after GitHub proves its immutable identity belongs to this Renown user and
+      // confirms the `repo` scope; successful import immediately switches subsequent reads to the
+      // linked-provider resolver.
+      if (result.repos.length === 0 && result.needsGithubAuth) {
+        const sessionId = cookie.user_session_id.value;
+        const session = sessionId ? await authSessionStore.getSession(sessionId) : undefined;
+        if (session?.accessToken && session.user.sub === user.sub) {
+          const imported = await bootstrapGithubRepoGrantFromSession({ accessToken: session.accessToken, allowedLogins, bindingStore, grantStore, ownerRef: user.sub });
+          if (imported) result = await loadPrivateReposFromGithubGrants({ allowedLogins, credentialResolver, ownerRef: user.sub });
+        }
+      }
+      return result;
     }))
     // Keyset-paginated achievement details. The account bootstrap carries only the
     // denormalized count; rows are fetched when the trophy cabinet is actually visible.

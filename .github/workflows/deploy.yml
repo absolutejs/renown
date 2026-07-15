@@ -66,6 +66,9 @@ jobs:
       - name: Add idempotent attribution commit ledger
         run: bun --env-file=web/.env db/migrate-add-attribution-ledger.ts
 
+      - name: Add linked-provider OAuth grants
+        run: bun --env-file=web/.env web/scripts/migrate-linked-provider-grants.ts
+
       - name: Reserve unclaimed Claude and Codex identities
         run: bun --env-file=web/.env db/migrate-reserved-ai-identities.ts
 
