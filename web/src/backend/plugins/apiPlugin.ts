@@ -358,13 +358,15 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // Keep the human-readable cursor for status/recency; correctness comes from the SHA ledger.
       const attributionSyncStartedAt = new Date();
       if (acctQuery) {
-        const candidateShas = await fetchAttributionShas(acctQuery, acct?.attributionLedgerStartedOn ?? null, 1000);
+        const candidateShas = await fetchAttributionShas(acctQuery, 1000);
         if (candidateShas.length > 0) {
           const inserted = await gameDb.insert(attributionCommits).values(candidateShas.map((sha) => ({
             playerId: row.id, githubLogin: login, sha,
           }))).onConflictDoNothing().returning({ sha: attributionCommits.sha });
           newShas = inserted.map((item) => item.sha);
-          attrDelta = newShas.length;
+          // Accounts that predate the SHA ledger seed their recent baseline once without
+          // changing the historical total. New accounts default initialized and backfill.
+          attrDelta = acct?.attributionLedgerInitialized === false ? 0 : newShas.length;
         }
       }
       // This github's own verified score (base + its attribution); rolls up to the player below.
@@ -436,7 +438,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       await gameDb.update(playerAccounts).set({
         verifiedScore: acctScore, attributionScore: acctAttribution, verifiedAt: new Date(),
         lastAttributionSyncAt: acctQuery ? attributionSyncStartedAt : acct?.lastAttributionSyncAt ?? null,
-        attributionLedgerStartedOn: acctQuery ? (acct?.attributionLedgerStartedOn ?? attributionSyncStartedAt.toISOString().slice(0, 10)) : acct?.attributionLedgerStartedOn ?? null,
+        attributionLedgerInitialized: acctQuery ? true : acct?.attributionLedgerInitialized ?? true,
         ...(recomputedSkillXp ? { verifiedSkillXp: recomputedSkillXp } : {}),
       }).where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`));
       const agg = await rollupPlayerFromAccounts(row.id);

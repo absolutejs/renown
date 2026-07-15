@@ -123,9 +123,9 @@ export const playerAccounts = pgTable("player_accounts", {
   githubLogin: text("github_login").notNull(),
   attributionQuery: text("attribution_query"),                  // per-github commit search, e.g. author:<login>
   lastAttributionSyncAt: timestamp("last_attribution_sync_at"),
-  // Fixed lower bound for the SHA ledger below. Existing accounts begin on the first full UTC
-  // day after migration; newly linked accounts can backfill their latest 1,000 matches once.
-  attributionLedgerStartedOn: text("attribution_ledger_started_on"),
+  // Existing accounts seed the SHA ledger once without changing their historical score. New
+  // accounts default true so their first verification can legitimately backfill recent work.
+  attributionLedgerInitialized: boolean("attribution_ledger_initialized").notNull().default(true),
   verifiedScore: bigint("verified_score", { mode: "number" }).notNull().default(0),
   attributionScore: bigint("attribution_score", { mode: "number" }).notNull().default(0),
   verifiedAt: timestamp("verified_at"),

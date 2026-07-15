@@ -99,7 +99,6 @@ export const cronPlugin = () =>
           const due = await gameDb.select({
             playerId: playerAccounts.playerId, login: playerAccounts.githubLogin,
             attributionQuery: playerAccounts.attributionQuery, verifiedAt: playerAccounts.verifiedAt,
-            lastAttributionSyncAt: playerAccounts.lastAttributionSyncAt,
           }).from(playerAccounts).innerJoin(players, eq(players.id, playerAccounts.playerId))
             .where(and(
               eq(players.isAi, true), eq(players.githubVerified, true), eq(playerAccounts.githubVerified, true),
@@ -116,7 +115,7 @@ export const cronPlugin = () =>
               const result = await response.json().catch(() => ({})) as { error?: string };
               if (!response.ok || result.error) throw new Error(result.error || `verify returned ${response.status}`);
               const projectResult = await syncAttributedProjects(account.playerId, account.attributionQuery!, {
-                maxCommits: 500, maxRepos: 50, samplePerRepo: 3, since: account.lastAttributionSyncAt,
+                maxCommits: 500, maxRepos: 50, samplePerRepo: 3,
               });
               console.log(`[renown:cron] ai-participant-refresh @${account.login} repos=${projectResult.synced}/${projectResult.discovered}`);
             } catch (error) {

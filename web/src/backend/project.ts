@@ -223,10 +223,10 @@ export const loadProjectDirectory = async ({
 // GitHub before the shared tables are touched; private repository identities are never stored.
 export const syncAttributedProjects = async (
   playerId: string, attributionQuery: string,
-  opts?: { token?: string; maxCommits?: number; maxRepos?: number; samplePerRepo?: number; since?: Date | string | null },
+  opts?: { token?: string; maxCommits?: number; maxRepos?: number; samplePerRepo?: number },
 ) => {
   const token = opts?.token ?? process.env.GITHUB_TOKEN;
-  const discovered = await fetchAttributedRepositories(attributionQuery, opts?.maxCommits ?? 500, token, opts?.since);
+  const discovered = await fetchAttributedRepositories(attributionQuery, opts?.maxCommits ?? 500, token);
   let synced = 0, skippedPrivate = 0;
   for (const item of discovered.slice(0, Math.max(1, Math.min(1000, opts?.maxRepos ?? 50)))) {
     const [owner, ...parts] = item.key.split("/");
