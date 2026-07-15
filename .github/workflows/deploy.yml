@@ -66,6 +66,9 @@ jobs:
       - name: Migrate serialized pet issuance (idempotent)
         run: bun --env-file=web/.env db/migrate-serialized-pets.ts
 
+      - name: Migrate wallet and marketplace settlement (idempotent)
+        run: bun --env-file=web/.env db/migrate-marketplace.ts
+
       - name: Compile standalone binary (no PORT → absolute picks a free pre-render port)
         run: |
           cd web && bunx absolute compile --outfile "$GITHUB_WORKSPACE/compiled-server"

@@ -5,7 +5,8 @@
 // Runs WITHOUT keys: if STRIPE_SECRET_KEY is unset the plugin still mounts but billing routes
 // answer 503 "billing not configured" — so the server boots fine before the Stripe account exists.
 import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
-import { eq } from "drizzle-orm";
+import { cents, steamLikeWalletPolicy } from "@absolutejs/wallet";
+import { eq, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia, t } from "elysia";
 import { Stripe } from "stripe";
@@ -15,12 +16,14 @@ import { resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePl
 import { schema } from "../../../db/schema";
 import type { SchemaType, User } from "../../../db/schema";
 import { isTier, normalizeTier, priceToTier, type Tier, tierToPrice, TIER_INFO } from "../billing/tiers";
+import { loadWallet } from "../marketplace.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 
 const SECRET = process.env.STRIPE_SECRET_KEY;
 const PUBLISHABLE = process.env.STRIPE_PUBLISHABLE_KEY ?? null;
 const stripe = SECRET ? new Stripe(SECRET, { apiVersion: "2026-02-25.clover" }) : null;
+const walletFundingEnabled = process.env.STRIPE_WALLET_FUNDING_ENABLED === "true";
 
 // The user's GitHub login (so we can mirror their tier onto their public player row for the badge).
 const githubLoginFor = async (db: NeonHttpDatabase<SchemaType>, userSub: string) => {
@@ -67,10 +70,39 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
     // Public: what the client needs to render pricing. Safe with or without keys.
     .get("/stripe/config", async () => ({
       configured: Boolean(stripe),
+      walletFundingEnabled,
       publishableKey: PUBLISHABLE,
       tiers: TIER_INFO,
       prices: { supporter: process.env.STRIPE_PRICE_SUPPORTER ?? null, pro: process.env.STRIPE_PRICE_PRO ?? null },
       amounts: await loadAmounts(),
+    }))
+    // Closed-loop wallet deposit. Kept behind an explicit production switch until the
+    // Stripe account has written marketplace approval; the verified webhook is the only credit path.
+    .post("/wallet/deposit", ({ body, protectRoute, request, status }) => protectRoute(async (user) => {
+      if (!stripe) return status("Service Unavailable", "billing not configured");
+      if (!walletFundingEnabled) return status("Service Unavailable", "wallet funding is awaiting payment-provider approval");
+      const amountCents = cents(Number((body as { amountCents?: unknown } | null)?.amountCents), "deposit");
+      if (amountCents < steamLikeWalletPolicy.minimumFundingCents) return status("Bad Request", "minimum deposit is $5.00");
+      if (amountCents > steamLikeWalletPolicy.maximumTransactionCents) return status("Bad Request", "maximum deposit is $1,800.00");
+      const player = await resolvePlayerByUserSub(user.sub);
+      if (!player) return status("Bad Request", "link GitHub before funding your wallet");
+      const wallet = await loadWallet(player.id);
+      if (wallet.balanceCents + amountCents > steamLikeWalletPolicy.maximumBalanceCents) return status("Bad Request", "maximum wallet balance is $2,000.00");
+      let customerId = user.stripe_customer_id;
+      if (!customerId) {
+        const customer = await stripe.customers.create({ email: user.email ?? undefined, metadata: { user_sub: user.sub }, name: [user.first_name, user.last_name].filter(Boolean).join(" ") || undefined });
+        customerId = customer.id;
+        await db.update(schema.users).set({ stripe_customer_id: customerId }).where(eq(schema.users.sub, user.sub));
+      }
+      const origin = new URL(request.url).origin;
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment", customer: customerId,
+        line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amountCents, product_data: { name: "Renown wallet deposit", description: "Closed-loop marketplace balance; not redeemable for cash." } } }],
+        payment_intent_data: { metadata: { kind: "wallet_funding", user_sub: user.sub, player_id: player.id } },
+        metadata: { kind: "wallet_funding", user_sub: user.sub, player_id: player.id, amount_cents: String(amountCents) },
+        success_url: `${origin}/marketplace?funding=success`, cancel_url: `${origin}/marketplace?funding=cancel`,
+      });
+      return { url: session.url };
     }))
     // Start a subscription: hosted Stripe Checkout. Requires sign-in.
     .post("/billing/checkout", ({ body, protectRoute, request, status }) =>
@@ -133,6 +165,20 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
         return rows[0] ?? null;
       };
       switch (event.type) {
+        case "checkout.session.completed":
+        case "checkout.session.async_payment_succeeded": {
+          const session = event.data.object;
+          if (session.metadata?.kind !== "wallet_funding" || session.payment_status !== "paid") break;
+          const playerId = session.metadata.player_id;
+          const userSub = session.metadata.user_sub;
+          const amountCents = Number(session.metadata.amount_cents);
+          if (!playerId || !userSub || !Number.isSafeInteger(amountCents)) break;
+          const player = await resolvePlayerByUserSub(userSub);
+          if (!player || player.id !== playerId) throw new Error("wallet funding identity mismatch");
+          const paymentRef = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? session.id;
+          await gameDb.execute(sql`select * from fund_player_wallet(${playerId}, ${amountCents}, ${`stripe:wallet:${session.id}`}, ${paymentRef})`);
+          break;
+        }
         case "customer.subscription.created":
         case "customer.subscription.updated": {
           const sub = event.data.object;

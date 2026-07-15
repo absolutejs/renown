@@ -56,21 +56,21 @@ Current ASCII is 5-row block font + scene frames. To go further (research-backed
   screen, ~12–15fps for banners / ~30fps full-screen — never `clear+reprint` (flicker).
 - Optional: `chafa`(-wasm) for real image→art; kitty/iterm/sixel when detected.
 
-## 4. The optional on-chain proof layer (tasteful, earned, never required)
+## 4. The optional on-chain proof layer (tasteful, earned origin, never required)
 
 **Blockchain is an opt-in *proof layer*, never a dependency.** The whole game runs
-off-chain. The chain is an opt-in "mint" that turns an earned item into a permanent,
-verifiable, **soulbound** 1/1. Architecture (all research-sourced):
+off-chain. The chain is an opt-in proof and provenance layer. Badges can remain soulbound;
+pet cards are explicitly transferable through guaranteed application settlement while
+their original-earner mark remains permanent.
 
 - **The seed is the on-chain record.** Store only `seed + generatorVersion (+ tier)`;
   re-derive the art anywhere (Autoglyphs / Art Blocks / Chain Runners model). Tiny gas,
   re-derivable forever. Optionally an on-chain `tokenURI()` SVG for marketplace previews
   (Nouns RLE→rects style).
-- **Soulbound = earned, not bought.** Non-transferable (ERC-5484 address-bound, or
-  ERC-5114 bound to the pet). No secondary market, no floor, no speculation — the
-  anti-financialization thesis of Vitalik's SBT paper. (Prior art: GitPOAP does
-  blockchain-for-dev-contributions reasonably; we improve it by being soulbound + fully
-  on-chain generative + giving pets ERC-6551 inventories.)
+- **Origin is earned; custody may move.** Mint requires an attested real contribution.
+  Marketable pets can later transfer for a sale, trade, gift, or recovery, appending an
+  immutable event without rewriting who earned the original. Achievement credentials and
+  other identity-bound rewards can still use ERC-5484/5114-style soulbinding.
 - **Provable rarity, two-tier.** Variety traits derive deterministically from the earned
   seed (entropy = the real commit). Genuine status 1/1s use **Chainlink VRF** (provably
   fair, not re-rollable) + on-chain `mapping(seed=>used)` uniqueness + supply cap. Avoid
@@ -80,7 +80,7 @@ verifiable, **soulbound** 1/1. Architecture (all research-sourced):
   paymaster + EIP-712 lazy/sponsored minting. The dev never buys a token, sees gas, or
   handles a seed phrase. Self-custody export optional.
 - **How it dodges every NFT criticism**: PoS+L2 ≈ a few web searches of energy;
-  soulbound kills speculation; no sale = nothing to rug; "right-click-save" misses the
+  marketplace-controlled settlement prevents double sales; "right-click-save" misses the
   point (the value is provenance + the asset *is* the on-chain seed); embedded wallets
   fix custody. Honest tradeoff: a sponsored paymaster is an ongoing (sub-cent/mint) cost
   and a partial centralization point you can decentralize later. **For most players an
@@ -93,7 +93,7 @@ verifiable, **soulbound** 1/1. Architecture (all research-sourced):
 2. **Wild procedural drops** + generalized curated drop-sets/seasons (the pop-culture pipeline).
 3. **Pet** (`core/pet.ts`) on the engine — evolution, lineages, no-death, Companion tab.
 4. **Animation upgrade** (half-block/braille diff-buffer) for evolutions & 1/1 reveals.
-5. **On-chain proof layer** (opt-in): Base + soulbound + seed-is-asset + VRF for true 1/1s.
+5. **On-chain proof layer** (opt-in): Base + immutable origins + explicit transferability + seed-is-asset + VRF for true 1/1s.
 
 ## Key sources
 

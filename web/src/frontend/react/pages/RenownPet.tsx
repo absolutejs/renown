@@ -9,6 +9,7 @@ type RGB = readonly [number, number, number];
 const hex = ([r, g, b]: RGB) => `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
 const pct = (p: number) => `${p >= .01 ? (p * 100).toFixed(p >= .1 ? 0 : 2) : (p * 100).toFixed(4)}%`;
 const odds = (p: number) => p >= 1 ? "Every copy" : `1 in ${(1 / p).toLocaleString(undefined, { maximumFractionDigits: p > .01 ? 1 : 0 })}`;
+const money = (amountCents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amountCents / 100);
 const variants = Object.entries(CARD_VARIANTS) as [CardVariant, (typeof CARD_VARIANTS)[CardVariant]][];
 
 const heroSvgHtml = (seed: string, box: number) => {
@@ -27,6 +28,7 @@ type PetOwner = { login: string | null; handle: string; tier: string; isAi: bool
   printingId: string | null; serialNumber: number | null; printRun: number | null; mintNumber: number | null;
   variant: string | null; finish: string | null; recipeVersion: string | null; mutation: string | null; colorway: string | null; material: string | null; copyPattern: string | null;
   population: number | null; setId: string | null; subjectName: string | null; earnedAt: string | null; sizeRank: number | null } | null;
+type PetMarket = { listing: { id: string; priceCents: number; sellerPlayerId: string } | null; events: { sequence: number; kind: string; reason: string; amountCents: number | null; occurredAt: string | Date; from: { login: string | null; handle: string } | null; to: { login: string | null; handle: string } | null }[] };
 
 const Fact = ({ label, value }: { label: string; value: ReactNode }) => <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)" }}>
   <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>{label}</div>
@@ -39,7 +41,7 @@ const OddsTable = ({ title, rows, current }: { title: string; rows: readonly Wei
   </tbody></table></div>
 </>;
 
-const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origin: string }) => {
+const PetBody = ({ pet, owner, market, origin }: { pet: PetForUI; owner: PetOwner; market: PetMarket; origin: string }) => {
   const accent = hex(TIER_RGB[pet.tier as Tier] ?? [160, 160, 180]);
   const pageUrl = `${origin}/pet/${encodeURIComponent(pet.seed)}`;
   const serial = owner?.serialNumber ?? pet.card?.serialNumber ?? null;
@@ -80,7 +82,16 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
         {owner?.login
           ? <p style={{ margin: "13px 0 0" }}>Owned by <a href={`/profile/${encodeURIComponent(owner.login)}`} style={{ fontWeight: 700, color: accent, textDecoration: "none" }}>@{owner.login}</a>{owner.isAi && <span title="AI participant"> 🤖</span>}</p>
           : <p className="muted" style={{ margin: "13px 0 0", fontSize: 13 }}>Unclaimed — this exact copy has not been discovered.</p>}
+        {market.listing && <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 16 }}><strong style={{ fontSize: 22 }}>{money(market.listing.priceCents)}</strong><a className="btn" href={`/marketplace?buy=${encodeURIComponent(market.listing.id)}`}>Buy on market</a></div>}
       </div>
+    </section>
+
+    <section className="card">
+      <h2 style={{ marginTop: 0 }}>Ownership history</h2>
+      <p className="muted">The original earner is permanent. Transfers append to this record; they never rewrite it.</p>
+      <div className="ownershipTimeline">{market.events.length ? market.events.map((event) => <div key={event.sequence}>
+        <span>#{event.sequence}</span><div><strong>{event.kind === "mint" ? "Earned" : event.reason[0]?.toUpperCase() + event.reason.slice(1)}</strong><p>{event.kind === "mint" ? `${event.to?.login ? `@${event.to.login}` : event.to?.handle ?? "Original owner"} discovered this copy` : `${event.from?.login ? `@${event.from.login}` : event.from?.handle ?? "Collector"} → ${event.to?.login ? `@${event.to.login}` : event.to?.handle ?? "Collector"}`}{event.amountCents ? ` · ${money(event.amountCents)}` : ""}</p></div><time>{new Date(event.occurredAt).toLocaleDateString()}</time>
+      </div>) : <p className="muted">Provenance will appear after the marketplace ledger migration.</p>}</div>
     </section>
 
     <section className="card">
@@ -146,9 +157,9 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
   </main>;
 };
 
-type RenownPetProps = { cssPath?: string; pet?: PetForUI | null; owner?: PetOwner; origin?: string; shareSnippet?: string };
+type RenownPetProps = { cssPath?: string; pet?: PetForUI | null; owner?: PetOwner; market?: PetMarket; origin?: string; shareSnippet?: string };
 
-export const RenownPet = ({ cssPath, pet = null, owner = null, origin = "", shareSnippet }: RenownPetProps) => {
+export const RenownPet = ({ cssPath, pet = null, owner = null, market = { listing: null, events: [] }, origin = "", shareSnippet }: RenownPetProps) => {
   const serial = owner?.serialNumber ?? pet?.card?.serialNumber ?? null;
   const total = owner?.printRun ?? pet?.card?.printRun ?? null;
   const edition = serial != null && total != null ? ` #${serial.toLocaleString()} / ${total.toLocaleString()}` : "";
@@ -161,6 +172,6 @@ export const RenownPet = ({ cssPath, pet = null, owner = null, origin = "", shar
     <Head cssPath={cssPath} title={title} description={desc} canonical={fullUrl}
       openGraph={{ title, description: desc, type: "website", url: fullUrl, image, imageAlt: title, imageWidth: 1200, imageHeight: 630, siteName: "Renown" }}
       twitter={{ card: "summary_large_image", title, description: desc, image, imageAlt: title }} />
-    <body>{pet ? <PetBody pet={pet} owner={owner} origin={origin} /> : <main className="wrap profilePage"><SiteHeader back={{ href: "/pets", label: "Back to collection" }} /><section className="card"><h1>No such pet</h1><p className="muted">That seed does not resolve to a pet.</p></section></main>}</body>
+    <body>{pet ? <PetBody pet={pet} owner={owner} market={market} origin={origin} /> : <main className="wrap profilePage"><SiteHeader back={{ href: "/pets", label: "Back to collection" }} /><section className="card"><h1>No such pet</h1><p className="muted">That seed does not resolve to a pet.</p></section></main>}</body>
   </html>;
 };

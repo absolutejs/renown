@@ -30,6 +30,7 @@ import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookA
 import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { loadPetCollection } from "../petGallery.ts";
 import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots, selectOfficialPetBookCopy } from "../petBooks.ts";
+import { buyMarketListing, cancelMarketListing, createMarketListing, loadWallet } from "../marketplace.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
@@ -224,6 +225,34 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         return loadPetCollection(player, query);
       }),
     )
+    .get("/wallet", ({ protectRoute, status }) => protectRoute(async (user) => {
+      const player = await resolvePlayerByUserSub(user.sub);
+      return player ? loadWallet(player.id) : status("Bad Request", "link GitHub before using the wallet");
+    }))
+    .post("/marketplace/listings", ({ body, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "link GitHub before listing a pet");
+        return { ok: true, ...(await createMarketListing(player.id, body)) };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not create listing"); }
+    }))
+    .delete("/marketplace/listings/:id", ({ params, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "player not found");
+        await cancelMarketListing(player.id, params.id);
+        return { ok: true };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not cancel listing"); }
+    }))
+    .post("/marketplace/listings/:id/buy", ({ params, request, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "link GitHub before buying a pet");
+        const retryToken = (request.headers.get("idempotency-key") ?? crypto.randomUUID()).slice(0, 200);
+        const idempotency = `sale:${params.id}:${player.id}:${retryToken}`;
+        return { ok: true, ...(await buyMarketListing(player.id, params.id, idempotency)) };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "sale could not settle"); }
+    }))
     .get("/pet-books", ({ protectRoute }) => protectRoute(async (user) => {
       const player = await resolvePlayerByUserSub(user.sub);
       if (!player) return { official: [], personal: [] };

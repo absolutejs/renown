@@ -1,16 +1,17 @@
 import type { MouseEvent, ReactNode } from "react";
 import { HeaderAccountMenu } from "./HeaderAccountMenu";
 
-export type SiteSection = "home" | "leaderboard" | "pets" | "achievements" | "season" | "guide";
+export type SiteSection = "home" | "leaderboard" | "pets" | "marketplace" | "achievements" | "season" | "guide";
 export type BackTarget = { href: string; label: string };
 
 const PRIMARY: { id: SiteSection; label: string; href: string }[] = [
   { id: "home", label: "Home", href: "/" },
   { id: "leaderboard", label: "Leaderboard", href: "/leaderboard" },
   { id: "pets", label: "Collection", href: "/pets" },
-  { id: "achievements", label: "Achievements", href: "/achievements" },
+  { id: "marketplace", label: "Market", href: "/marketplace" },
 ];
 const MORE: { id: SiteSection; label: string; href: string }[] = [
+  { id: "achievements", label: "Achievements", href: "/achievements" },
   { id: "season", label: "Season", href: "/season" },
   { id: "guide", label: "Setup guide", href: "/guide" },
 ];
@@ -36,7 +37,7 @@ const SmartBack = ({ target, mobile = false }: { target: BackTarget; mobile?: bo
 };
 
 export const SiteHeader = ({ current, back, trailing }: { current?: SiteSection; back?: BackTarget; trailing?: ReactNode }) => {
-  const moreActive = current === "season" || current === "guide";
+  const moreActive = current === "achievements" || current === "season" || current === "guide";
   return (
     <header className="topbar siteHeader">
       <a className="brand" href="/"><Logomark /><span>Renown</span></a>

@@ -11,6 +11,7 @@ import { RenownOrg } from "../../frontend/react/pages/RenownOrg";
 import { RenownAchievement } from "../../frontend/react/pages/RenownAchievement";
 import { RenownPet } from "../../frontend/react/pages/RenownPet";
 import { RenownPets } from "../../frontend/react/pages/RenownPets";
+import { RenownMarketplace } from "../../frontend/react/pages/RenownMarketplace";
 import { loadRecentPets } from "../petGallery";
 import { RenownAchievements } from "../../frontend/react/pages/RenownAchievements";
 import { loadAchievementsIndex } from "../achievementsIndex";
@@ -43,6 +44,7 @@ import { orgOgEtag, renderOrgOgPng } from "../orgOg";
 import { achievementShareSnippet, loadAchievement } from "../achievement";
 import { achievementOgEtag, renderAchievementOgPng } from "../achievementOg";
 import { renderCached } from "../renderCache";
+import { loadMarketplace, loadPetMarketState } from "../marketplace";
 
 // Resolve the absolute origin (https://host) the request was made to. Used
 // for OG/canonical URL tags so shared profile links produce fully-qualified
@@ -145,13 +147,18 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     const c = seed ? generate(seed) : null;   // a seed deterministically generates the creature (pure, no DB)
     const pet = c ? { seed, name: c.name, tier: c.tier, sizeN: c.sizeN, score: c.score, statRarity: c.statRarity, rarestTrait: c.rarestTrait, oneOfOne: c.oneOfOne, mythicAura: c.mythicAura, traits: c.traits, rarityBreakdown: c.rarityBreakdown, copyTraits: c.copyTraits, card: c.card } : null;
     const owner = c ? await findPetOwner(seed) : null;   // copy seed → at most one owner; links back to their profile
-    return handleReactPageRequest({ index: asset(manifest, "RenownPetIndex"), Page: RenownPet, props: { cssPath, pet, owner, origin: originOf(request) }, request });
+    const market = c ? await loadPetMarketState(seed) : { listing: null, events: [] };
+    return handleReactPageRequest({ index: asset(manifest, "RenownPetIndex"), Page: RenownPet, props: { cssPath, pet, owner, market, origin: originOf(request) }, request });
   };
   const petsPage = async ({ request }: { request: Request }) => {
     const url = new URL(request.url);
     const page = await loadRecentPets({ limit: 24, mode: url.searchParams.get("mode") });
     return handleReactPageRequest({ index: asset(manifest, "RenownPetsIndex"), Page: RenownPets, props: { cssPath, ...page, origin: originOf(request) }, request });
   };
+  const marketplacePage = async ({ request }: { request: Request }) => handleReactPageRequest({
+    index: asset(manifest, "RenownMarketplaceIndex"), Page: RenownMarketplace,
+    props: { cssPath, market: await loadMarketplace({ limit: 24, listingId: new URL(request.url).searchParams.get("buy") ?? "" }), origin: originOf(request) }, request,
+  });
   const achievementsPage = async ({ request }: { request: Request }) => {
     const index = await loadAchievementsIndex();
     return handleReactPageRequest({ index: asset(manifest, "RenownAchievementsIndex"), Page: RenownAchievements, props: { cssPath, index, origin: originOf(request) }, request });
@@ -307,6 +314,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/profile/:login/pets.svg", profilePets)
     .get("/profile/:login", profile)
     .get("/pets", petsPage)
+    .get("/marketplace", marketplacePage)
     .get("/season", seasonPage)
     .get("/vs/:a/:b/og.png", versusOg)
     .get("/vs/:a/:b", versusPage)

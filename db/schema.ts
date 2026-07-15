@@ -266,6 +266,101 @@ export const collectorBookSlots = pgTable("collector_book_slots", {
   bookPetUniq: uniqueIndex("collector_book_slots_book_pet_uniq").on(t.bookId, t.petSeed),
 }));
 
+// Closed-loop USD wallet. Cached balances are updated only by the settlement functions;
+// wallet_entries remains the append-only accounting source of truth.
+export const walletAccounts = pgTable("wallet_accounts", {
+  id: text("id").primaryKey(),
+  playerId: text("player_id").references(() => players.id, { onDelete: "restrict" }),
+  currency: text("currency").notNull().default("USD"),
+  status: text("status").notNull().default("active"),
+  allowNegative: boolean("allow_negative").notNull().default(false),
+  balanceCents: integer("balance_cents").notNull().default(0),
+  reservedCents: integer("reserved_cents").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ playerUniq: uniqueIndex("wallet_accounts_player_uniq").on(t.playerId) }));
+
+export const walletTransactions = pgTable("wallet_transactions", {
+  id: text("id").primaryKey(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  kind: text("kind").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, string>>().notNull().default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ idempotencyUniq: uniqueIndex("wallet_transactions_idempotency_uniq").on(t.idempotencyKey) }));
+
+export const walletEntries = pgTable("wallet_entries", {
+  transactionId: text("transaction_id").notNull().references(() => walletTransactions.id, { onDelete: "restrict" }),
+  position: integer("position").notNull(),
+  accountId: text("account_id").notNull().references(() => walletAccounts.id, { onDelete: "restrict" }),
+  amountCents: integer("amount_cents").notNull(),
+}, (t) => ({ pk: primaryKey({ columns: [t.transactionId, t.position] }), accountIdx: index("wallet_entries_account_idx").on(t.accountId, t.transactionId) }));
+
+export const walletReservations = pgTable("wallet_reservations", {
+  id: text("id").primaryKey(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  accountId: text("account_id").notNull().references(() => walletAccounts.id, { onDelete: "restrict" }),
+  amountCents: integer("amount_cents").notNull(),
+  status: text("status").notNull().default("active"),
+  purpose: text("purpose").notNull(),
+  captureTransactionId: text("capture_transaction_id").references(() => walletTransactions.id, { onDelete: "restrict" }),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ idempotencyUniq: uniqueIndex("wallet_reservations_idempotency_uniq").on(t.idempotencyKey), activeIdx: index("wallet_reservations_active_idx").on(t.accountId, t.status, t.expiresAt) }));
+
+export const marketListings = pgTable("market_listings", {
+  id: text("id").primaryKey(),
+  petSeed: text("pet_seed").notNull(),
+  sellerPlayerId: text("seller_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),
+  priceCents: integer("price_cents").notNull(),
+  status: text("status").notNull().default("active"),
+  buyerPlayerId: text("buyer_player_id").references(() => players.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"),
+}, (t) => ({ browseIdx: index("market_listings_browse_idx").on(t.status, t.createdAt, t.id), petStatusIdx: index("market_listings_pet_status_idx").on(t.petSeed, t.status) }));
+
+export const marketBuyOrders = pgTable("market_buy_orders", {
+  id: text("id").primaryKey(),
+  buyerPlayerId: text("buyer_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),
+  criteria: jsonb("criteria").$type<{ printingId?: string; subjectId?: string; maxSerial?: number; finish?: string; material?: string; colorway?: string; pattern?: string }>().notNull(),
+  priceCents: integer("price_cents").notNull(),
+  reservationId: text("reservation_id").notNull().references(() => walletReservations.id, { onDelete: "restrict" }),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"),
+}, (t) => ({ browseIdx: index("market_buy_orders_browse_idx").on(t.status, t.priceCents, t.createdAt) }));
+
+export const marketAuctions = pgTable("market_auctions", {
+  id: text("id").primaryKey(), petSeed: text("pet_seed").notNull(),
+  sellerPlayerId: text("seller_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),
+  startCents: integer("start_cents").notNull(), reserveCents: integer("reserve_cents"),
+  status: text("status").notNull().default("active"), endsAt: timestamp("ends_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ endingIdx: index("market_auctions_ending_idx").on(t.status, t.endsAt) }));
+
+export const marketBids = pgTable("market_bids", {
+  id: text("id").primaryKey(), auctionId: text("auction_id").notNull().references(() => marketAuctions.id, { onDelete: "cascade" }),
+  bidderPlayerId: text("bidder_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),
+  amountCents: integer("amount_cents").notNull(), reservationId: text("reservation_id").notNull().references(() => walletReservations.id, { onDelete: "restrict" }),
+  status: text("status").notNull().default("active"), createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({ auctionAmountIdx: index("market_bids_auction_amount_idx").on(t.auctionId, t.amountCents, t.createdAt) }));
+
+export const marketTrades = pgTable("market_trades", {
+  id: text("id").primaryKey(), proposerPlayerId: text("proposer_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),
+  counterpartyPlayerId: text("counterparty_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),
+  offeredPetSeeds: jsonb("offered_pet_seeds").$type<string[]>().notNull().default([]), requestedPetSeeds: jsonb("requested_pet_seeds").$type<string[]>().notNull().default([]),
+  status: text("status").notNull().default("pending"), createdAt: timestamp("created_at").notNull().defaultNow(), expiresAt: timestamp("expires_at"),
+});
+
+// Public provenance deliberately contains ownership and settlement references only.
+// Payment-provider ids, identity data, and card data never belong here or on-chain.
+export const petOwnershipEvents = pgTable("pet_ownership_events", {
+  id: text("id").primaryKey(), petSeed: text("pet_seed").notNull(), sequence: integer("sequence").notNull(),
+  kind: text("kind").notNull(), fromPlayerId: text("from_player_id").references(() => players.id, { onDelete: "restrict" }),
+  toPlayerId: text("to_player_id").references(() => players.id, { onDelete: "restrict" }), reason: text("reason").notNull(),
+  settlementRef: text("settlement_ref"), chainRef: text("chain_ref"), amountCents: integer("amount_cents"),
+  occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+}, (t) => ({ petSequenceUniq: uniqueIndex("pet_ownership_events_pet_sequence_uniq").on(t.petSeed, t.sequence), petHistoryIdx: index("pet_ownership_events_pet_history_idx").on(t.petSeed, t.occurredAt) }));
+
 // Weekly quest progress. Per (player, ISO-week, quest): the baseline signal value captured on
 // first view that week (so progress = current - baseline for "this week" goals) and the
 // completion timestamp. Completing a quest mints a deterministic quest pet into the player's wild.
