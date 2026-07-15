@@ -25,6 +25,7 @@ import { gameDb } from "../sync.ts";
 import { verifyGithub } from "../verify.ts";
 import { resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
+import { advanceAllTimeVerifiedScore } from "../allTimeScore.ts";
 import {
   createUser,
   getDBUser,
@@ -74,8 +75,9 @@ const onGithubVerified = async (login: string) => {
   // Verify this github's base into its account row (base + its own attribution), then roll up.
   const v = await verifyGithub(login);
   if (v) {
-    const a = (await gameDb.select({ attributionScore: playerAccounts.attributionScore }).from(playerAccounts).where(and(eq(playerAccounts.playerId, player.id), sql`lower(${playerAccounts.githubLogin}) = ${lower}`)).limit(1))[0];
-    await gameDb.update(playerAccounts).set({ verifiedScore: v.score + Number(a?.attributionScore ?? 0), verifiedAt: new Date() }).where(and(eq(playerAccounts.playerId, player.id), sql`lower(${playerAccounts.githubLogin}) = ${lower}`));
+    const a = (await gameDb.select({ verifiedScore: playerAccounts.verifiedScore, attributionScore: playerAccounts.attributionScore }).from(playerAccounts).where(and(eq(playerAccounts.playerId, player.id), sql`lower(${playerAccounts.githubLogin}) = ${lower}`)).limit(1))[0];
+    const score = advanceAllTimeVerifiedScore({ currentVerifiedScore: Number(a?.verifiedScore ?? 0), currentAttributionScore: Number(a?.attributionScore ?? 0), recomputedBaseScore: v.score });
+    await gameDb.update(playerAccounts).set({ verifiedScore: score.verifiedScore, verifiedAt: new Date() }).where(and(eq(playerAccounts.playerId, player.id), sql`lower(${playerAccounts.githubLogin}) = ${lower}`));
   }
   await rollupPlayerFromAccounts(player.id);
 };

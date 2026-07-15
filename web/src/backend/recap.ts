@@ -40,7 +40,9 @@ export const loadRecap = async (login: string, days = 7) => {
     login: p.githubLogin ?? login, handle: p.handle, avatarSeed: p.avatarSeed, tier: normalizeTier(p.tier), isAi: p.isAi,
     windowDays: d,
     attributionDelta: Number(p.attributionScore) - Number(baseAttr),
-    verifiedDelta: Number(p.verifiedScore) - Number(baseVer),
+    // Historical rows may predate the all-time invariant. A recap is an earnings surface, not
+    // an accounting correction surface, so it never presents a negative value as work earned.
+    verifiedDelta: Math.max(0, Number(p.verifiedScore) - Number(baseVer)),
     currentScore: Number(p.verifiedScore),
     totalLevel: p.totalLevel,
     petsCount: p.petsCount,

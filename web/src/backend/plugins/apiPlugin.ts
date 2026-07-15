@@ -12,6 +12,7 @@ import { fetchRepoImportance, scoreRepoForLogin } from "../repoScore.ts";
 import { computeVerifiedSkillXp } from "../skillScore.ts";
 import { buildWeeklyDigest, loadRecap } from "../recap.ts";
 import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
+import { advanceAllTimeVerifiedScore } from "../allTimeScore.ts";
 import { authIdentities, users } from "../../../db/schema.ts";
 import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
@@ -362,7 +363,13 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       }
       // This github's own verified score (base + its attribution); rolls up to the player below.
       const acctAttribution = Number(acct?.attributionScore ?? 0) + attrDelta;
-      const acctScore = v.score + acctAttribution;
+      const score = advanceAllTimeVerifiedScore({
+        currentVerifiedScore: Number(acct?.verifiedScore ?? 0),
+        currentAttributionScore: Number(acct?.attributionScore ?? 0),
+        recomputedBaseScore: v.score,
+        nextAttributionScore: acctAttribution,
+      });
+      const acctScore = score.verifiedScore;
       // Turn commit provenance into supply-limited serialized copies. PostgreSQL assigns the
       // next serial atomically; replaying this sync returns the same already-issued copy.
       const issuedPets = newShas.length > 0
@@ -539,8 +546,9 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // then roll the player's headline columns up across all accounts.
       const v = await verifyGithub(login);
       if (v) {
-        const acct = (await gameDb.select({ attributionScore: playerAccounts.attributionScore }).from(playerAccounts).where(and(eq(playerAccounts.playerId, playerRow.id), eq(playerAccounts.githubLogin, login))).limit(1))[0];
-        await gameDb.update(playerAccounts).set({ verifiedScore: v.score + Number(acct?.attributionScore ?? 0), verifiedAt: new Date() }).where(and(eq(playerAccounts.playerId, playerRow.id), eq(playerAccounts.githubLogin, login)));
+        const acct = (await gameDb.select({ verifiedScore: playerAccounts.verifiedScore, attributionScore: playerAccounts.attributionScore }).from(playerAccounts).where(and(eq(playerAccounts.playerId, playerRow.id), eq(playerAccounts.githubLogin, login))).limit(1))[0];
+        const score = advanceAllTimeVerifiedScore({ currentVerifiedScore: Number(acct?.verifiedScore ?? 0), currentAttributionScore: Number(acct?.attributionScore ?? 0), recomputedBaseScore: v.score });
+        await gameDb.update(playerAccounts).set({ verifiedScore: score.verifiedScore, verifiedAt: new Date() }).where(and(eq(playerAccounts.playerId, playerRow.id), eq(playerAccounts.githubLogin, login)));
       }
       const rolled = await rollupPlayerFromAccounts(playerRow.id);
       return { ok: true, login, primary: isPrimary, verifiedScore: rolled?.verifiedScore ?? v?.score ?? 0, playerId: playerRow.id };
@@ -1178,7 +1186,11 @@ ${items}
       if (!row?.githubVerified) return { error: "login not github-verified" };
       const v = await verifyGithub(login);
       if (!v) return { error: "github verification failed" };
-      await gameDb.update(players).set({ verifiedScore: v.score, verifiedAt: new Date() }).where(eq(players.id, row.id));
-      return { ok: true, login, score: v.score };
+      const acct = (await gameDb.select().from(playerAccounts).where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`)).limit(1))[0];
+      if (!acct) return { error: "github score ledger missing" };
+      const score = advanceAllTimeVerifiedScore({ currentVerifiedScore: Number(acct.verifiedScore), currentAttributionScore: Number(acct.attributionScore), recomputedBaseScore: v.score });
+      await gameDb.update(playerAccounts).set({ verifiedScore: score.verifiedScore, verifiedAt: new Date() }).where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`));
+      const rolled = await rollupPlayerFromAccounts(row.id);
+      return { ok: true, login, score: rolled?.verifiedScore ?? score.verifiedScore };
     });
 };

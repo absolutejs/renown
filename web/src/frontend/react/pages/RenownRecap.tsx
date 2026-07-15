@@ -79,7 +79,8 @@ const RecapBody = ({ recap, origin }: { recap: RecapForUI; origin: string }) => 
 
       <section className="card">
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {recap.verifiedDelta > 0 && <Stat label="score this week" value={`+${fmt(recap.verifiedDelta)}`} />}
+          <Stat label="all-time verified" value={fmt(recap.currentScore)} />
+          {recap.verifiedDelta > 0 && <Stat label="verified earned this week" value={`+${fmt(recap.verifiedDelta)}`} />}
           <Stat label="achievements" value={`+${recap.newAchievements.length}`} />
           <Stat label="total level" value={fmt(recap.totalLevel)} />
           <Stat label="Pet cards" value={fmt(recap.petsCount)} />

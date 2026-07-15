@@ -1585,24 +1585,28 @@ const RecapCard = ({ login }: { login: string }) => {
         <h2 style={{ margin: 0 }}>Your past week <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· last {r.windowDays} days</span></h2>
         {r.login && <a href={`/recap/${encodeURIComponent(r.login)}`} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: "#c4b5fd", textDecoration: "none" }}>Share your week →</a>}
       </div>
+      <div className="syncStats recapStats">
+        <div className="stat" title="Your permanent, all-time GitHub-verified score">
+          <span className="num">{r.currentScore.toLocaleString()}</span>
+          <span className="lbl">all-time verified</span>
+        </div>
+        <div className="stat" title="Permanent verified score first earned during this window">
+          <span className="num" style={{ color: r.verifiedDelta > 0 ? "#86efac" : undefined }}>+{r.verifiedDelta.toLocaleString()}</span>
+          <span className="lbl">verified earned · 7d</span>
+        </div>
+        <div className="stat" title="Attribution score added this week (commits where you're credited)">
+          <span className="num" style={{ color: r.attributionDelta > 0 ? "#86efac" : undefined }}>+{Math.max(0, r.attributionDelta).toLocaleString()}</span>
+          <span className="lbl">attributions · 7d</span>
+        </div>
+        <div className="stat" title="Achievements earned this week">
+          <span className="num" style={{ color: r.newAchievements.length > 0 ? "#86efac" : undefined }}>+{r.newAchievements.length}</span>
+          <span className="lbl">achievements · 7d</span>
+        </div>
+      </div>
       {empty ? (
-        <p className="muted hint">No growth or new unlocks this week — quiet stretches are normal. Push some commits, then <code>renown sync</code> or click <em>Sync now</em> above.</p>
+        <p className="muted hint">No new verified score or unlocks this week. Your all-time total stays with you while GitHub's recent-activity window moves forward.</p>
       ) : (
         <>
-          <div className="syncStats">
-            <div className="stat" title="Verified score added this week">
-              <span className="num" style={{ color: r.verifiedDelta > 0 ? "#86efac" : undefined }}>{r.verifiedDelta > 0 ? "+" : ""}{r.verifiedDelta.toLocaleString()}</span>
-              <span className="lbl">verified score</span>
-            </div>
-            <div className="stat" title="Attribution score added this week (commits where you're credited)">
-              <span className="num" style={{ color: r.attributionDelta > 0 ? "#86efac" : undefined }}>{r.attributionDelta > 0 ? "+" : ""}{r.attributionDelta.toLocaleString()}</span>
-              <span className="lbl">attributions</span>
-            </div>
-            <div className="stat" title="Achievements earned this week">
-              <span className="num" style={{ color: r.newAchievements.length > 0 ? "#86efac" : undefined }}>{r.newAchievements.length}</span>
-              <span className="lbl">new achievements</span>
-            </div>
-          </div>
           {r.newAchievements.length > 0 && (
             <div className="achList" style={{ marginTop: 12 }}>
               {r.newAchievements.map((a) => (
@@ -1718,7 +1722,7 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
     if (j?.throttled) onBanner({ kind: "info", text: `@${account.login} is still in its ${j.tier ?? "account"} sync cooldown. Showing its last verified contribution.` });
     else {
       const delta = j?.attributionDelta ?? 0;
-      onBanner({ kind: "ok", text: `✓ Synced @${account.login}. Combined verified score is ${(j?.score ?? gh.verifiedScore).toLocaleString()}${delta ? ` (+${delta.toLocaleString()} new attributions from this account)` : ""}.` });
+      onBanner({ kind: "ok", text: `✓ Synced @${account.login}. Combined all-time verified score is ${(j?.score ?? gh.verifiedScore).toLocaleString()}${delta ? ` (+${delta.toLocaleString()} new attributions from this account)` : ""}.` });
       // If the verify produced new pets, trigger the cinematic. Server caps the seed list
       // at 6 so this can't run forever; remaining pets land in the menagerie silently.
       const copies = j?.newPetCopies ?? [];
@@ -1749,7 +1753,7 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
       <div className="syncStats">
         <div className="stat">
           <span className="num">{gh.verifiedScore.toLocaleString()}</span>
-          <span className="lbl">combined verified score</span>
+          <span className="lbl">all-time verified score</span>
           {gh.attributionScore > 0 && <span className="muted statDetail">{gh.baseScore.toLocaleString()} base + {gh.attributionScore.toLocaleString()} attribution</span>}
         </div>
         <div className="stat"><span className="num">{verifiedAccounts.length}/{gh.accounts.length}</span><span className="lbl">verified GitHubs</span></div>
@@ -1758,7 +1762,7 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
         <WeeklyGrowthStat login={gh.login} />
       </div>
       <p className="hint githubProvenanceNote">
-        <strong>What rolls up:</strong> verified score, attribution, GitHub-derived skill XP, and merit are tracked per handle and combined. Local CLI/agent XP belongs to you as a person, so it appears in total level but is not assigned to a GitHub account.
+        <strong>What rolls up:</strong> each handle keeps its highest GitHub-verified base, while attribution accumulates permanently. Those scores, GitHub-derived skill XP, and merit combine into one person. Local CLI/agent XP belongs to you as a person, so it appears in total level but is not assigned to a GitHub account.
       </p>
       <div className="githubAccountGrid">
         {gh.accounts.map((account) => {
@@ -1791,7 +1795,7 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
                 </div>
               </div>
               <div className="githubAccountScore">
-                <div><span className="num">{account.verifiedScore.toLocaleString()}</span><span className="lbl">score contribution {share > 0 ? `· ${share}%` : ""}</span></div>
+                <div><span className="num">{account.verifiedScore.toLocaleString()}</span><span className="lbl">all-time contribution {share > 0 ? `· ${share}%` : ""}</span></div>
                 <div><span className="num">{skillTotal.toLocaleString()}</span><span className="lbl">verified skill XP</span></div>
                 <div><span className="num small">{account.verifiedAt ? when(account.verifiedAt) : "Never"}</span><span className="lbl">last score sync</span></div>
               </div>
