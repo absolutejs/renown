@@ -91,11 +91,12 @@ export const cronPlugin = () =>
       // AI agents often have no always-on workstation hook. Refresh their normal verified
       // account through the same /api/verify path humans use, then discover repositories from
       // the provider-specific co-author query. Public repo rows only; private results fail closed.
+      // Small rotating hourly batches stay within GitHub's unauthenticated API budget.
       name: "ai-participant-refresh",
-      pattern: "15 */6 * * *",
+      pattern: "15 * * * *",
       run: async () => {
         try {
-          const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000);
+          const cutoff = new Date(Date.now() - 60 * 60 * 1000);
           const due = await gameDb.select({
             playerId: playerAccounts.playerId, login: playerAccounts.githubLogin,
             attributionQuery: playerAccounts.attributionQuery, verifiedAt: playerAccounts.verifiedAt,
@@ -115,7 +116,8 @@ export const cronPlugin = () =>
               const result = await response.json().catch(() => ({})) as { error?: string };
               if (!response.ok || result.error) throw new Error(result.error || `verify returned ${response.status}`);
               const projectResult = await syncAttributedProjects(account.playerId, account.attributionQuery!, {
-                maxCommits: 500, maxRepos: 50, samplePerRepo: 3,
+                maxCommits: 200, maxRepos: 15, samplePerRepo: 1,
+                offset: Math.floor(Date.now() / (60 * 60 * 1000)) * 15,
               });
               console.log(`[renown:cron] ai-participant-refresh @${account.login} repos=${projectResult.synced}/${projectResult.discovered}`);
             } catch (error) {

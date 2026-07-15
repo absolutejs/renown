@@ -223,12 +223,17 @@ export const loadProjectDirectory = async ({
 // GitHub before the shared tables are touched; private repository identities are never stored.
 export const syncAttributedProjects = async (
   playerId: string, attributionQuery: string,
-  opts?: { token?: string; maxCommits?: number; maxRepos?: number; samplePerRepo?: number },
+  opts?: { token?: string; maxCommits?: number; maxRepos?: number; samplePerRepo?: number; offset?: number },
 ) => {
   const token = opts?.token ?? process.env.GITHUB_TOKEN;
   const discovered = await fetchAttributedRepositories(attributionQuery, opts?.maxCommits ?? 500, token);
+  const maxRepos = Math.max(1, Math.min(1000, opts?.maxRepos ?? 50));
+  const offset = discovered.length > 0 ? Math.max(0, Math.floor(opts?.offset ?? 0)) % discovered.length : 0;
+  // Rotate bounded cron batches instead of retrying the same high-activity repositories forever.
+  // This advances past private/unavailable results without persisting their identities.
+  const batch = [...discovered.slice(offset), ...discovered.slice(0, offset)].slice(0, maxRepos);
   let synced = 0, skippedPrivate = 0;
-  for (const item of discovered.slice(0, Math.max(1, Math.min(1000, opts?.maxRepos ?? 50)))) {
+  for (const item of batch) {
     const [owner, ...parts] = item.key.split("/");
     const repo = parts.join("/");
     if (!owner || !repo) continue;

@@ -21,7 +21,10 @@ const accounts = await gameDb.select({
 ));
 
 for (const account of accounts) {
-  const result = await syncAttributedProjects(account.playerId, account.attributionQuery!, { maxCommits: 500, maxRepos: 500, samplePerRepo: 3 });
+  const result = await syncAttributedProjects(account.playerId, account.attributionQuery!, {
+    maxCommits: 200, maxRepos: 15, samplePerRepo: 1,
+    offset: Math.max(0, Number.parseInt(process.env.AI_REPO_OFFSET ?? "0", 10) || 0),
+  });
   console.log(`@${account.login}: synced ${result.synced}/${result.discovered} public attributed repos (${result.skippedPrivate} private/unavailable skipped)`);
 }
 
