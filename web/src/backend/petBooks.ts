@@ -3,7 +3,7 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { CARD_VARIANTS, type CardVariant } from "../../../core/procgen.ts";
 import {
-  collectorBooks, collectorBookSlots, petPrintings, petSets, petSubjects, wildSeedSources,
+  collectorBooks, collectorBookSlots, petPrintings, petSetDisplaySelections, petSets, petSubjects, wildSeedSources,
   players, type CollectorSlotTarget,
 } from "../../../db/schema.ts";
 import { gameDb } from "./sync.ts";
@@ -22,15 +22,27 @@ const cleanTarget = (raw: unknown): CollectorSlotTarget => {
 };
 
 export const loadOfficialPetBooks = async (playerId?: string | null) => {
-  const [sets, subjects, printings, owned] = await Promise.all([
+  const [sets, subjects, printings, owned, discovered, selections] = await Promise.all([
     gameDb.select().from(petSets).orderBy(asc(petSets.ordinal), asc(petSets.id)),
     gameDb.select({ id: petSubjects.id, setId: petSubjects.setId, slotNumber: petSubjects.slotNumber, name: petSubjects.name })
       .from(petSubjects).orderBy(asc(petSubjects.setId), asc(petSubjects.slotNumber)),
     gameDb.select({ subjectId: petPrintings.subjectId, variant: petPrintings.variant, issued: petPrintings.issued })
       .from(petPrintings),
-    playerId ? gameDb.select({ subjectId: petPrintings.subjectId, variant: wildSeedSources.variant, petSeed: wildSeedSources.petSeed })
+    playerId ? gameDb.select({
+      subjectId: petPrintings.subjectId, variant: wildSeedSources.variant, petSeed: wildSeedSources.petSeed,
+      finish: wildSeedSources.finish, tier: wildSeedSources.tier, mutation: wildSeedSources.mutation,
+      material: wildSeedSources.material, colorway: wildSeedSources.colorway, copyPattern: wildSeedSources.copyPattern,
+      serialNumber: wildSeedSources.serialNumber, printRun: wildSeedSources.printRun, rarityScore: wildSeedSources.rarityScore,
+      size: wildSeedSources.size,
+    })
       .from(wildSeedSources).innerJoin(petPrintings, eq(petPrintings.id, wildSeedSources.printingId))
       .where(eq(wildSeedSources.playerId, playerId)) : Promise.resolve([]),
+    gameDb.selectDistinctOn([petPrintings.subjectId], {
+      subjectId: petPrintings.subjectId, petSeed: wildSeedSources.petSeed, owner: players.githubLogin,
+    }).from(wildSeedSources).innerJoin(petPrintings, eq(petPrintings.id, wildSeedSources.printingId))
+      .innerJoin(players, eq(players.id, wildSeedSources.playerId))
+      .orderBy(petPrintings.subjectId, asc(wildSeedSources.earnedAt), asc(wildSeedSources.petSeed)),
+    playerId ? gameDb.select().from(petSetDisplaySelections).where(eq(petSetDisplaySelections.playerId, playerId)) : Promise.resolve([]),
   ]);
   const printingMap = new Map(printings.map((row) => [`${row.subjectId}:${row.variant}`, Number(row.issued)]));
   const ownedMap = new Map<string, { count: number; seed: string }>();
@@ -40,20 +52,30 @@ export const loadOfficialPetBooks = async (playerId?: string | null) => {
     ownedMap.set(key, { count: (hit?.count ?? 0) + 1, seed: hit?.seed ?? row.petSeed });
   }
   const ownedSubjects = new Set(owned.map((row) => row.subjectId));
+  const ownedCopies = new Map<string, typeof owned>();
+  for (const row of owned) ownedCopies.set(row.subjectId, [...(ownedCopies.get(row.subjectId) ?? []), row]);
+  const discoveredMap = new Map(discovered.map((row) => [row.subjectId, row]));
+  const selectedMap = new Map(selections.map((row) => [row.subjectId, row.petSeed]));
   return sets.map((set) => {
     const setSubjects = subjects.filter((subject) => subject.setId === set.id);
     const slots = setSubjects.map((subject) => {
       const revealed = ownedSubjects.has(subject.id);
+      const globalCopy = discoveredMap.get(subject.id);
+      const copies = (ownedCopies.get(subject.id) ?? []).sort((a, b) => b.rarityScore - a.rarityScore || (a.serialNumber ?? Infinity) - (b.serialNumber ?? Infinity));
+      const selected = copies.find((copy) => copy.petSeed === selectedMap.get(subject.id)) ?? copies[0];
       const parallels = variantEntries.map(([variant, cfg]) => {
         const own = ownedMap.get(`${subject.id}:${variant}`);
         const population = printingMap.get(`${subject.id}:${variant}`) ?? 0;
         return { variant, finish: cfg.finish, tier: cfg.tier, printRun: cfg.printRun, ownedCount: own?.count ?? 0, globallyDiscovered: population > 0 };
       });
-      const firstOwned = variantEntries.map(([variant]) => ownedMap.get(`${subject.id}:${variant}`)?.seed).find(Boolean) ?? null;
       return {
         slotNumber: subject.slotNumber,
         revealed,
-        ...(revealed ? { name: subject.name, subjectId: subject.id, ownedSeed: firstOwned } : {}),
+        globallyRevealed: Boolean(globalCopy),
+        ...((revealed || globalCopy) ? { name: subject.name, subjectId: subject.id } : {}),
+        ...(selected ? { ownedSeed: selected.petSeed } : {}),
+        ...(globalCopy ? { previewSeed: globalCopy.petSeed, previewOwner: globalCopy.owner } : {}),
+        ownedCopies: copies,
         parallels,
       };
     });
@@ -65,6 +87,46 @@ export const loadOfficialPetBooks = async (playerId?: string | null) => {
       subjectsOwned, parallelsOwned, totalParallels: set.subjectCount * variantEntries.length, slots,
     };
   }).filter((set) => set.id !== "legacy-genesis" || set.subjectsOwned > 0);
+};
+
+export const selectOfficialPetBookCopy = async (playerId: string, setId: string, subjectId: string, petSeed: string) => {
+  const owned = (await gameDb.select({ seed: wildSeedSources.petSeed }).from(wildSeedSources)
+    .innerJoin(petPrintings, eq(petPrintings.id, wildSeedSources.printingId))
+    .where(and(eq(wildSeedSources.playerId, playerId), eq(wildSeedSources.petSeed, petSeed), eq(petPrintings.subjectId, subjectId), eq(petPrintings.setId, setId))).limit(1))[0];
+  if (!owned) throw new Error("you do not own that copy in this subject line");
+  await gameDb.insert(petSetDisplaySelections).values({ playerId, setId, subjectId, petSeed })
+    .onConflictDoUpdate({ target: [petSetDisplaySelections.playerId, petSetDisplaySelections.setId, petSetDisplaySelections.subjectId], set: { petSeed, updatedAt: new Date() } });
+};
+
+// Public subject sheet: the seven known printings plus discovered physical copies. This
+// is deliberately subject-scoped and capped; marketplace listing state can layer onto the
+// same payload without turning the official binder into an unbounded gallery query.
+export const loadPetSubjectSheet = async (subjectId: string) => {
+  const subject = (await gameDb.select({ id: petSubjects.id, setId: petSubjects.setId, slotNumber: petSubjects.slotNumber, name: petSubjects.name })
+    .from(petSubjects).where(eq(petSubjects.id, subjectId)).limit(1))[0];
+  if (!subject) return null;
+  const [printings, copies] = await Promise.all([
+    gameDb.select({ variant: petPrintings.variant, printRun: petPrintings.printRun, issued: petPrintings.issued })
+      .from(petPrintings).where(eq(petPrintings.subjectId, subjectId)),
+    gameDb.select({
+      seed: wildSeedSources.petSeed, owner: players.githubLogin, ownerHandle: players.handle, ownerIsAi: players.isAi,
+      finish: wildSeedSources.finish, tier: wildSeedSources.tier, mutation: wildSeedSources.mutation,
+      material: wildSeedSources.material, colorway: wildSeedSources.colorway, copyPattern: wildSeedSources.copyPattern,
+      serialNumber: wildSeedSources.serialNumber, printRun: wildSeedSources.printRun,
+      rarityScore: wildSeedSources.rarityScore, size: wildSeedSources.size, earnedAt: wildSeedSources.earnedAt,
+    }).from(wildSeedSources).innerJoin(petPrintings, eq(petPrintings.id, wildSeedSources.printingId))
+      .innerJoin(players, eq(players.id, wildSeedSources.playerId))
+      .where(eq(petPrintings.subjectId, subjectId)).orderBy(desc(wildSeedSources.rarityScore), asc(wildSeedSources.serialNumber)).limit(100),
+  ]);
+  // Subject ids are deterministic. Do not let callers enumerate the manifest to spoil
+  // subjects that no collector has actually discovered.
+  if (copies.length === 0) return null;
+  const printingMap = new Map(printings.map((row) => [row.variant, row]));
+  return {
+    ...subject,
+    parallels: variantEntries.map(([variant, cfg]) => ({ variant, finish: cfg.finish, tier: cfg.tier, printRun: cfg.printRun, issued: Number(printingMap.get(variant)?.issued ?? 0) })),
+    copies: copies.map((copy) => ({ ...copy, earnedAt: copy.earnedAt.toISOString() })),
+  };
 };
 
 const loadPersonalBooks = async (playerId: string) => {

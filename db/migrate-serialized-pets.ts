@@ -55,6 +55,15 @@ await sql`create unique index if not exists pet_printings_subject_variant_uniq o
 await sql`alter table pet_printings add column if not exists serial_offset integer not null default 0`;
 await sql`alter table pet_printings add column if not exists serial_step integer not null default 1`;
 
+await sql`create table if not exists pet_set_display_selections (
+  player_id text not null references players(id) on delete cascade,
+  set_id text not null references pet_sets(id) on delete cascade,
+  subject_id text not null references pet_subjects(id) on delete cascade,
+  pet_seed text not null,
+  updated_at timestamp not null default now(),
+  primary key (player_id, set_id, subject_id)
+)`;
+
 await sql`alter table wild_seed_sources add column if not exists provenance_seed text`;
 await sql`alter table wild_seed_sources add column if not exists printing_id text references pet_printings(id)`;
 await sql`alter table wild_seed_sources add column if not exists serial_number integer`;

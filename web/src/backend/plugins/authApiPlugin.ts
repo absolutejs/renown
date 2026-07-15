@@ -29,7 +29,7 @@ import {
 import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookAssignment, type PetLookAssignments } from "../petLooks.ts";
 import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { loadPetCollection } from "../petGallery.ts";
-import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots } from "../petBooks.ts";
+import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots, selectOfficialPetBookCopy } from "../petBooks.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
@@ -232,6 +232,14 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     .get("/pet-books/options", ({ protectRoute }) => protectRoute(async (user) => {
       const player = await resolvePlayerByUserSub(user.sub);
       return { pets: player ? await loadPetBookOptions(player.id) : [] };
+    }))
+    .post("/pet-books/official/:setId/:subjectId/display", ({ params, body, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "player not found");
+        await selectOfficialPetBookCopy(player.id, params.setId, params.subjectId, String((body as { petSeed?: unknown } | null)?.petSeed ?? ""));
+        return { ok: true };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not choose display copy"); }
     }))
     .post("/pet-books", ({ body, protectRoute, status }) => protectRoute(async (user) => {
       try {

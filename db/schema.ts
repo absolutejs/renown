@@ -183,6 +183,16 @@ export const petPrintings = pgTable("pet_printings", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ subjectVariantUniq: uniqueIndex("pet_printings_subject_variant_uniq").on(t.subjectId, t.variant) }));
 
+// A collector can choose which physical copy represents a completed subject pocket in
+// their official set book. Ownership remains in wild_seed_sources; this is presentation.
+export const petSetDisplaySelections = pgTable("pet_set_display_selections", {
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  setId: text("set_id").notNull().references(() => petSets.id, { onDelete: "cascade" }),
+  subjectId: text("subject_id").notNull().references(() => petSubjects.id, { onDelete: "cascade" }),
+  petSeed: text("pet_seed").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.setId, t.subjectId] }) }));
+
 // Which linked github earned each owned copy. `players.wild` stays the flat,
 // rarest-100-capped list used by existing clients; this is the authoritative copy ledger.
 export const wildSeedSources = pgTable("wild_seed_sources", {

@@ -948,11 +948,14 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .petBookLegend i.isOwned, .parallelRow i.isOwned { background: var(--accent-bright); border-color: var(--accent-bright); box-shadow: 0 0 8px var(--accent); }
 .officialBinderGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 13px; }
 .officialBinderSlot, .personalBinderSlot { position: relative; min-width: 0; padding: 11px; background: color-mix(in srgb, var(--surface-0) 90%, transparent); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: inset 0 1px var(--edge-hi); }
-.binderPocket { position: relative; display: flex; height: 130px; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 9px; background: linear-gradient(145deg, rgba(130,165,200,.08), rgba(255,255,255,.025)); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: inset 0 0 18px rgba(80,130,170,.06); }
+.binderPocket { position: relative; display: flex; width: 100%; height: 130px; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 9px; padding: 0; color: inherit; background: linear-gradient(145deg, rgba(130,165,200,.08), rgba(255,255,255,.025)); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: inset 0 0 18px rgba(80,130,170,.06); cursor: pointer; }
+.binderPocket:disabled { cursor: default; }
 .binderPocket::after { position: absolute; inset: 0; content: ""; pointer-events: none; border: 1px solid rgba(255,255,255,.13); border-radius: inherit; }
 .binderPocket a { color: inherit; }
 .binderSlotNumber { position: absolute; top: 7px; left: 8px; z-index: 2; color: var(--muted); font: 700 9px var(--font-mono); letter-spacing: .05em; text-transform: uppercase; }
 .hiddenPetSilhouette { display: flex; width: 72px; height: 88px; align-items: center; justify-content: center; color: rgba(120,155,185,.48); background: rgba(70,100,130,.12); clip-path: polygon(20% 15%, 34% 0, 45% 17%, 62% 16%, 76% 1%, 88% 22%, 82% 45%, 100% 66%, 84% 100%, 16% 100%, 0 66%, 18% 45%, 12% 22%); font: 800 28px var(--font-display); filter: blur(.2px); }
+.discoveredPetPreview { opacity: .34; filter: grayscale(1) saturate(.15); transition: opacity .18s var(--ease); }
+.binderPocket:hover .discoveredPetPreview { opacity: .52; }
 .officialBinderSlot > strong, .personalBinderSlot > strong { display: block; overflow: hidden; color: var(--text); font: 700 12px var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
 .binderHint { display: block; overflow: hidden; margin-top: 3px; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .parallelRow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 10px; }
@@ -976,6 +979,29 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .binderBuilder select { width: 100%; }
 .binderBuilder .btn { margin-top: 10px; }
 .binderBuilderRow { display: grid; grid-template-columns: 130px 1fr; gap: 8px; }
+.subjectSheetBackdrop { position: fixed; z-index: 90; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(2,6,14,.76); backdrop-filter: blur(8px); }
+.subjectSheet { width: min(1000px, 100%); max-height: min(860px, calc(100vh - 40px)); overflow: auto; padding: 22px; background: var(--surface-0); border: 1px solid var(--line-strong); border-radius: var(--r-lg); box-shadow: 0 30px 100px rgba(0,0,0,.55); }
+.subjectSheetHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--line-2); }
+.subjectSheetHead h2 { margin: 3px 0; font-size: 30px; }
+.subjectSheetHead p { margin: 0; color: var(--muted); }
+.subjectSheetHead > button { width: 34px; height: 34px; flex: none; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 50%; font-size: 24px; cursor: pointer; }
+.subjectSheet > h3 { margin: 22px 0 10px; font-size: 15px; }
+.subjectParallelGrid { display: grid; grid-template-columns: repeat(7, minmax(105px, 1fr)); gap: 8px; overflow-x: auto; }
+.subjectParallelGrid article, .subjectCopyGrid article { min-width: 0; padding: 10px; background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
+.subjectParallelGrid span, .subjectParallelGrid strong, .subjectParallelGrid small, .subjectCopyGrid strong, .subjectCopyGrid small, .subjectCopyGrid span { display: block; }
+.subjectParallelGrid span { color: var(--accent); font: 700 10px var(--font-display); text-transform: uppercase; }
+.subjectParallelGrid strong { margin: 3px 0; font-size: 12px; }
+.subjectParallelGrid small, .subjectCopyGrid small, .subjectCopyGrid > article > span { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.subjectCopyGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 9px; }
+.subjectCopyGrid article { display: flex; flex-direction: column; }
+.subjectCopyGrid article.isSelected, .subjectCopyGrid article.isOwned { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.subjectCopyGrid a { display: flex; height: 100px; align-items: center; justify-content: center; color: inherit; }
+.subjectCopyGrid a.isOtherCollector { opacity: .42; filter: grayscale(1) saturate(.1); }
+.subjectCopyGrid strong { overflow: hidden; margin-top: 5px; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.subjectCopyGrid button { margin-top: 8px; padding: 6px; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: var(--r-xs); font-size: 10px; cursor: pointer; }
+.subjectCopyGrid button:disabled { color: var(--muted); cursor: default; opacity: .65; }
+.subjectMarketplaceCallout { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 22px; padding: 14px; background: linear-gradient(120deg, var(--accent-soft), transparent); border: 1px solid var(--accent-line); border-radius: var(--r-md); }
+.subjectMarketplaceCallout span { max-width: 680px; color: var(--muted); font-size: 12px; }
 
 @media (max-width: 760px) {
   .bookShelfHeading, .petBookOpenHead { display: flex; flex-direction: column; align-items: stretch; }
@@ -984,6 +1010,9 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
   .createBookPanel, .binderBuilder { grid-template-columns: 1fr; }
   .officialBinderGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .petBookOpen { padding: 12px; }
+  .subjectSheetBackdrop { padding: 8px; }
+  .subjectSheet { max-height: calc(100vh - 16px); padding: 14px; }
+  .subjectMarketplaceCallout { align-items: flex-start; flex-direction: column; }
 }
 
 @media (max-width: 1180px) {

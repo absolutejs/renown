@@ -29,7 +29,7 @@ import { QUIRKS } from "../quirks.ts";
 import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
 import { loadRecentPets } from "../petGallery.ts";
 import { issuePetCopies } from "../petIssuance.ts";
-import { loadOfficialPetBooks, loadSharedCollectorBook } from "../petBooks.ts";
+import { loadOfficialPetBooks, loadPetSubjectSheet, loadSharedCollectorBook } from "../petBooks.ts";
 
 // Deterministic ISO-week index → quirk id rotation so the "quirk of the week" is the
 // same for every viewer in the same week, and cycles through the whole registry over
@@ -96,6 +96,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
   return new Elysia({ prefix: "/api" })
     .get("/pet-sets", () => loadOfficialPetBooks())
     .get("/pet-books/:id", async ({ params, status }) => (await loadSharedCollectorBook(params.id)) ?? status("Not Found", "book not found"))
+    .get("/pet-subjects/:id", async ({ params, status }) => (await loadPetSubjectSheet(params.id)) ?? status("Not Found", "subject not found"))
     .get("/pets", ({ query }) => loadRecentPets({
       limit: Number(query.limit ?? 24), cursor: query.cursor, mode: query.mode,
       sort: query.sort, q: query.q, tier: query.tier, species: query.species, finish: query.finish, mutation: query.mutation,
