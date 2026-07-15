@@ -36,7 +36,6 @@ const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; on
   const tier = pet.tier || generated.tier;
   const species = pet.species || generated.traits.species;
   const size = pet.size || generated.sizeN;
-  const rarity = pet.rarityScore || generated.score;
   const serial = pet.serialNumber ?? generated.card?.serialNumber ?? null;
   const total = pet.printRun ?? generated.card?.printRun ?? null;
   const finish = pet.finish ?? generated.card?.finish ?? tier;
@@ -51,10 +50,9 @@ const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; on
       <div className="collectionPetBody">
         <div className="collectionPetTitle">
           <a href={`/pet/${encodeURIComponent(pet.seed)}`}>{name}</a>
-          {serial != null && total != null && <span className="oneOfOne">#{serial.toLocaleString()} / {total.toLocaleString()}</span>}
+          <span className="petTierBadge">{tier}</span>
         </div>
         <div className="collectionPetMeta"><strong>{finish}</strong><span>{species}</span><span>size {size}</span></div>
-        <div className="collectionPetRarity">Rarity {rarity.toFixed(2)}{pet.population != null && total != null ? ` · ${pet.population.toLocaleString()} / ${total.toLocaleString()} discovered` : ""}</div>
         {(pet.sizeRank === 1 || (serial != null && serial <= 10) || (mutation && mutation !== "Standard")) && <div className="petDistinctions">
           {pet.sizeRank === 1 && <span>Largest known</span>}
           {serial != null && serial <= 10 && <span>Low serial</span>}
