@@ -30,7 +30,7 @@ import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
 import { loadRecentPets } from "../petGallery.ts";
 import { issuePetCopies } from "../petIssuance.ts";
 import { loadOfficialPetBooks, loadPetSubjectSheet, loadSharedCollectorBook } from "../petBooks.ts";
-import { loadMarketplace, loadPetProvenance } from "../marketplace.ts";
+import { loadMarketAuctions, loadMarketBuyOrders, loadMarketplace, loadPetProvenance } from "../marketplace.ts";
 
 // Deterministic ISO-week index → quirk id rotation so the "quirk of the week" is the
 // same for every viewer in the same week, and cycles through the whole registry over
@@ -96,6 +96,8 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
 
   return new Elysia({ prefix: "/api" })
     .get("/marketplace", ({ query }) => loadMarketplace({ ...query, listingId: query.listing }))
+    .get("/marketplace/buy-orders", () => loadMarketBuyOrders())
+    .get("/marketplace/auctions", () => loadMarketAuctions())
     .get("/pets/:seed/provenance", ({ params }) => loadPetProvenance(String(params.seed ?? "")))
     .get("/pet-sets", () => loadOfficialPetBooks())
     .get("/pet-books/:id", async ({ params, status }) => (await loadSharedCollectorBook(params.id)) ?? status("Not Found", "book not found"))

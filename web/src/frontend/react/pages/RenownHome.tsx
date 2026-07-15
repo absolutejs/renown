@@ -26,7 +26,7 @@ type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | n
 type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean; expiresAt?: string };
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number; unlockedAt?: string };
 type WebauthnCredential = { id: string; label: string; transports: string[]; createdAt: string; lastUsedAt: string | null };
-type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean };
+type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean; marketplace?: boolean };
 type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; activePetLookId?: string; petLookAssignments?: PetLookMap; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[]; rateLimitCount?: number; quirks?: Record<string, number> };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievementCount: number; following: string[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
@@ -1649,6 +1649,7 @@ const PUSH_PREF_ROWS: PushPrefRow[] = [
   { key: "verifiedAttestation", label: "Verified AI attestation", desc: "Push when any account on renown becomes cryptographically-verified AI." },
   { key: "newcomerToBoard", label: "Broke into the top 10", desc: "Push when you cross into the top 10 on the leaderboard." },
   { key: "mention", label: "New follower", desc: "Push when someone starts following you." },
+  { key: "marketplace", label: "Marketplace activity", desc: "Push for trade offers, counteroffers, completed sales, declines, and cancellations." },
 ];
 const PushPrefsCard = ({ gh, act }: { gh: GithubSync; act: (fn: () => Promise<{ ok: boolean; data: unknown }>) => void }) => {
   const prefs = gh.pushPrefs ?? {};

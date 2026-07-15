@@ -83,7 +83,7 @@ export const players = pgTable("players", {
   // off; server filters fan-outs accordingly. Adding new event kinds is just a new
   // field here + a check at the relevant publish site — existing users default to
   // opted-in for the new event (acceptable for a small notification surface).
-  pushPrefs: jsonb("push_prefs").$type<{ verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean }>().notNull().default({}),
+  pushPrefs: jsonb("push_prefs").$type<{ verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean; marketplace?: boolean }>().notNull().default({}),
   // Merit signals — the "real, meritorious dev work" half of the pitch. Unlike the
   // commit-count-driven attribution_score (which is real but easy to inflate with
   // co-author spam), these signals are observably hard to game: PR reviews require
@@ -325,16 +325,18 @@ export const marketBuyOrders = pgTable("market_buy_orders", {
   priceCents: integer("price_cents").notNull(),
   reservationId: text("reservation_id").notNull().references(() => walletReservations.id, { onDelete: "restrict" }),
   status: text("status").notNull().default("active"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  expiresAt: timestamp("expires_at"),
+  sellerPlayerId: text("seller_player_id").references(() => players.id, { onDelete: "restrict" }), petSeed: text("pet_seed"),
+  createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"), filledAt: timestamp("filled_at"),
 }, (t) => ({ browseIdx: index("market_buy_orders_browse_idx").on(t.status, t.priceCents, t.createdAt) }));
 
 export const marketAuctions = pgTable("market_auctions", {
   id: text("id").primaryKey(), petSeed: text("pet_seed").notNull(),
   sellerPlayerId: text("seller_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),
   startCents: integer("start_cents").notNull(), reserveCents: integer("reserve_cents"),
-  status: text("status").notNull().default("active"), endsAt: timestamp("ends_at").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  status: text("status").notNull().default("active"), endsAt: timestamp("ends_at").notNull(), extensionCount: integer("extension_count").notNull().default(0),
+  winnerPlayerId: text("winner_player_id").references(() => players.id, { onDelete: "restrict" }), finalCents: integer("final_cents"),
+  createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(), settledAt: timestamp("settled_at"),
 }, (t) => ({ endingIdx: index("market_auctions_ending_idx").on(t.status, t.endsAt) }));
 
 export const marketBids = pgTable("market_bids", {
@@ -362,6 +364,18 @@ export const petOwnershipEvents = pgTable("pet_ownership_events", {
   settlementRef: text("settlement_ref"), chainRef: text("chain_ref"), amountCents: integer("amount_cents"),
   occurredAt: timestamp("occurred_at").notNull().defaultNow(),
 }, (t) => ({ petSequenceUniq: uniqueIndex("pet_ownership_events_pet_sequence_uniq").on(t.petSeed, t.sequence), petHistoryIdx: index("pet_ownership_events_pet_history_idx").on(t.petSeed, t.occurredAt) }));
+
+export const petChainTokens = pgTable("pet_chain_tokens", {
+  petSeed: text("pet_seed").primaryKey(), tokenId: text("token_id").notNull().unique(), adapter: text("adapter").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const onchainTransferOutbox = pgTable("onchain_transfer_outbox", {
+  id: text("id").primaryKey(), ownershipEventId: text("ownership_event_id").notNull().unique(), petSeed: text("pet_seed").notNull(),
+  fromPlayerId: text("from_player_id").notNull(), toPlayerId: text("to_player_id").notNull(), reason: text("reason").notNull(), settlementRef: text("settlement_ref").notNull(),
+  status: text("status").notNull().default("pending"), attempts: integer("attempts").notNull().default(0), lastError: text("last_error"), nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(), anchoredAt: timestamp("anchored_at"),
+}, (t) => ({ pendingIdx: index("onchain_transfer_outbox_pending_idx").on(t.status, t.nextAttemptAt) }));
 
 // Weekly quest progress. Per (player, ISO-week, quest): the baseline signal value captured on
 // first view that week (so progress = current - baseline for "this week" goals) and the
@@ -405,6 +419,20 @@ export const achievements = pgTable("achievements", {
   generated: boolean("generated").notNull().default(false),
   unlockCount: integer("unlock_count").notNull().default(0),
 });
+
+// Signature-verified Stripe events, retained as an operational receipt. The Stripe
+// event id is the idempotency boundary; failed rows are visible to reconciliation and
+// a later Stripe retry increments attempts instead of hiding the original failure.
+export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
+  id: text("id").primaryKey(),
+  type: text("type").notNull(),
+  liveMode: boolean("live_mode").notNull(),
+  status: text("status").notNull().default("received"),
+  attempts: integer("attempts").notNull().default(1),
+  error: text("error"),
+  receivedAt: timestamp("received_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"),
+}, (t) => ({ statusReceivedIdx: index("stripe_webhook_events_status_received_idx").on(t.status, t.receivedAt) }));
 
 // who unlocked what, and WHEN (date achieved)
 export const playerAchievements = pgTable("player_achievements", {

@@ -6,7 +6,7 @@
 import { and, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia, t } from "elysia";
-import { aiAttestationEvents, players, webhookDeliveries } from "../../../../db/schema.ts";
+import { aiAttestationEvents, onchainTransferOutbox, players, stripeWebhookEvents, walletAccounts, walletReservations, webhookDeliveries } from "../../../../db/schema.ts";
 import { schema } from "../../../db/schema";
 import type { SchemaType } from "../../../db/schema";
 import { applyAttestation, buildStaleAttestationDigest, deliverWebhook } from "../attestation.ts";
@@ -240,6 +240,26 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       void deliverWebhook(url, row.eventKind, row.payload as Record<string, unknown>);
       console.log(`[renown:admin] ${admin.email} → replay delivery ${row.id} (${row.eventKind})`);
       return { ok: true, replaying: row.id, eventKind: row.eventKind };
+    })
+    .get("/api/admin/marketplace/health", async ({ request, set }) => {
+      const admin = await requireAdmin(db, request); if (!admin) { set.status = 401; return { error: "not admin" }; }
+      const [imbalance, failedEvents, reservations, frozen, chainOutbox] = await Promise.all([
+        gameDb.execute(sql`select count(*)::int count from wallet_accounts a where a.balance_cents <> coalesce((select sum(e.amount_cents)::int from wallet_entries e where e.account_id=a.id),0)`),
+        gameDb.select().from(stripeWebhookEvents).where(eq(stripeWebhookEvents.status, "failed")).orderBy(desc(stripeWebhookEvents.receivedAt)).limit(25),
+        gameDb.select({ count: sql<number>`count(*)::int`, amountCents: sql<number>`coalesce(sum(${walletReservations.amountCents}),0)::int` }).from(walletReservations).where(eq(walletReservations.status, "active")),
+        gameDb.select({ id: walletAccounts.id, playerId: walletAccounts.playerId, balanceCents: walletAccounts.balanceCents, reservedCents: walletAccounts.reservedCents, login: players.githubLogin, handle: players.handle })
+          .from(walletAccounts).leftJoin(players, eq(players.id, walletAccounts.playerId)).where(eq(walletAccounts.status, "frozen")),
+        gameDb.select({ status: onchainTransferOutbox.status, count: sql<number>`count(*)::int` }).from(onchainTransferOutbox).groupBy(onchainTransferOutbox.status),
+      ]);
+      return { imbalanceCount: Number((imbalance.rows[0] as { count?: number } | undefined)?.count ?? 0), failedStripeEvents: failedEvents, activeReservations: reservations[0] ?? { count: 0, amountCents: 0 }, frozenWallets: frozen,
+        chainOutbox: Object.fromEntries(chainOutbox.map((row) => [row.status, row.count])) };
+    })
+    .post("/api/admin/marketplace/wallets/:playerId/status", async ({ params, body, request, set }) => {
+      const admin = await requireAdmin(db, request); if (!admin) { set.status = 401; return { error: "not admin" }; }
+      const status = (body as { status?: unknown } | null)?.status; if (status !== "active" && status !== "frozen") { set.status = 400; return { error: "status must be active or frozen" }; }
+      const rows = await gameDb.update(walletAccounts).set({ status }).where(eq(walletAccounts.playerId, params.playerId)).returning({ id: walletAccounts.id });
+      if (!rows.length) { set.status = 404; return { error: "wallet not found" }; }
+      console.log(`[renown:admin] ${admin.email} → wallet ${rows[0].id} status=${status}`); return { ok: true, status };
     });
 
 export { requireAdmin };

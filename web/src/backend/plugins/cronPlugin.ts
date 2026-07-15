@@ -16,6 +16,7 @@ import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrRe
 import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
 import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import { gameDb, grantAchievements, hub } from "../sync.ts";
+import { processOnchainTransferOutbox } from "../onchainOutbox.ts";
 
 const sweepExpiredAttestations = async (): Promise<number> => {
   // jsonb update path: build the demoted attestation (drop .verified + .expiresAt,
@@ -77,6 +78,14 @@ const postWeeklyRecapIfConfigured = async () => {
 
 export const cronPlugin = () =>
   new Elysia({ name: "renown-cron" })
+    .use(cron({
+      name: "onchain-transfer-outbox",
+      pattern: "* * * * *",
+      run: async () => {
+        try { const result = await processOnchainTransferOutbox(); if (result.anchored || result.failed) console.log(`[renown:cron] on-chain outbox anchored=${result.anchored} failed=${result.failed}`); }
+        catch (e) { console.error("[renown:cron] on-chain transfer outbox failed", e); }
+      },
+    }))
     .use(cron({
       name: "attestation-expiry-sweep",
       // Every hour on the hour. Cheap query (single indexed predicate + a per-row

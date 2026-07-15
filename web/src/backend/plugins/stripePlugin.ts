@@ -10,7 +10,7 @@ import { eq, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia, t } from "elysia";
 import { Stripe } from "stripe";
-import { players } from "../../../../db/schema.ts";
+import { players, stripeWebhookEvents } from "../../../../db/schema.ts";
 import { gameDb } from "../sync.ts";
 import { resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { schema } from "../../../db/schema";
@@ -23,7 +23,12 @@ type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<Sch
 const SECRET = process.env.STRIPE_SECRET_KEY;
 const PUBLISHABLE = process.env.STRIPE_PUBLISHABLE_KEY ?? null;
 const stripe = SECRET ? new Stripe(SECRET, { apiVersion: "2026-02-25.clover" }) : null;
-const walletFundingEnabled = process.env.STRIPE_WALLET_FUNDING_ENABLED === "true";
+const stripeMode = SECRET?.startsWith("sk_live_") ? "live" : SECRET?.startsWith("sk_test_") ? "test" : "unconfigured";
+const fundingRequested = process.env.STRIPE_WALLET_FUNDING_ENABLED === "true";
+const marketplaceApprovalRecorded = Boolean(process.env.STRIPE_MARKETPLACE_APPROVAL_REFERENCE?.trim());
+// Test mode can exercise funding freely. Live mode has a second, explicit approval lock
+// so a copied environment flag cannot accidentally open a restricted marketplace.
+const walletFundingEnabled = fundingRequested && (stripeMode !== "live" || marketplaceApprovalRecorded);
 
 // The user's GitHub login (so we can mirror their tier onto their public player row for the badge).
 const githubLoginFor = async (db: NeonHttpDatabase<SchemaType>, userSub: string) => {
@@ -70,7 +75,13 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
     // Public: what the client needs to render pricing. Safe with or without keys.
     .get("/stripe/config", async () => ({
       configured: Boolean(stripe),
+      mode: stripeMode,
       walletFundingEnabled,
+      fundingReadiness: {
+        requested: fundingRequested,
+        marketplaceApprovalRecorded,
+        webhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+      },
       publishableKey: PUBLISHABLE,
       tiers: TIER_INFO,
       prices: { supporter: process.env.STRIPE_PRICE_SUPPORTER ?? null, pro: process.env.STRIPE_PRICE_PRO ?? null },
@@ -97,10 +108,16 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
       const origin = new URL(request.url).origin;
       const session = await stripe.checkout.sessions.create({
         mode: "payment", customer: customerId,
+        client_reference_id: user.sub,
+        payment_method_types: ["card"],
+        billing_address_collection: "required",
+        customer_update: { address: "auto", name: "auto" },
         line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amountCents, product_data: { name: "Renown wallet deposit", description: "Closed-loop marketplace balance; not redeemable for cash." } } }],
-        payment_intent_data: { metadata: { kind: "wallet_funding", user_sub: user.sub, player_id: player.id } },
+        payment_intent_data: { description: "Renown closed-loop wallet funding", metadata: { kind: "wallet_funding", user_sub: user.sub, player_id: player.id } },
         metadata: { kind: "wallet_funding", user_sub: user.sub, player_id: player.id, amount_cents: String(amountCents) },
         success_url: `${origin}/marketplace?funding=success`, cancel_url: `${origin}/marketplace?funding=cancel`,
+        expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
+        custom_text: { submit: { message: "Funds stay inside Renown and cannot be withdrawn or redeemed for cash." } },
       });
       return { url: session.url };
     }))
@@ -158,13 +175,29 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
         console.error("renown: stripe webhook verify failed", e);
         return status("Bad Request", "invalid signature");
       }
+      if ((stripeMode === "live") !== event.livemode) return status("Bad Request", "Stripe mode mismatch");
+      const receipt = await gameDb.insert(stripeWebhookEvents).values({ id: event.id, type: event.type, liveMode: event.livemode })
+        .onConflictDoUpdate({ target: stripeWebhookEvents.id, set: {
+          attempts: sql`${stripeWebhookEvents.attempts} + 1`,
+          status: sql`case when ${stripeWebhookEvents.status} = 'processed' then 'processed' else 'received' end`,
+          error: sql`case when ${stripeWebhookEvents.status} = 'processed' then ${stripeWebhookEvents.error} else null end`,
+        } }).returning({ status: stripeWebhookEvents.status });
+      if (receipt[0]?.status === "processed") return status("OK", "already processed");
       const userForCustomer = async (customer: string | Stripe.Customer | Stripe.DeletedCustomer | null) => {
         const id = typeof customer === "string" ? customer : customer?.id;
         if (!id) return null;
         const rows = await db.select().from(schema.users).where(eq(schema.users.stripe_customer_id, id));
         return rows[0] ?? null;
       };
-      switch (event.type) {
+      const fundingIdentity = async (paymentIntent: string | Stripe.PaymentIntent | null) => {
+        const intent = typeof paymentIntent === "string" ? await stripe.paymentIntents.retrieve(paymentIntent) : paymentIntent;
+        if (!intent || intent.metadata.kind !== "wallet_funding") return null;
+        const playerId = intent.metadata.player_id; const userSub = intent.metadata.user_sub;
+        if (!playerId || !userSub) return null;
+        const player = await resolvePlayerByUserSub(userSub); if (!player || player.id !== playerId) throw new Error("wallet adjustment identity mismatch");
+        return { playerId, userSub, paymentIntentId: intent.id };
+      };
+      try { switch (event.type) {
         case "checkout.session.completed":
         case "checkout.session.async_payment_succeeded": {
           const session = event.data.object;
@@ -177,6 +210,27 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
           if (!player || player.id !== playerId) throw new Error("wallet funding identity mismatch");
           const paymentRef = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? session.id;
           await gameDb.execute(sql`select * from fund_player_wallet(${playerId}, ${amountCents}, ${`stripe:wallet:${session.id}`}, ${paymentRef})`);
+          break;
+        }
+        case "refund.created":
+        case "refund.updated": {
+          const refund = event.data.object;
+          if (refund.status !== "succeeded") break;
+          const identity = await fundingIdentity(typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id ?? null);
+          if (!identity) break;
+          await gameDb.execute(sql`select * from adjust_wallet_external(${identity.playerId},${-refund.amount},${`stripe:refund:${refund.id}`},'refund',${refund.id},false)`);
+          break;
+        }
+        case "charge.dispute.created": {
+          const dispute = event.data.object; const identity = await fundingIdentity(typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id ?? null);
+          if (!identity) break;
+          await gameDb.execute(sql`select * from adjust_wallet_external(${identity.playerId},${-dispute.amount},${`stripe:dispute:${dispute.id}:opened`},'dispute',${dispute.id},true)`);
+          break;
+        }
+        case "charge.dispute.closed": {
+          const dispute = event.data.object; if (dispute.status !== "won") break;
+          const identity = await fundingIdentity(typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id ?? null); if (!identity) break;
+          await gameDb.execute(sql`select * from adjust_wallet_external(${identity.playerId},${dispute.amount},${`stripe:dispute:${dispute.id}:won`},'dispute-reversal',${dispute.id},true)`);
           break;
         }
         case "customer.subscription.created":
@@ -205,7 +259,12 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
         }
         default:
           break;
+      } } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await gameDb.update(stripeWebhookEvents).set({ status: "failed", error: message.slice(0, 1000) }).where(eq(stripeWebhookEvents.id, event.id));
+        throw error;
       }
+      await gameDb.update(stripeWebhookEvents).set({ status: "processed", error: null, processedAt: new Date() }).where(eq(stripeWebhookEvents.id, event.id));
       return status("OK", "ok");
     });
 

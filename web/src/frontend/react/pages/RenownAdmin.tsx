@@ -124,6 +124,7 @@ const Dashboard = ({ admin, onSignOut }: { admin: Admin; onSignOut: () => void }
       <ExpiringSoonPanel />
       <AttestationsPanel />
       <WebhookDeliveriesPanel />
+      <MarketplaceOpsPanel />
       <button className="link signout" onClick={onSignOut}>Sign out</button>
     </>
   );
@@ -316,6 +317,15 @@ const AttestationsPanel = () => {
       </table>
     </section>
   );
+};
+
+type MarketHealth = { imbalanceCount: number; activeReservations: { count: number; amountCents: number }; failedStripeEvents: { id: string; type: string; error: string | null; attempts: number; receivedAt: string }[]; frozenWallets: { id: string; playerId: string | null; balanceCents: number; reservedCents: number; login: string | null; handle: string | null }[]; chainOutbox: Record<string, number> };
+const MarketplaceOpsPanel = () => {
+  const [health, setHealth] = useState<MarketHealth | null>(null); const [playerId, setPlayerId] = useState("");
+  const load = useCallback(() => { fetch("/api/admin/marketplace/health").then(async (r) => { if (r.ok) setHealth(await r.json()); }).catch(() => {}); }, []);
+  useEffect(() => { load(); }, [load]);
+  const setStatus = async (id: string, status: "active" | "frozen") => { if (status === "frozen" && !confirm(`Freeze wallet for ${id}? Marketplace settlements will be blocked until an admin restores it.`)) return; const r = await fetch(`/api/admin/marketplace/wallets/${encodeURIComponent(id)}/status`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) }); if (!r.ok) alert((await r.json().catch(() => null))?.error ?? "wallet update failed"); else { setPlayerId(""); load(); } };
+  return <section className="card"><div className="acctHead"><div><h2>Marketplace operations</h2><p className="hint">Ledger reconciliation, Stripe webhook failures, reserved exposure, chain anchoring, and emergency wallet controls.</p></div><button className="link" onClick={load}>Refresh</button></div>{health ? <><div className="row"><span className={`tierChip ${health.imbalanceCount ? "pro" : "free"}`}>{health.imbalanceCount} ledger imbalances</span><span className="tierChip supporter">{health.activeReservations.count} reservations · ${(health.activeReservations.amountCents/100).toFixed(2)}</span><span className={`tierChip ${health.failedStripeEvents.length ? "pro" : "free"}`}>{health.failedStripeEvents.length} failed Stripe events</span><span className={`tierChip ${health.chainOutbox.failed ? "pro" : "free"}`}>{health.chainOutbox.pending ?? 0} chain pending · {health.chainOutbox.failed ?? 0} failed</span></div><div className="form" style={{ maxWidth: 560 }}><div className="field"><label>Emergency freeze by player id</label><div className="row"><input value={playerId} onChange={(e) => setPlayerId(e.target.value)} placeholder="player id" /><button className="btn ghost" disabled={!playerId} onClick={() => void setStatus(playerId,"frozen")}>Freeze wallet</button></div></div></div>{health.frozenWallets.length > 0 && <table className="atable"><thead><tr><th>Frozen collector</th><th>Balance</th><th>Reserved</th><th /></tr></thead><tbody>{health.frozenWallets.map((wallet) => <tr key={wallet.id}><td>{wallet.login ? `@${wallet.login}` : wallet.handle ?? wallet.playerId}</td><td>${(wallet.balanceCents/100).toFixed(2)}</td><td>${(wallet.reservedCents/100).toFixed(2)}</td><td><button className="link" onClick={() => wallet.playerId && void setStatus(wallet.playerId,"active")}>Unfreeze</button></td></tr>)}</tbody></table>}{health.failedStripeEvents.length > 0 && <table className="atable"><thead><tr><th>Stripe event</th><th>Type</th><th>Attempts</th><th>Error</th></tr></thead><tbody>{health.failedStripeEvents.map((event) => <tr key={event.id}><td><code>{event.id}</code></td><td>{event.type}</td><td>{event.attempts}</td><td className="muted">{event.error ?? "—"}</td></tr>)}</tbody></table>}</> : <p className="muted">Loading marketplace health…</p>}</section>;
 };
 
 const App = () => {

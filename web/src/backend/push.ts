@@ -16,7 +16,7 @@ import { gameDb } from "./sync.ts";
 // Push event kinds → matching field on players.push_prefs. Absence in prefs reads as
 // opted-in (default-true semantic). Adding a new event kind = add a tuple here + the
 // matching field in the schema's push_prefs type.
-export type PushEventKind = "verified-attestation" | "newcomer-to-board" | "mention" | "level-up" | "achievement" | "season";
+export type PushEventKind = "verified-attestation" | "newcomer-to-board" | "mention" | "level-up" | "achievement" | "season" | "marketplace";
 const PREF_FIELD: Record<PushEventKind, string> = {
   "verified-attestation": "verifiedAttestation",
   "newcomer-to-board": "newcomerToBoard",
@@ -24,6 +24,7 @@ const PREF_FIELD: Record<PushEventKind, string> = {
   "level-up": "levelUp",
   "achievement": "achievement",
   "season": "season",
+  "marketplace": "marketplace",
 };
 
 let configured = false;
@@ -151,6 +152,12 @@ export const notifySeasonWon = async (playerId: string, label: string, rank: num
     url: "/season",
     tag: `season-${label}-${playerId}`,
   }).catch((e) => console.error("renown: season push failed", e));
+};
+
+export const notifyMarketplace = async (playerId: string, title: string, body: string, tag: string): Promise<void> => {
+  if (!isPushConfigured()) return;
+  await sendPushToPlayerGated(playerId, "marketplace", { title, body, url: "/marketplace?view=trades", tag })
+    .catch((e) => console.error("renown: marketplace push failed", e));
 };
 
 const sendPushToSubscriptions = async (subs: { id: string; endpoint: string; p256dh: string; auth: string }[], payload: PushPayload): Promise<{ sent: number; pruned: number }> => {

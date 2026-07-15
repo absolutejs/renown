@@ -30,7 +30,7 @@ import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookA
 import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { loadPetCollection } from "../petGallery.ts";
 import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots, selectOfficialPetBookCopy } from "../petBooks.ts";
-import { acceptMarketTrade, buyMarketListing, cancelMarketListing, cancelMarketTrade, createMarketListing, createMarketTrade, declineMarketTrade, loadCollectorTradePets, loadMarketTrades, loadWallet } from "../marketplace.ts";
+import { acceptMarketTrade, buyMarketListing, cancelMarketAuction, cancelMarketBuyOrder, cancelMarketListing, cancelMarketTrade, createMarketAuction, createMarketBuyOrder, createMarketListing, createMarketTrade, declineMarketTrade, fillMarketBuyOrder, loadCollectorTradePets, loadMarketPetTemplate, loadMarketTrades, loadWallet, placeMarketBid } from "../marketplace.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
@@ -227,7 +227,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     )
     .get("/wallet", ({ protectRoute, status }) => protectRoute(async (user) => {
       const player = await resolvePlayerByUserSub(user.sub);
-      return player ? loadWallet(player.id) : status("Bad Request", "link GitHub before using the wallet");
+      return player ? { ...(await loadWallet(player.id)), playerId: player.id } : status("Bad Request", "link GitHub before using the wallet");
     }))
     .post("/marketplace/listings", ({ body, protectRoute, status }) => protectRoute(async (user) => {
       try {
@@ -252,6 +252,34 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const idempotency = `sale:${params.id}:${player.id}:${retryToken}`;
         return { ok: true, ...(await buyMarketListing(player.id, params.id, idempotency)) };
       } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "sale could not settle"); }
+    }))
+    .get("/marketplace/pet-template/:seed", ({ params, protectRoute, status }) => protectRoute(async () => {
+      try { return await loadMarketPetTemplate(params.seed); }
+      catch (error) { return status("Not Found", error instanceof Error ? error.message : "pet template not found"); }
+    }))
+    .post("/marketplace/buy-orders", ({ body, protectRoute, status }) => protectRoute(async (user) => {
+      try { const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "link GitHub before posting a buy order"); return { ok: true, ...(await createMarketBuyOrder(player.id, body)) }; }
+      catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not create buy order"); }
+    }))
+    .delete("/marketplace/buy-orders/:id", ({ params, protectRoute, status }) => protectRoute(async (user) => {
+      try { const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "player not found"); await cancelMarketBuyOrder(player.id, params.id); return { ok: true }; }
+      catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not cancel buy order"); }
+    }))
+    .post("/marketplace/buy-orders/:id/fill", ({ params, body, request, protectRoute, status }) => protectRoute(async (user) => {
+      try { const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "player not found"); const petSeed = String((body as { petSeed?: unknown } | null)?.petSeed ?? ""); const retry = (request.headers.get("idempotency-key") ?? crypto.randomUUID()).slice(0,200); return { ok: true, ...(await fillMarketBuyOrder(player.id, params.id, petSeed, `buy-order:${params.id}:${player.id}:${retry}`)) }; }
+      catch (error) { return status("Bad Request", error instanceof Error ? error.message : "buy order could not settle"); }
+    }))
+    .post("/marketplace/auctions", ({ body, protectRoute, status }) => protectRoute(async (user) => {
+      try { const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "link GitHub before starting an auction"); return { ok: true, ...(await createMarketAuction(player.id, body)) }; }
+      catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not start auction"); }
+    }))
+    .post("/marketplace/auctions/:id/bids", ({ params, body, request, protectRoute, status }) => protectRoute(async (user) => {
+      try { const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "player not found"); const amountCents = (body as { amountCents?: unknown } | null)?.amountCents; const retry = (request.headers.get("idempotency-key") ?? crypto.randomUUID()).slice(0,200); return { ok: true, ...(await placeMarketBid(player.id, params.id, amountCents, `auction-bid:${params.id}:${player.id}:${retry}`)) }; }
+      catch (error) { return status("Bad Request", error instanceof Error ? error.message : "bid could not be placed"); }
+    }))
+    .delete("/marketplace/auctions/:id", ({ params, protectRoute, status }) => protectRoute(async (user) => {
+      try { const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "player not found"); await cancelMarketAuction(player.id, params.id); return { ok: true }; }
+      catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not cancel auction"); }
     }))
     .get("/marketplace/trades", ({ protectRoute, status }) => protectRoute(async (user) => {
       const player = await resolvePlayerByUserSub(user.sub);
@@ -442,7 +470,7 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     // no explicit prefs still gets the canonical events without an extra round-trip.
     .post("/push-prefs", ({ body, protectRoute, status }) =>
       protectRoute(async (user) => {
-        const b = (body ?? {}) as { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean };
+        const b = (body ?? {}) as { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean; marketplace?: boolean };
         const idRows = await db.select().from(authIdentities).where(eq(authIdentities.user_sub, user.sub));
         const ghLogin = (idRows.find((r) => r.auth_provider === "github")?.metadata as { login?: string } | undefined)?.login;
         if (!ghLogin) return status("Bad Request", "link GitHub first");

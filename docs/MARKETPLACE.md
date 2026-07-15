@@ -31,7 +31,9 @@ the seller's avatar, showcases, and books; refreshes both inventories; and appen
 provenance. Any error rolls the entire operation back.
 
 The item remains usable while listed. It stops being usable by the seller at the exact
-transaction that makes the buyer its owner.
+transaction that makes the buyer its owner. Buy-order funds and leading auction bids are
+reserved, not spent, until one atomic settlement captures them. Outbid, cancelled, and
+expired reservations return to the available balance.
 
 ## Provenance and blockchain boundary
 
@@ -40,10 +42,12 @@ settlement reference, timestamp, and optional chain reference. Founder/original-
 identity is immutable across sale, trade, gift, and recovery.
 
 Payment-provider identifiers, balances, email, legal identity, card data, and private
-account metadata are never public or on-chain. `@absolutejs/onchain` provides gasless,
-application-controlled transfer and provenance contracts for a future Base adapter. Until
-an adapter anchors an event and writes `chain_ref`, Renown labels the database record as
-provenance—not as an on-chain transaction.
+account metadata are never public or on-chain. The currently published AbsoluteJS Base
+package exposes an adapter boundary but does not yet implement a production transfer
+contract. Renown therefore writes each ownership change and a durable, idempotent transfer
+outbox row in the same database transaction. A separately configured, authenticated gateway
+may anchor registered token IDs and return a chain reference. Until that succeeds and writes
+`chain_ref`, Renown labels the record as provenance—not as an on-chain transaction.
 
 ## Enabling wallet funding
 
@@ -55,5 +59,7 @@ Keep `STRIPE_WALLET_FUNDING_ENABLED=false` until all of these are complete:
 4. Funding, partial refund, dispute, frozen-wallet, and reconciliation drills.
 5. Alerts for ledger imbalance (must always be zero), settlement failures, and webhook backlog.
 
-Then set the flag to `true` in production. The marketplace can browse and accept listings
-while funding is disabled, but it accurately shows that deposits are not open.
+Live funding has two locks: set `STRIPE_WALLET_FUNDING_ENABLED=true` and record Stripe's written
+approval ticket/reference in `STRIPE_MARKETPLACE_APPROVAL_REFERENCE`. Test mode only requires
+the first flag. The marketplace can browse and accept listings while funding is disabled,
+but accurately shows that deposits are not open. See `docs/STRIPE_LAUNCH.md` for the runbook.
