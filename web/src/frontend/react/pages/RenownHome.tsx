@@ -20,7 +20,7 @@ type Entry = { id?: string; name: string; login?: string; score?: number; weekXp
 type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | "achievements" | "breadth" | "merit" | `quirk:${string}` | `skill:${string}` | `merit:${"reviews" | "crossRepo" | "shipper" | "downloads" | "substance"}`;
 type Skill = { id: string; name: string; icon: string; level: number; pct: number; xp: number };
 type SkillSheet = { id: string; name: string | null; totalLevel: number; skills: Skill[] };
-type Identity = { id: string; provider: string; subject: string; isPrimary: boolean; linkedAt?: string };
+type Identity = { id: string; provider: string; displayName: string | null; accountName: string | null; avatarUrl: string | null; isPrimary: boolean; linkedAt?: string };
 type MergeReq = { id: string; provider: string; subject: string };
 type Billing = { tier: Tier; status: string | null; currentPeriodEnd: string | null; hasCustomer: boolean };
 type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean; expiresAt?: string };
@@ -1943,6 +1943,44 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
         <h1>Account &amp; plans</h1>
         <p>Manage your collection, subscription, linked identities, privacy, and integrations.</p>
       </header>
+      <section className="card loginCard">
+        <div className="acctHead">
+          <div>
+            <span className="collectionEyebrow">SIGN-IN &amp; SECURITY</span>
+            <h2>Your logins</h2>
+            <p className="muted hint">Every linked identity signs in to this same Renown account.</p>
+          </div>
+        </div>
+        <ul className="idents">
+          {identities.map((id) => {
+            const title = id.displayName || id.accountName || `${providerLabel(id.provider)} account`;
+            return (
+              <li key={id.id}>
+                {id.avatarUrl
+                  ? <img className="identityAvatar" src={id.avatarUrl} alt="" referrerPolicy="no-referrer" />
+                  : <span className={`identityAvatar identityFallback ${PROVIDERS[id.provider]?.cls ?? ""}`} aria-hidden>{title.slice(0, 1).toUpperCase()}</span>}
+                <span className="identityDetails">
+                  <strong>{title}</strong>
+                  <span>{id.accountName && id.accountName !== title ? id.accountName : providerLabel(id.provider)}</span>
+                </span>
+                <span className={`providerPill ${PROVIDERS[id.provider]?.cls ?? ""}`}>{providerLabel(id.provider)}</span>
+                {id.isPrimary && <span className="primary">primary</span>}
+                <span className="idActions">
+                  {!id.isPrimary && <button className="link" onClick={() => act(() => post(`/api/account/identities/${id.id}/primary`))}>Make primary</button>}
+                  {identities.length > 1 && !id.isPrimary && <button className="link danger" onClick={() => act(() => api(`/api/account/identities/${id.id}`, { method: "DELETE" }))}>Unlink</button>}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="row loginActions">
+          {Object.entries(PROVIDERS).map(([provider, details]) => {
+            const alreadyLinked = identities.some((identity) => identity.provider === provider);
+            return <a className={`btn ${details.cls}`} href={details.href} key={provider}>Link {alreadyLinked ? "another " : ""}{details.label} account</a>;
+          })}
+        </div>
+        <p className="muted hint">To add a second account from the same provider, choose or switch to that account during authorization.</p>
+      </section>
       {account.github && (
         <section className="card collectionAccountCard">
           <div>
@@ -2007,30 +2045,6 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
       {account.github?.login && <MeritPanel login={account.github.login} title="Your merit" />}
       {account.github?.quirks && <QuirksPanel quirks={account.github.quirks} title="Your quirks" />}
       <CliSyncCard onBanner={onBanner} />
-
-      <section className="card">
-        <h2>Your logins</h2>
-        <p className="muted hint">Sign in with any of these — they all reach this one account.</p>
-        <ul className="idents">
-          {identities.map((id) => (
-            <li key={id.id}>
-              <span className={`dot ${PROVIDERS[id.provider]?.cls ?? ""}`} />
-              <span className="idp">{providerLabel(id.provider)}</span>
-              {id.isPrimary && <span className="primary">primary</span>}
-              <span className="idsub muted">{id.subject}</span>
-              <span className="idActions">
-                {!id.isPrimary && <button className="link" onClick={() => act(() => post(`/api/account/identities/${id.id}/primary`))}>Make primary</button>}
-                {identities.length > 1 && !id.isPrimary && <button className="link danger" onClick={() => act(() => api(`/api/account/identities/${id.id}`, { method: "DELETE" }))}>Unlink</button>}
-              </span>
-            </li>
-          ))}
-        </ul>
-        <div className="row">
-          {Object.entries(PROVIDERS).filter(([p]) => !identities.some((i) => i.provider === p)).map(([p, v]) => (
-            <a className={`btn ${v.cls}`} href={v.href} key={p}>Link {v.label}</a>
-          ))}
-        </div>
-      </section>
 
       {mergeRequests.length > 0 && (
         <section className="card warn">

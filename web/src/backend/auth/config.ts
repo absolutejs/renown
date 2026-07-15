@@ -27,6 +27,7 @@ import { resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePl
 import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import {
   createUser,
+  getDBUser,
   getUser,
   linkUserIdentity,
   upsertDBAuthIdentityMergeRequest,
@@ -81,6 +82,7 @@ const onGithubVerified = async (login: string) => {
 
 export const authConfig = (db: NeonHttpDatabase<SchemaType>) =>
   defineAuthConfig<User>({
+    getUser: (sub) => getDBUser({ db, userSub: sub }).then((user) => user ?? null),
     providersConfiguration,
     // Signed in already? Then this OAuth round-trip is LINKING another login to the current
     // account, not a fresh login. (renown has no connectors yet, so we never link_connector.)

@@ -69,7 +69,7 @@ verified-only ranking — neither depends on the M2M secret.
 
 ## What else `@absolutejs/auth` offers (and what's worth adopting)
 
-The upgraded package (`0.27.0-beta.7`) ships far more than we use. Ranked for renown:
+The auth package (`0.53.8`) ships far more than we use. Ranked for renown:
 
 - **Worth adopting soon**
   - **`abuse` / `lockout`** — per-client/per-IP throttling + lockout. The natural home for rate

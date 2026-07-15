@@ -28,6 +28,7 @@ import {
 } from "../handlers/userHandlers";
 import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookAssignment, type PetLookAssignments } from "../petLooks.ts";
 import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
+import { presentIdentity } from "../auth/identityPresentation.ts";
 import { loadPetCollection } from "../petGallery.ts";
 import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots, selectOfficialPetBookCopy } from "../petBooks.ts";
 import { acceptMarketTrade, buyMarketListing, cancelMarketAuction, cancelMarketBuyOrder, cancelMarketListing, cancelMarketTrade, createMarketAuction, createMarketBuyOrder, createMarketListing, createMarketTrade, declineMarketTrade, fillMarketBuyOrder, loadCollectorTradePets, loadMarketPetTemplate, loadMarketTrades, loadWallet, placeMarketBid } from "../marketplace.ts";
@@ -182,7 +183,7 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
     identities: identities.map((i) => ({
       id: i.id,
       provider: i.auth_provider,
-      subject: i.provider_subject,
+      ...presentIdentity(i.auth_provider, i.provider_subject, i.metadata),
       isPrimary: i.id === primaryId,
       linkedAt: i.created_at,
     })),
