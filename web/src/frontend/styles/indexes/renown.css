@@ -861,7 +861,7 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .collectionCount { flex: none; min-width: 150px; padding: 16px 20px; background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-md); text-align: right; box-shadow: inset 0 1px var(--edge-hi); }
 .collectionCount strong { display: block; color: var(--text); font: 700 32px/1 var(--font-display); }
 .collectionCount span { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
-.collectionTools { position: sticky; top: 0; z-index: 20; display: grid; grid-template-columns: minmax(240px, 1.7fr) repeat(3, minmax(130px, .65fr)) auto; align-items: end; gap: var(--s-3); margin: var(--s-5) 0; padding: 14px; background: rgba(11,15,23,.92); border: 1px solid var(--line-2); border-radius: var(--r-md); backdrop-filter: blur(16px); box-shadow: var(--shadow-1); }
+.collectionTools { position: sticky; top: 0; z-index: 20; display: grid; grid-template-columns: minmax(220px, 1.7fr) repeat(5, minmax(112px, .65fr)) auto; align-items: end; gap: var(--s-3); margin: var(--s-5) 0; padding: 14px; background: rgba(11,15,23,.92); border: 1px solid var(--line-2); border-radius: var(--r-md); backdrop-filter: blur(16px); box-shadow: var(--shadow-1); }
 .collectionTools label { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
 .collectionTools label > span { color: var(--muted); font: 700 10px var(--font-display); letter-spacing: .08em; text-transform: uppercase; }
 .collectionTools input, .collectionTools select { width: 100%; min-width: 0; height: 40px; box-sizing: border-box; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 0 11px; font: 13px var(--font-body); }
@@ -899,6 +899,10 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .collectionEmpty p { color: var(--muted); }
 .collectionMore { display: flex; justify-content: center; margin-top: var(--s-6); }
 
+@media (max-width: 1180px) {
+  .collectionTools { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .collectionSearch { grid-column: 1 / -1; }
+}
 @media (max-width: 880px) {
   .collectionTools { position: static; grid-template-columns: 1fr 1fr; }
   .collectionSearch { grid-column: 1 / -1; }
