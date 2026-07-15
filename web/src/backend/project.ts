@@ -2,10 +2,11 @@
 // /project/:owner/:repo SSR page, the README badge, and the project OG card. One source of
 // truth so they can't drift (mirrors profile.ts). Returns null for a repo nobody on renown
 // has contributed to (caller decides: soft-200 "not on renown yet" page vs 404 for badge/og).
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, inArray, or, sql } from "drizzle-orm";
 import { players, playerProjects, projects } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
 import { fetchRepoImportance } from "./repoScore.ts";
+import { resolvePlayerByGithubLogin } from "./resolvePlayer.ts";
 import { gameDb } from "./sync.ts";
 
 export type ProjectData = Awaited<ReturnType<typeof loadProject>>;
@@ -145,6 +146,75 @@ export const loadTopProjects = async (limit = 12, window: ProjectWindow = "all")
       topLogin: top?.login ?? null, topSeed: top?.avatarSeed ?? null,
     };
   });
+};
+
+export type ProjectDirectorySort = "xp" | "devs" | "stars" | "commits";
+export const normalizeProjectDirectorySort = (v: unknown): ProjectDirectorySort =>
+  v === "devs" || v === "stars" || v === "commits" ? v : "xp";
+
+// Searchable, paged repository directory. The optional contributor filter powers the
+// "View all repos" link on a profile without pretending that a GitHub owner search is the
+// same thing as the repos someone actually contributed to.
+export const loadProjectDirectory = async ({
+  query = "", contributor = "", sort = "xp", page = 1, limit = 24,
+}: {
+  query?: string; contributor?: string; sort?: ProjectDirectorySort; page?: number; limit?: number;
+} = {}) => {
+  const q = query.trim().slice(0, 100);
+  const login = contributor.trim().toLowerCase().slice(0, 100);
+  const safePage = Math.max(1, Math.floor(page) || 1);
+  const safeLimit = Math.min(48, Math.max(1, Math.floor(limit) || 24));
+  const contributorPlayer = login ? await resolvePlayerByGithubLogin(login) : null;
+
+  // A named contributor who is not a verified Renown player has no public repo list.
+  if (login && (!contributorPlayer || !contributorPlayer.githubVerified)) {
+    return { repos: [], query: q, contributor: login, contributorFound: false, sort, page: safePage, hasMore: false };
+  }
+
+  const contributorKeys = contributorPlayer
+    ? (await gameDb.select({ key: playerProjects.projectKey }).from(playerProjects).where(eq(playerProjects.playerId, contributorPlayer.id))).map((r) => r.key)
+    : null;
+  if (contributorKeys?.length === 0) {
+    return { repos: [], query: q, contributor: login, contributorFound: true, sort, page: safePage, hasMore: false };
+  }
+
+  const escapedQuery = q.replace(/[\\%_]/g, "\\$&");
+  const search = q ? or(ilike(projects.key, `%${escapedQuery}%`), ilike(projects.name, `%${escapedQuery}%`)) : undefined;
+  const where = and(
+    eq(players.githubVerified, true),
+    eq(projects.visibility, "public"),
+    search,
+    contributorKeys ? inArray(playerProjects.projectKey, contributorKeys) : undefined,
+  );
+  const effXpSum = sql<number>`coalesce(sum(case when ${playerProjects.verifiedXp} > 0 then ${playerProjects.verifiedXp} else ${playerProjects.xp} end), 0)`;
+  const commitSum = sql<number>`coalesce(sum(case when ${playerProjects.verifiedCommits} > 0 then ${playerProjects.verifiedCommits} else ${playerProjects.commits} end), 0)`;
+  const devCount = sql<number>`count(distinct ${playerProjects.playerId})`;
+  const order = sort === "devs" ? desc(devCount) : sort === "stars" ? desc(projects.stars) : sort === "commits" ? desc(commitSum) : desc(effXpSum);
+
+  // Fetch one extra row to derive pagination without a separate count query that could leak
+  // stale repository identity through search-result counts. Every returned identity is then
+  // revalidated against GitHub, matching the privacy boundary used by project/profile pages.
+  const candidates = await gameDb.select({
+    key: playerProjects.projectKey, name: projects.name, stars: projects.stars, oss: projects.oss,
+    devs: sql<number>`count(distinct ${playerProjects.playerId})::int`, xp: effXpSum,
+    commits: sql<number>`${commitSum}::int`,
+  }).from(playerProjects)
+    .innerJoin(projects, eq(projects.key, playerProjects.projectKey))
+    .innerJoin(players, eq(players.id, playerProjects.playerId))
+    .where(where)
+    .groupBy(playerProjects.projectKey, projects.name, projects.stars, projects.oss)
+    .orderBy(order, desc(effXpSum), playerProjects.projectKey)
+    .limit(safeLimit + 1)
+    .offset((safePage - 1) * safeLimit);
+
+  const checks = await Promise.all(candidates.map((r) => confirmProjectPublic(r.key)));
+  const publicRows = candidates.filter((_, i) => checks[i]);
+  const hasMore = candidates.length > safeLimit;
+  const repos = publicRows.slice(0, safeLimit).map((r) => {
+    const [owner, ...rest] = r.key.split("/");
+    return { ...r, owner, repo: rest.join("/") || r.key, devs: Number(r.devs), xp: Number(r.xp), commits: Number(r.commits) };
+  });
+  return { repos, query: q, contributor: login, contributorFound: true, sort, page: safePage, hasMore };
 };
 
 // One-line OG/share description: "12 devs · 48k XP · top @alexkahndev".

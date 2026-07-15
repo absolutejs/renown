@@ -6,6 +6,7 @@ import { RenownHome } from "../../frontend/react/pages/RenownHome";
 import { RenownGuide } from "../../frontend/react/pages/RenownGuide";
 import { RenownProfile } from "../../frontend/react/pages/RenownProfile";
 import { RenownProject } from "../../frontend/react/pages/RenownProject";
+import { RenownRepos } from "../../frontend/react/pages/RenownRepos";
 import { RenownRecap } from "../../frontend/react/pages/RenownRecap";
 import { RenownOrg } from "../../frontend/react/pages/RenownOrg";
 import { RenownAchievement } from "../../frontend/react/pages/RenownAchievement";
@@ -34,7 +35,7 @@ import { petOgEtag, renderPetOgPng } from "../petOg";
 import { findPetOwner } from "../petOwner";
 import { canonicalPetSeed, generate } from "../../../../core/procgen.ts";
 import { loadProfile, profileShareSnippet } from "../profile";
-import { loadProject, normalizeProjectSort, projectShareSnippet } from "../project";
+import { loadProject, loadProjectDirectory, normalizeProjectDirectorySort, normalizeProjectSort, projectShareSnippet } from "../project";
 import { projectOgEtag, renderProjectOgPng } from "../projectOg";
 import { projectBadgeEtag, renderProjectBadge } from "../projectBadge";
 import { projectBoardEtag, renderProjectBoardSvg } from "../projectBoardSvg";
@@ -73,6 +74,19 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     handleReactPageRequest({ index: asset(manifest, "RenownGuideIndex"), Page: RenownGuide, props: { cssPath, origin: originOf(request) }, request });
   const admin = ({ request }: { request: Request }) =>
     handleReactPageRequest({ index: asset(manifest, "RenownAdminIndex"), Page: RenownAdmin, props: { cssPath }, request });
+  const reposPage = async ({ request }: { request: Request }) => {
+    const url = new URL(request.url);
+    const directory = await loadProjectDirectory({
+      query: url.searchParams.get("q") ?? "",
+      contributor: url.searchParams.get("contributor") ?? "",
+      sort: normalizeProjectDirectorySort(url.searchParams.get("sort")),
+      page: Number(url.searchParams.get("page") ?? 1),
+    });
+    return handleReactPageRequest({
+      index: asset(manifest, "RenownReposIndex"), Page: RenownRepos,
+      props: { cssPath, directory, origin: originOf(request) }, request,
+    });
+  };
   // /profile/:login — public, no-auth, SSR-prefetched profile data so OG tags
   // can vary per-profile and crawlers see real content. Pre-fetch via the
   // shared loader so the page and the /api/profile/:login JSON endpoint
@@ -314,6 +328,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   return new Elysia()
     .get("/", home)
     .get("/leaderboard", leaderboard)
+    .get("/repos", reposPage)
     .get("/guide", guide)
     .get("/admin", admin)
     .get("/achievements", achievementsPage)

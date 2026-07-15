@@ -820,7 +820,7 @@ const TrendingReposShell = ({ period, setPeriod, repos }: { period: "week" | "al
   <section className="card">
     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
       <h2 style={{ margin: 0 }}>Trending repos <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {period === "week" ? "active this week" : "all time"}</span></h2>
-      <nav style={{ display: "flex", gap: 4, fontSize: 13 }}>
+      <nav style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
         {([["week", "This week"], ["all", "All time"]] as const).map(([p, label]) => (
           <button key={p} onClick={() => setPeriod(p)} style={{
             padding: "4px 10px", borderRadius: 999, cursor: "pointer",
@@ -829,6 +829,7 @@ const TrendingReposShell = ({ period, setPeriod, repos }: { period: "week" | "al
             color: "inherit", fontWeight: period === p ? 700 : 500,
           }}>{label}</button>
         ))}
+        <a href="/repos" style={{ color: "#c4b5fd", fontWeight: 700, padding: "4px 2px", textDecoration: "none" }}>Browse all →</a>
       </nav>
     </div>
     <p className="muted hint">{period === "week"

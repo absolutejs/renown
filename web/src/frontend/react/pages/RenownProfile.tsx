@@ -186,7 +186,10 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
 
       {(profile.topProjects?.length ?? 0) > 0 && (
         <section className="card">
-          <h2>Top repos <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· renown by repo</span></h2>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0 }}>Top repos <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· renown by repo</span></h2>
+            <a href={`/repos?contributor=${encodeURIComponent(profile.login)}`} style={{ color: "#c4b5fd", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>View all repos →</a>
+          </div>
           <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
             {profile.topProjects!.map((r) => (
               <a key={r.key} href={`/project/${r.key}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px", borderRadius: 8, textDecoration: "none", color: "inherit", background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>

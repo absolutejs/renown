@@ -1,12 +1,13 @@
 import type { MouseEvent, ReactNode } from "react";
 import { HeaderAccountMenu } from "./HeaderAccountMenu";
 
-export type SiteSection = "home" | "leaderboard" | "pets" | "marketplace" | "achievements" | "season" | "guide";
+export type SiteSection = "home" | "leaderboard" | "repos" | "pets" | "marketplace" | "achievements" | "season" | "guide";
 export type BackTarget = { href: string; label: string };
 
 const PRIMARY: { id: SiteSection; label: string; href: string }[] = [
   { id: "home", label: "Home", href: "/" },
   { id: "leaderboard", label: "Leaderboard", href: "/leaderboard" },
+  { id: "repos", label: "Repos", href: "/repos" },
   { id: "pets", label: "Collection", href: "/pets" },
   { id: "marketplace", label: "Market", href: "/marketplace" },
 ];
