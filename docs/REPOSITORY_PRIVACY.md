@@ -23,16 +23,20 @@ Renown therefore uses these invariants:
 
 ## Private collaboration
 
-Private work remains fully usable locally. Renown deliberately does not offer a cloud private
-team board yet: the existing anonymous ingest and a repository-name-based ACL cannot prove
-GitHub access and would not be a real privacy boundary.
+Private work remains fully usable locally. A signed-in user may also browse the private
+repositories their current GitHub OAuth token can access. That list is fetched live from GitHub,
+returned with `Cache-Control: private, no-store`, and never written to `projects`,
+`player_projects`, logs, badges, boards, profiles, or anonymous APIs. Renown deliberately does
+not offer cloud private team boards or persist private per-repository metrics: the existing
+anonymous ingest and a repository-name-based ACL cannot prove GitHub access and would not be a
+real privacy boundary.
 
 A future private team board must use a GitHub App installation with least-privilege repository
 selection. Installation access is the membership authority; every read and write must verify
 the requesting Renown user against the installation, private responses must use `Cache-Control:
 private, no-store`, and repository webhooks must revoke/purge access immediately when an
 installation is removed or repository visibility changes. Until all of those properties exist,
-private repository data stays local.
+private per-repository Renown data stays local.
 
 ## Deployment
 

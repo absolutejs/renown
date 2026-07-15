@@ -35,7 +35,6 @@ export const selfEntry = (s: State): Entry => ({
   // machine; private and unknown work still contributes to local/personal aggregate progress.
   projects: topProjects(s, Number.MAX_SAFE_INTEGER)
     .filter(p => p.visibility === "public" || (p.visibility === undefined && p.oss))
-    .slice(0, 5)
     .map(p => ({ key: p.k, name: p.name, xp: p.xp, commits: p.commits, lines: p.lines, stars: p.stars, oss: p.oss, visibility: "public" as const })),
   unlocked: Object.keys(s.achievements),   // for global rarity % on the server
 });

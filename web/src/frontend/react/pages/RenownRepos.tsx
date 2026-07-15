@@ -2,6 +2,7 @@
 // slices on the leaderboard and profiles. Server-rendered search keeps results linkable and
 // useful without JavaScript; each result opens the repository's Renown leaderboard.
 import { Head } from "@absolutejs/absolute/react/components";
+import { useEffect, useState } from "react";
 import { SiteHeader } from "../components/SiteHeader";
 
 type Repo = { key: string; owner: string; repo: string; name: string; stars: number; oss: boolean; devs: number; xp: number; commits: number };
@@ -11,6 +12,8 @@ type Directory = {
   sort: Sort; page: number; hasMore: boolean;
 };
 type Props = { cssPath?: string; directory?: Directory; origin?: string };
+type PrivateRepo = { key: string; owner: string; repo: string; name: string; stars: number; pushedAt: string | null; updatedAt: string | null; role: string; private: true };
+type PrivateDirectory = { repos: PrivateRepo[]; needsGithubAuth: boolean; reason?: string | null; login?: string };
 
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 10_000 ? `${Math.round(n / 1_000)}k` : n.toLocaleString("en-US");
 const hrefFor = (d: Directory, page: number) => {
@@ -26,6 +29,19 @@ const hrefFor = (d: Directory, page: number) => {
 const EMPTY: Directory = { repos: [], query: "", contributor: "", contributorFound: true, sort: "xp", page: 1, hasMore: false };
 
 export const RenownRepos = ({ cssPath, directory = EMPTY, origin = "" }: Props) => {
+  const [privateDirectory, setPrivateDirectory] = useState<PrivateDirectory | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/account/repos", { signal: controller.signal })
+      .then(async (response) => response.ok ? response.json() as Promise<PrivateDirectory> : null)
+      .then((result) => { if (result) setPrivateDirectory(result); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+  const privateRepos = (privateDirectory?.repos ?? []).filter((repo) => {
+    const query = directory.query.toLowerCase();
+    return !query || repo.key.toLowerCase().includes(query) || repo.name.toLowerCase().includes(query);
+  });
   const title = directory.contributor ? `@${directory.contributor}'s repos — Renown` : "Browse repositories — Renown";
   const desc = "Search public repositories tracked by Renown and open each repo's contributor leaderboard.";
   const canonical = `${origin}/repos`;
@@ -55,6 +71,25 @@ export const RenownRepos = ({ cssPath, directory = EMPTY, origin = "" }: Props) 
               <button type="submit" style={{ padding: "10px 18px", border: "1px solid rgba(196,181,253,.45)", borderRadius: 8, color: "inherit", background: "rgba(196,181,253,.14)", cursor: "pointer", fontWeight: 700 }}>Search</button>
             </form>
           </section>
+
+          {privateDirectory && (privateDirectory.repos.length > 0 || privateDirectory.needsGithubAuth) && (
+            <section className="card">
+              <h2 style={{ marginTop: 0 }}>Your private repos <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· visible only to you</span></h2>
+              <p className="muted hint">Fetched live from GitHub. Renown does not store these names or include them in public boards.</p>
+              {privateDirectory.needsGithubAuth && (
+                <p style={{ marginTop: 12 }}>{privateDirectory.reason} <a href="/oauth2/github/authorization" style={{ color: "#c4b5fd", fontWeight: 700 }}>Reconnect GitHub →</a></p>
+              )}
+              {privateDirectory.repos.length > 0 && privateRepos.length === 0 && <p className="muted" style={{ marginTop: 12 }}>No private repositories match this search.</p>}
+              {privateRepos.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(285px, 1fr))", gap: 8, marginTop: 12 }}>
+                {privateRepos.map((repo) => (
+                  <article key={repo.key} style={{ padding: "13px 14px", borderRadius: 10, background: "rgba(255,255,255,.025)", border: "1px solid rgba(255,255,255,.07)" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}><span aria-hidden>🔒</span><strong style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{repo.key}</strong></div>
+                    <div className="muted" style={{ marginTop: 5, fontSize: 12.5 }}>{repo.role} access{repo.stars > 0 ? ` · ★ ${fmt(repo.stars)}` : ""}{repo.pushedAt ? ` · pushed ${new Date(repo.pushedAt).toLocaleDateString()}` : ""}</div>
+                  </article>
+                ))}
+              </div>}
+            </section>
+          )}
 
           <section className="card">
             <h2 style={{ marginTop: 0 }}>Repositories <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>{directory.query ? `· matching “${directory.query}”` : "· ranked by real work"}</span></h2>

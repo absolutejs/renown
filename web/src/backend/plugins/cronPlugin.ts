@@ -17,6 +17,7 @@ import { aggregateSubstance, fetchRecentCommits } from "../substance.ts";
 import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import { gameDb, grantAchievements, hub } from "../sync.ts";
 import { processOnchainTransferOutbox } from "../onchainOutbox.ts";
+import { syncAttributedProjects } from "../project.ts";
 
 const sweepExpiredAttestations = async (): Promise<number> => {
   // jsonb update path: build the demoted attestation (drop .verified + .expiresAt,
@@ -84,6 +85,47 @@ export const cronPlugin = () =>
       run: async () => {
         try { const result = await processOnchainTransferOutbox(); if (result.anchored || result.failed) console.log(`[renown:cron] on-chain outbox anchored=${result.anchored} failed=${result.failed}`); }
         catch (e) { console.error("[renown:cron] on-chain transfer outbox failed", e); }
+      },
+    }))
+    .use(cron({
+      // AI agents often have no always-on workstation hook. Refresh their normal verified
+      // account through the same /api/verify path humans use, then discover repositories from
+      // the provider-specific co-author query. Public repo rows only; private results fail closed.
+      name: "ai-participant-refresh",
+      pattern: "15 */6 * * *",
+      run: async () => {
+        try {
+          const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000);
+          const due = await gameDb.select({
+            playerId: playerAccounts.playerId, login: playerAccounts.githubLogin,
+            attributionQuery: playerAccounts.attributionQuery, verifiedAt: playerAccounts.verifiedAt,
+            lastAttributionSyncAt: playerAccounts.lastAttributionSyncAt,
+          }).from(playerAccounts).innerJoin(players, eq(players.id, playerAccounts.playerId))
+            .where(and(
+              eq(players.isAi, true), eq(players.githubVerified, true), eq(playerAccounts.githubVerified, true),
+              isNotNull(playerAccounts.attributionQuery),
+              or(sql`${playerAccounts.verifiedAt} IS NULL`, lt(playerAccounts.verifiedAt, cutoff)),
+            )).orderBy(sql`${playerAccounts.verifiedAt} NULLS FIRST`).limit(10);
+          const base = (process.env.RENOWN_PUBLIC_URL || `http://127.0.0.1:${process.env.PORT || "3000"}`).replace(/\/$/, "");
+          for (const account of due) {
+            try {
+              const response = await fetch(`${base}/api/verify`, {
+                method: "POST", headers: { "content-type": "application/json", "user-agent": "renown-ai-cron" },
+                body: JSON.stringify({ login: account.login }), signal: AbortSignal.timeout(120_000),
+              });
+              const result = await response.json().catch(() => ({})) as { error?: string };
+              if (!response.ok || result.error) throw new Error(result.error || `verify returned ${response.status}`);
+              const projectResult = await syncAttributedProjects(account.playerId, account.attributionQuery!, {
+                maxCommits: 500, maxRepos: 50, samplePerRepo: 3, since: account.lastAttributionSyncAt,
+              });
+              console.log(`[renown:cron] ai-participant-refresh @${account.login} repos=${projectResult.synced}/${projectResult.discovered}`);
+            } catch (error) {
+              console.error(`[renown:cron] ai-participant-refresh failed for @${account.login}`, error);
+            }
+          }
+        } catch (error) {
+          console.error("[renown:cron] ai-participant-refresh batch failed", error);
+        }
       },
     }))
     .use(cron({

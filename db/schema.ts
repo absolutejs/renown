@@ -123,6 +123,9 @@ export const playerAccounts = pgTable("player_accounts", {
   githubLogin: text("github_login").notNull(),
   attributionQuery: text("attribution_query"),                  // per-github commit search, e.g. author:<login>
   lastAttributionSyncAt: timestamp("last_attribution_sync_at"),
+  // Fixed lower bound for the SHA ledger below. Existing accounts begin on the first full UTC
+  // day after migration; newly linked accounts can backfill their latest 1,000 matches once.
+  attributionLedgerStartedOn: text("attribution_ledger_started_on"),
   verifiedScore: bigint("verified_score", { mode: "number" }).notNull().default(0),
   attributionScore: bigint("attribution_score", { mode: "number" }).notNull().default(0),
   verifiedAt: timestamp("verified_at"),
@@ -140,6 +143,19 @@ export const playerAccounts = pgTable("player_accounts", {
   githubVerified: boolean("github_verified").notNull().default(false),   // OAuth/CLI-token proved this github
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.githubLogin] }) }));
+
+// Idempotency ledger for co-author/search attribution. GitHub commit search only honors day-level
+// date qualifiers, so timestamps alone replay same-day results. The SHA primary key makes retries,
+// overlapping cron windows, and concurrent refreshes safe.
+export const attributionCommits = pgTable("attribution_commits", {
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  githubLogin: text("github_login").notNull(),
+  sha: text("sha").notNull(),
+  discoveredAt: timestamp("discovered_at").notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.playerId, t.githubLogin, t.sha] }),
+  accountIdx: index("attribution_commits_account_idx").on(t.playerId, t.githubLogin, t.discoveredAt),
+}));
 
 // Immutable official binder manifests. Sets publish how many numbered subject slots exist,
 // but unrevealed subject identity stays server-side until a collector owns one.

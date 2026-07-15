@@ -66,6 +66,46 @@ const fetchCommitFiles = async (owner: string, repo: string, sha: string, token?
   } catch { return null; }
 };
 
+// Score a known set of attributed SHAs. This is the AI/co-author counterpart to the normal
+// author-list path below: discovery comes from GitHub commit search, but commit contents are
+// still fetched and passed through the exact same craft formula.
+export const scoreRepoShas = async (
+  owner: string, repo: string, attributedShas: string[],
+  opts?: { token?: string; sample?: number; importance?: RepoImportance | null; commitCount?: number },
+): Promise<RepoScore | null> => {
+  const token = opts?.token ?? process.env.GITHUB_TOKEN;
+  const sample = Math.max(1, Math.min(30, opts?.sample ?? 20));
+  const uniqueShas = [...new Set(attributedShas)].filter(Boolean);
+  if (uniqueShas.length === 0) return null;
+  const meta = opts?.importance !== undefined ? opts.importance : await fetchRepoImportance(owner, repo, token);
+  if (!meta || meta.private) return null;
+  const shas = uniqueShas.slice(0, sample);
+
+  const byS = new Map<string, { subject: string; files: { path: string; additions: number }[] }>();
+  const queue = shas.slice();
+  const worker = async () => {
+    while (queue.length > 0) {
+      const sha = queue.shift();
+      if (!sha) continue;
+      const detail = await fetchCommitFiles(owner, repo, sha, token);
+      if (detail) byS.set(sha, detail);
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker(), worker()]);
+
+  const importance = { stars: meta.stars, oss: meta.oss, owner: meta.owner };
+  let xp = 0, lines = 0;
+  const recentFps: string[] = [];
+  for (const sha of shas) {
+    const detail = byS.get(sha);
+    if (!detail) continue;
+    const scored = scoreCommitData({ subject: detail.subject, files: detail.files, meta: importance, myOwners: [], recentFps, craftXpToday: xp });
+    recentFps.unshift(scored.fp); if (recentFps.length > 40) recentFps.pop();
+    xp += scored.xp; lines += scored.lines;
+  }
+  return { commits: Math.max(uniqueShas.length, opts?.commitCount ?? 0), lines, xp, stars: meta.stars, oss: meta.oss };
+};
+
 // Score (login)'s contribution to (owner/repo). Returns null if there's nothing creditable.
 export const scoreRepoForLogin = async (
   owner: string, repo: string, login: string,
@@ -78,31 +118,5 @@ export const scoreRepoForLogin = async (
   // first `sample` of them (each = one more core call). No Search-API call at all.
   const allShas = await fetchAuthorShas(owner, repo, login, 100, token);
   if (allShas.length === 0) return null;
-  const shas = allShas.slice(0, sample);
-
-  // Fetch commit details concurrently (5 in flight), then score in SHA order so the
-  // diminishing-returns / near-duplicate state is deterministic.
-  const byS = new Map<string, { subject: string; files: { path: string; additions: number }[] }>();
-  const queue = shas.slice();
-  const worker = async () => {
-    while (queue.length > 0) {
-      const sha = queue.shift();
-      if (!sha) continue;
-      const d = await fetchCommitFiles(owner, repo, sha, token);
-      if (d) byS.set(sha, d);
-    }
-  };
-  await Promise.all([worker(), worker(), worker(), worker(), worker()]);
-
-  const importance = meta ? { stars: meta.stars, oss: meta.oss, owner: meta.owner } : null;
-  let xp = 0, lines = 0;
-  const recentFps: string[] = [];
-  for (const sha of shas) {
-    const d = byS.get(sha);
-    if (!d) continue;
-    const scored = scoreCommitData({ subject: d.subject, files: d.files, meta: importance, myOwners: [], recentFps, craftXpToday: xp });
-    recentFps.unshift(scored.fp); if (recentFps.length > 40) recentFps.pop();
-    xp += scored.xp; lines += scored.lines;
-  }
-  return { commits: allShas.length, lines, xp, stars: meta?.stars ?? 0, oss: !!meta?.oss };
+  return scoreRepoShas(owner, repo, allShas, { token, sample, importance: meta, commitCount: allShas.length });
 };

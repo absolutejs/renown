@@ -8,7 +8,7 @@
 // multiple server instances later, add a Redis cluster bus (engine.connectCluster);
 // the rest of this file is unchanged.
 import { neon } from "@neondatabase/serverless";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { createReactiveHub, createWriteBehindCache } from "@absolutejs/sync";
 import { achievements, playerAchievements, playerProjects, players, projects } from "../../../db/schema.ts";
@@ -57,7 +57,16 @@ const persistPlayer = async (id: string, e: PlayerSnapshot) => {
       ossCommits: sql`excluded.oss_commits`, totalLevel: sql`excluded.total_level`, skillXp: sql`excluded.skill_xp`, updatedAt: sql`now()`
     }
   });
-  for (const p of Array.isArray(e.projects) ? e.projects : []) {
+  const submittedProjects = (Array.isArray(e.projects) ? e.projects : []).filter((p) => Boolean(p?.key));
+  const submittedKeys = [...new Set(submittedProjects.map((p) => String(p.key)))];
+  const [storedProjects, storedPlayerProjects] = submittedKeys.length > 0 ? await Promise.all([
+    gameDb.select().from(projects).where(inArray(projects.key, submittedKeys)),
+    gameDb.select().from(playerProjects).where(and(eq(playerProjects.playerId, id), inArray(playerProjects.projectKey, submittedKeys))),
+  ]) : [[], []];
+  const projectByKey = new Map(storedProjects.map((project) => [project.key.toLowerCase(), project]));
+  const playerProjectByKey = new Map(storedPlayerProjects.map((project) => [project.projectKey.toLowerCase(), project]));
+
+  for (const p of submittedProjects) {
     if (!p?.key) continue;
     const commits = clampInt(p.commits, 500_000);
     const lines = clampInt(p.lines, 100_000_000);
@@ -84,12 +93,18 @@ const persistPlayer = async (id: string, e: PlayerSnapshot) => {
       await gameDb.update(projects).set({ visibility: "unknown" }).where(sql`lower(${projects.key}) = ${String(p.key).toLowerCase()}`);
       continue;
     }
-    await gameDb.insert(projects).values({ key: p.key, name: p.name || p.key, stars: meta!.stars, oss: meta!.oss, visibility })
-      .onConflictDoUpdate({ target: projects.key, set: { name: sql`excluded.name`, stars: sql`greatest(${projects.stars}, excluded.stars)`, oss: sql`${projects.oss} or excluded.oss`, visibility: "public" } });
+    const storedProject = projectByKey.get(String(p.key).toLowerCase());
+    if (!storedProject || storedProject.visibility !== "public" || storedProject.name !== (p.name || p.key) || storedProject.stars < meta!.stars || (!storedProject.oss && meta!.oss)) {
+      await gameDb.insert(projects).values({ key: p.key, name: p.name || p.key, stars: meta!.stars, oss: meta!.oss, visibility })
+        .onConflictDoUpdate({ target: projects.key, set: { name: sql`excluded.name`, stars: sql`greatest(${projects.stars}, excluded.stars)`, oss: sql`${projects.oss} or excluded.oss`, visibility: "public" } });
+    }
     // Monotonic on all three (matches /api/ci/repo-sync) — a submit can raise a board stat but
     // never lower it, so neither a buggy resubmit nor a malicious one can regress real numbers.
-    await gameDb.insert(playerProjects).values({ playerId: id, projectKey: p.key, xp, commits, lines, updatedAt: new Date() })
-      .onConflictDoUpdate({ target: [playerProjects.playerId, playerProjects.projectKey], set: { xp: sql`greatest(${playerProjects.xp}, excluded.xp)`, commits: sql`greatest(${playerProjects.commits}, excluded.commits)`, lines: sql`greatest(${playerProjects.lines}, excluded.lines)`, updatedAt: sql`now()` } });
+    const storedPlayerProject = playerProjectByKey.get(String(p.key).toLowerCase());
+    if (!storedPlayerProject || Number(storedPlayerProject.xp) < xp || storedPlayerProject.commits < commits || Number(storedPlayerProject.lines) < lines) {
+      await gameDb.insert(playerProjects).values({ playerId: id, projectKey: p.key, xp, commits, lines, updatedAt: new Date() })
+        .onConflictDoUpdate({ target: [playerProjects.playerId, playerProjects.projectKey], set: { xp: sql`greatest(${playerProjects.xp}, excluded.xp)`, commits: sql`greatest(${playerProjects.commits}, excluded.commits)`, lines: sql`greatest(${playerProjects.lines}, excluded.lines)`, updatedAt: sql`now()` } });
+    }
   }
   const unlocked = (Array.isArray(e.unlocked) ? e.unlocked : []).filter((x): x is string => typeof x === "string").slice(0, MAX_UNLOCKS);
   if (unlocked.length) {

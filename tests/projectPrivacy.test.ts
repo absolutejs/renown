@@ -26,6 +26,13 @@ describe("repository privacy boundary", () => {
     expect(JSON.stringify(snapshot)).not.toContain("unverified-secret");
   });
 
+  test("cloud snapshots include every confirmed-public repository, not only the top five", () => {
+    const many = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`org/public-${i}`, project("public")])) as State["projects"];
+    const snapshot = selfEntry({ ...state, projects: many } as unknown as State);
+    expect(snapshot.projects).toHaveLength(8);
+    expect(snapshot.projects?.map((p) => p.key)).toContain("org/public-7");
+  });
+
   test("private boards remain local and never call the configured endpoint", async () => {
     const cfg = { leaderboardEndpoint: "https://should-not-be-contacted.invalid/api" } as Config;
     const board = await fetchProjectBoard(state, cfg, "org/private-secret");

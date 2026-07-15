@@ -5,7 +5,8 @@
 import { and, desc, eq, gte, ilike, inArray, or, sql } from "drizzle-orm";
 import { players, playerProjects, projects } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
-import { fetchRepoImportance } from "./repoScore.ts";
+import { fetchAttributedRepositories } from "./attribution.ts";
+import { fetchRepoImportance, scoreRepoShas } from "./repoScore.ts";
 import { resolvePlayerByGithubLogin } from "./resolvePlayer.ts";
 import { gameDb } from "./sync.ts";
 
@@ -215,6 +216,43 @@ export const loadProjectDirectory = async ({
     return { ...r, owner, repo: rest.join("/") || r.key, devs: Number(r.devs), xp: Number(r.xp), commits: Number(r.commits) };
   });
   return { repos, query: q, contributor: login, contributorFound: true, sort, page: safePage, hasMore };
+};
+
+// Populate public repository associations for identities represented by a GitHub commit-search
+// query (notably Claude/Codex co-author trailers). Every key is independently checked through
+// GitHub before the shared tables are touched; private repository identities are never stored.
+export const syncAttributedProjects = async (
+  playerId: string, attributionQuery: string,
+  opts?: { token?: string; maxCommits?: number; maxRepos?: number; samplePerRepo?: number; since?: Date | string | null },
+) => {
+  const token = opts?.token ?? process.env.GITHUB_TOKEN;
+  const discovered = await fetchAttributedRepositories(attributionQuery, opts?.maxCommits ?? 500, token, opts?.since);
+  let synced = 0, skippedPrivate = 0;
+  for (const item of discovered.slice(0, Math.max(1, Math.min(1000, opts?.maxRepos ?? 50)))) {
+    const [owner, ...parts] = item.key.split("/");
+    const repo = parts.join("/");
+    if (!owner || !repo) continue;
+    const importance = await fetchRepoImportance(owner, repo, token);
+    if (!importance || importance.private) { skippedPrivate++; continue; }
+    const score = await scoreRepoShas(owner, repo, item.shas, { token, importance, sample: opts?.samplePerRepo ?? 3, commitCount: item.shas.length });
+    if (!score) continue;
+    const existing = (await gameDb.select({ key: projects.key }).from(projects).where(sql`lower(${projects.key}) = ${item.key.toLowerCase()}`).limit(1))[0];
+    const key = existing?.key ?? item.key;
+    await gameDb.insert(projects).values({ key, name: repo, stars: score.stars, oss: score.oss, visibility: "public" })
+      .onConflictDoUpdate({ target: projects.key, set: { name: repo, stars: sql`greatest(${projects.stars}, excluded.stars)`, oss: sql`${projects.oss} or excluded.oss`, visibility: "public" } });
+    await gameDb.insert(playerProjects).values({
+      playerId, projectKey: key, xp: score.xp, commits: score.commits, lines: score.lines,
+      verifiedXp: score.xp, verifiedCommits: score.commits, verifiedLines: score.lines, updatedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: [playerProjects.playerId, playerProjects.projectKey],
+      set: {
+        xp: sql`greatest(${playerProjects.xp}, excluded.xp)`, commits: sql`greatest(${playerProjects.commits}, excluded.commits)`, lines: sql`greatest(${playerProjects.lines}, excluded.lines)`,
+        verifiedXp: sql`greatest(${playerProjects.verifiedXp}, excluded.verified_xp)`, verifiedCommits: sql`greatest(${playerProjects.verifiedCommits}, excluded.verified_commits)`, verifiedLines: sql`greatest(${playerProjects.verifiedLines}, excluded.verified_lines)`, updatedAt: sql`now()`,
+      },
+    });
+    synced++;
+  }
+  return { discovered: discovered.length, synced, skippedPrivate };
 };
 
 // One-line OG/share description: "12 devs · 48k XP · top @alexkahndev".

@@ -34,6 +34,7 @@ import { loadPetCollection } from "../petGallery.ts";
 import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots, selectOfficialPetBookCopy } from "../petBooks.ts";
 import { acceptMarketTrade, buyMarketListing, cancelMarketAuction, cancelMarketBuyOrder, cancelMarketListing, cancelMarketTrade, createMarketAuction, createMarketBuyOrder, createMarketListing, createMarketTrade, declineMarketTrade, fillMarketBuyOrder, loadCollectorTradePets, loadMarketPetTemplate, loadMarketTrades, loadWallet, placeMarketBid } from "../marketplace.ts";
 import { deleteSubjectWatch, loadSubjectWatch, saveSubjectWatch } from "../petExchange.ts";
+import { loadAccessiblePrivateRepos } from "../privateRepos.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
@@ -211,6 +212,21 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     .onAfterHandle(({ set }) => { set.headers["cache-control"] = "private, no-store"; set.headers.pragma = "no-cache"; })
     // Everything attached to my account.
     .get("/", ({ protectRoute }) => protectRoute((user) => accountPayload(db, user.sub)))
+    // Live, owner-only private repository list. The OAuth token is session-scoped and the
+    // response inherits this plugin's `private, no-store` policy. Nothing is persisted.
+    .get("/repos", ({ protectRoute, cookie }) => protectRoute(async (user) => {
+      const sessionId = cookie.user_session_id.value;
+      const session = sessionId ? await authSessionStore.getSession(sessionId) : undefined;
+      if (!session?.accessToken || session.user.sub !== user.sub) {
+        return { repos: [], needsGithubAuth: true, reason: "Sign in with GitHub to load private repositories." };
+      }
+      const identities = await listDBAuthIdentitiesByUser({ db, userSub: user.sub });
+      const allowedLogins = identities
+        .filter((identity) => identity.auth_provider === "github")
+        .map((identity) => githubIdentityLogin(identity) ?? "")
+        .filter(Boolean);
+      return loadAccessiblePrivateRepos(session.accessToken, allowedLogins);
+    }))
     // Keyset-paginated achievement details. The account bootstrap carries only the
     // denormalized count; rows are fetched when the trophy cabinet is actually visible.
     .get("/achievements", ({ query, protectRoute }) =>

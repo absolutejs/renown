@@ -63,6 +63,9 @@ jobs:
       - name: Add fail-closed repository visibility (privacy migration)
         run: bun --env-file=web/.env db/migrate-add-project-visibility.ts
 
+      - name: Add idempotent attribution commit ledger
+        run: bun --env-file=web/.env db/migrate-add-attribution-ledger.ts
+
       # Cleanup is intentionally non-blocking: the migration defaults every legacy row to
       # unknown, and the application exposes only confirmed-public rows. If GitHub rate-limits
       # classification, deploying the new binary is still the privacy-safe outcome; rerunning a

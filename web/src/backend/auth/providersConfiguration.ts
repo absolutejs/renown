@@ -15,7 +15,10 @@ export const providersConfiguration = defineProvidersConfiguration({
       clientId: getEnvVar("GITHUB_CLIENT_ID"),
       clientSecret: getEnvVar("GITHUB_CLIENT_SECRET"),
       redirectUri: getEnvVar("OAUTH2_CALLBACK_URI")
-    }
+    },
+    // GitHub's classic OAuth `repo` scope is required to list private repositories. The token
+    // remains session-scoped; private names are fetched live and never enter shared project data.
+    scope: ["read:user", "user:email", "repo"]
   },
   google: {
     login: {

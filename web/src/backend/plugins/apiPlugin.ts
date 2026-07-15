@@ -6,7 +6,7 @@ import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { generate } from "../../../../core/procgen.ts";
 import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
-import { achievements, aiAttestationEvents, playerAccounts, playerAchievements, playerAttributionSnapshots, playerProjects, players, projects, wildSeedSources } from "../../../../db/schema.ts";
+import { achievements, aiAttestationEvents, attributionCommits, playerAccounts, playerAchievements, playerAttributionSnapshots, playerProjects, players, projects, wildSeedSources } from "../../../../db/schema.ts";
 import { resolvePlayerByGithubLogin } from "../resolvePlayer.ts";
 import { fetchRepoImportance, scoreRepoForLogin } from "../repoScore.ts";
 import { computeVerifiedSkillXp } from "../skillScore.ts";
@@ -15,7 +15,7 @@ import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import { advanceAllTimeVerifiedScore } from "../allTimeScore.ts";
 import { authIdentities, users } from "../../../db/schema.ts";
 import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts";
-import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
+import { fetchAttributionShas } from "../attribution.ts";
 import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
 import { loadProfile } from "../profile.ts";
 import { confirmProjectPublic, loadProject, loadTopProjects, normalizeProjectSort, normalizeProjectWindow } from "../project.ts";
@@ -351,15 +351,21 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       }
       const v = await verifyGithub(login);
       if (!v) return { error: "github verification failed" };
-      // Attribution: count NEW commits since max(account_created, account's last sync). The
-      // window cap guarantees a resync never double-counts; a long absence backfills correctly.
+      // Attribution: GitHub's date filter overlaps at day boundaries, so count only SHAs newly
+      // inserted into the per-account ledger. Retries and concurrent refreshes become no-ops.
       let attrDelta = 0;
       let newShas: string[] = [];
+      // Keep the human-readable cursor for status/recency; correctness comes from the SHA ledger.
+      const attributionSyncStartedAt = new Date();
       if (acctQuery) {
-        const since = acct?.lastAttributionSyncAt ?? row.createdAt;
-        attrDelta = await searchAttributions(acctQuery, since);
-      // Pull up to 30 fresh commit provenance IDs from this attribution window.
-      if (attrDelta > 0) newShas = await fetchAttributionShas(acctQuery, since, 30);
+        const candidateShas = await fetchAttributionShas(acctQuery, acct?.attributionLedgerStartedOn ?? null, 1000);
+        if (candidateShas.length > 0) {
+          const inserted = await gameDb.insert(attributionCommits).values(candidateShas.map((sha) => ({
+            playerId: row.id, githubLogin: login, sha,
+          }))).onConflictDoNothing().returning({ sha: attributionCommits.sha });
+          newShas = inserted.map((item) => item.sha);
+          attrDelta = newShas.length;
+        }
       }
       // This github's own verified score (base + its attribution); rolls up to the player below.
       const acctAttribution = Number(acct?.attributionScore ?? 0) + attrDelta;
@@ -373,7 +379,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // Turn commit provenance into supply-limited serialized copies. PostgreSQL assigns the
       // next serial atomically; replaying this sync returns the same already-issued copy.
       const issuedPets = newShas.length > 0
-        ? await issuePetCopies({ playerId: row.id, githubLogin: login, provenanceSeeds: newShas })
+        ? await issuePetCopies({ playerId: row.id, githubLogin: login, provenanceSeeds: newShas.slice(0, 30) })
         : [];
       const issuedSeeds = issuedPets.map((pet) => pet.seed);
       const createdPets = issuedPets.filter((pet) => pet.created);
@@ -429,7 +435,8 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // up across all the user's linked githubs.
       await gameDb.update(playerAccounts).set({
         verifiedScore: acctScore, attributionScore: acctAttribution, verifiedAt: new Date(),
-        lastAttributionSyncAt: acctQuery ? new Date() : acct?.lastAttributionSyncAt ?? null,
+        lastAttributionSyncAt: acctQuery ? attributionSyncStartedAt : acct?.lastAttributionSyncAt ?? null,
+        attributionLedgerStartedOn: acctQuery ? (acct?.attributionLedgerStartedOn ?? attributionSyncStartedAt.toISOString().slice(0, 10)) : acct?.attributionLedgerStartedOn ?? null,
         ...(recomputedSkillXp ? { verifiedSkillXp: recomputedSkillXp } : {}),
       }).where(and(eq(playerAccounts.playerId, row.id), sql`lower(${playerAccounts.githubLogin}) = ${login.toLowerCase()}`));
       const agg = await rollupPlayerFromAccounts(row.id);
