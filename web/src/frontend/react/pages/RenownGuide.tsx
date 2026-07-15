@@ -67,10 +67,10 @@ export const RenownGuide = ({ cssPath, origin = "" }: RenownGuideProps) => {
           <ol className="guideSetup">
             <li><span>1</span><div><h3>Install with Bun</h3><p>Install the published CLI globally so <code>renown</code> is available in every repository.</p><Command>bun add -g @absolutejs/renown</Command></div></li>
             <li><span>2</span><div><h3>Authenticate GitHub</h3><p>If <code>gh auth status</code> already succeeds, skip this. Renown uses GitHub CLI authentication; it never asks you to paste a token into the website.</p><Command>gh auth login</Command></div></li>
-            <li><span>3</span><div><h3>Link your account</h3><p>This opens the ownership flow, associates your GitHub identity, verifies public work, and pulls the score and pets you have earned.</p><Command>renown link</Command></div></li>
+            <li><span>3</span><div><h3>Link your account</h3><p>This uses your GitHub CLI authentication to associate your identity, verify public work, and pull the score and pets you have earned.</p><Command>renown link</Command></div></li>
             <li><span>4</span><div><h3>Wire Codex and Claude</h3><p>This installs first-party hooks for both agents and a tmux HUD. Use an individual target if you only want one integration.</p><Command>renown install-agent all</Command></div></li>
           </ol>
-          <div className="guideCallout"><strong>That’s enough.</strong><span>Run <code>renown --help</code> to explore the CLI, or keep coding and let the installed hooks refresh your progress. Re-run <code>renown link</code> when you intentionally add another GitHub identity.</span></div>
+          <div className="guideCallout"><strong>That’s enough.</strong><span>Run <code>renown --help</code> to explore the CLI, or keep coding and let the installed hooks refresh your progress. Re-run <code>renown link</code> when you intentionally add another GitHub identity. If linking reports <code>playerId + token required</code>, run <code>renown upgrade</code> and retry.</span></div>
         </section>
 
         <section className="guideSection" id="agents">

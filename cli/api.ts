@@ -23,6 +23,7 @@
 // state machine. Run those via the full CLI in this repo: `bun run cli/index.ts`.
 
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,9 +52,13 @@ const CODEX_REAL = join(RDIR, "codex-real-path");
 // RENOWN_ENDPOINT env var (env > config > this default).
 const DEFAULT_ENDPOINT = "https://renown.absolutejs.com/api";
 
+const validPlayerId = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value !== "local";
+
 // Minimal config-loader — accepts the historical XDG path and the current ~/.renown
-// path used by the local engine. Always resolves an endpoint so the CLI is usable
-// the moment it's installed.
+// path used by the local engine. A published-CLI-only install has no Bun engine to
+// initialize these files, so create one durable identity here and keep config/state
+// aligned. Otherwise JSON.stringify drops an undefined playerId and `renown link`
+// reaches the server as `{ token }`, which it correctly rejects.
 const loadConfig = (): AppConfig => {
   const withEndpoint = (c: AppConfig): AppConfig => ({
     ...c,
@@ -61,10 +66,26 @@ const loadConfig = (): AppConfig => {
   });
   try {
     const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-    const path = [join(RDIR, "config.json"), join(base, "renown", "config.json")].find((p) => existsSync(p));
-    if (!path) return withEndpoint({});
-    return withEndpoint(JSON.parse(readFileSync(path, "utf8")) as AppConfig);
-  } catch { return withEndpoint({}); }
+    const currentPath = join(RDIR, "config.json");
+    const historicalPath = join(base, "renown", "config.json");
+    const path = [currentPath, historicalPath].find((p) => existsSync(p)) ?? currentPath;
+    let config: AppConfig = {};
+    let state: LocalState = {};
+    try { config = JSON.parse(readFileSync(path, "utf8")) as AppConfig; } catch {}
+    try { state = JSON.parse(readFileSync(STATE, "utf8")) as LocalState; } catch {}
+    const playerId = validPlayerId(config.playerId) ? config.playerId : validPlayerId(state.playerId) ? state.playerId : randomUUID();
+    config.playerId = playerId;
+    state = {
+      v: 3, name: "player", createdAt: Date.now(), xp: 0, lifetimeXp: 0,
+      streak: 1, ossCommits: 0, achievements: {}, skillXp: {}, agentUses: {},
+      agentLastUsedAt: {}, stats: { activeSec: 0 }, ...state, playerId,
+    };
+    mkdirSync(dirname(path), { recursive: true });
+    mkdirSync(RDIR, { recursive: true });
+    writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+    saveLocalState(state);
+    return withEndpoint(config);
+  } catch { return withEndpoint({ playerId: randomUUID() }); }
 };
 
 type LocalState = {
