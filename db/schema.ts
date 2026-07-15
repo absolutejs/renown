@@ -346,6 +346,16 @@ export const marketBids = pgTable("market_bids", {
   status: text("status").notNull().default("active"), createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ auctionAmountIdx: index("market_bids_auction_amount_idx").on(t.auctionId, t.amountCents, t.createdAt) }));
 
+export const marketWatchlists = pgTable("market_watchlists", {
+  id: text("id").primaryKey(),
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  subjectId: text("subject_id").notNull().references(() => petSubjects.id, { onDelete: "cascade" }),
+  finish: text("finish"),
+  maximumPriceCents: integer("maximum_price_cents"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ playerIdx: index("market_watchlists_player_idx").on(t.playerId, t.createdAt), subjectIdx: index("market_watchlists_subject_idx").on(t.subjectId, t.finish, t.maximumPriceCents) }));
+
 export const marketTrades = pgTable("market_trades", {
   id: text("id").primaryKey(), proposerPlayerId: text("proposer_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),
   counterpartyPlayerId: text("counterparty_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),

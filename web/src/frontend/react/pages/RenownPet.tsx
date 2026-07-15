@@ -27,7 +27,7 @@ type PetForUI = {
 type PetOwner = { login: string | null; handle: string; tier: string; isAi: boolean; earnedVia: string | null;
   printingId: string | null; serialNumber: number | null; printRun: number | null; mintNumber: number | null;
   variant: string | null; finish: string | null; recipeVersion: string | null; mutation: string | null; colorway: string | null; material: string | null; copyPattern: string | null;
-  population: number | null; setId: string | null; subjectName: string | null; earnedAt: string | null; sizeRank: number | null } | null;
+  population: number | null; setId: string | null; subjectId: string | null; subjectName: string | null; earnedAt: string | null; sizeRank: number | null } | null;
 type SaleStats = { count: number; averageCents: number | null; lowCents: number | null; highCents: number | null };
 type PetMarket = { listing: { id: string; priceCents: number; sellerPlayerId: string } | null; valuation?: { printingSales: SaleStats; exactSales: SaleStats; printingFloorCents: number | null; exactFloorCents: number | null; recentSales: { seed: string; amountCents: number | null; occurredAt: string | Date; name: string; finish: string | null; material: string | null; colorway: string | null; pattern: string | null; serialNumber: number | null; printRun: number | null }[] }; events: { sequence: number; kind: string; reason: string; amountCents: number | null; occurredAt: string | Date; from: { login: string | null; handle: string } | null; to: { login: string | null; handle: string } | null }[] };
 
@@ -83,7 +83,7 @@ const PetBody = ({ pet, owner, market, origin }: { pet: PetForUI; owner: PetOwne
         {owner?.login
           ? <p style={{ margin: "13px 0 0" }}>Owned by <a href={`/profile/${encodeURIComponent(owner.login)}`} style={{ fontWeight: 700, color: accent, textDecoration: "none" }}>@{owner.login}</a>{owner.isAi && <span title="AI participant"> 🤖</span>}</p>
           : <p className="muted" style={{ margin: "13px 0 0", fontSize: 13 }}>Unclaimed — this exact copy has not been discovered.</p>}
-        {(market.listing || owner?.login) && <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 16 }}>{market.listing && <><strong style={{ fontSize: 22 }}>{money(market.listing.priceCents)}</strong><a className="btn" href={`/marketplace?buy=${encodeURIComponent(market.listing.id)}`}>Buy on market</a></>}{owner?.login && <a className="petAction" href={`/marketplace?trade=${encodeURIComponent(owner.login)}&want=${encodeURIComponent(pet.seed)}`}>Offer a trade</a>}{owner?.printingId && <a className="petAction" href={`/marketplace?buyOrder=${encodeURIComponent(pet.seed)}`}>Post a buy order</a>}</div>}
+        {(market.listing || owner?.login) && <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 16 }}>{market.listing && <><strong style={{ fontSize: 22 }}>{money(market.listing.priceCents)}</strong><a className="btn" href={`/marketplace?buy=${encodeURIComponent(market.listing.id)}`}>Buy on market</a></>}{owner?.login && <a className="petAction" href={`/marketplace?trade=${encodeURIComponent(owner.login)}&want=${encodeURIComponent(pet.seed)}`}>Offer a trade</a>}{owner?.printingId && <a className="petAction" href={`/marketplace?buyOrder=${encodeURIComponent(pet.seed)}`}>Post a buy order</a>}{owner?.subjectId && <a className="petAction" href={`/marketplace/subjects/${encodeURIComponent(owner.subjectId)}`}>Open subject exchange</a>}</div>}
       </div>
     </section>
 

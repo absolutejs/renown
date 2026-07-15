@@ -98,7 +98,9 @@
     "build:manifest": "bun build src/manifest.ts --outdir dist --target=node && absolute-manifest emit"
   },
   "dependencies": {
+    "@absolutejs/collectibles": "0.1.1",
     "@absolutejs/manifest": "^0.1.0",
+    "@absolutejs/marketplace": "0.1.1",
     "@absolutejs/onchain": "0.1.1",
     "@absolutejs/wallet": "0.1.2",
     "@neondatabase/serverless": "^1.1.0",

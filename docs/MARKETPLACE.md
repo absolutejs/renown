@@ -4,6 +4,17 @@ Renown uses a closed-loop, dollar-denominated wallet. A dollar balance can buy p
 pay trade fees inside Renown, but it cannot be withdrawn or redeemed for cash. The UI and
 ledger use integer cents. The shared implementation lives in `@absolutejs/wallet`.
 
+Reusable boundaries:
+
+- `@absolutejs/marketplace` owns provider-agnostic criteria matching, listing and auction
+  validation, anti-sniping, cursor encoding, state transitions, and settlement plans.
+- `@absolutejs/collectibles` owns deterministic set/subject/printing/copy identity,
+  shuffled serial allocation, weighted traits, rarity explanations, and population math.
+- `@absolutejs/wallet-stripe` creates closed-loop Stripe Checkout funding sessions and
+  normalizes verified funding, refund, and dispute webhooks into idempotent wallet actions.
+- Renown owns its pet recipes, Genesis catalog, achievement issuance rules, visual UI,
+  Drizzle queries, and PostgreSQL functions that commit money and ownership atomically.
+
 ## Launch policy
 
 - Minimum deposit: $5.00
@@ -35,6 +46,18 @@ The item remains usable while listed. It stops being usable by the seller at the
 transaction that makes the buyer its owner. Buy-order funds and leading auction bids are
 reserved, not spent, until one atomic settlement captures them. Outbid, cancelled, and
 expired reservations return to the available balance.
+
+## Subject exchange and watches
+
+Every discovered subject has a permanent `/marketplace/subjects/:id` exchange. It combines
+the seven known printing limits, issued and remaining population, every discovered physical
+copy, record copies, trait census, active listings, buy orders, auctions, and comparable
+sales. Undiscovered manifest subjects remain hidden even when a deterministic id is guessed.
+
+Collectors can watch a whole subject or narrow the watch to a finish and maximum price.
+Creating a matching listing or auction fans out through the existing marketplace push
+preference. Watch rows contain public collectible criteria only; payment and identity-provider
+metadata never enters the watchlist.
 
 ## Provenance and blockchain boundary
 

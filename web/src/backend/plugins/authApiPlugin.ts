@@ -31,6 +31,7 @@ import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub 
 import { loadPetCollection } from "../petGallery.ts";
 import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots, selectOfficialPetBookCopy } from "../petBooks.ts";
 import { acceptMarketTrade, buyMarketListing, cancelMarketAuction, cancelMarketBuyOrder, cancelMarketListing, cancelMarketTrade, createMarketAuction, createMarketBuyOrder, createMarketListing, createMarketTrade, declineMarketTrade, fillMarketBuyOrder, loadCollectorTradePets, loadMarketPetTemplate, loadMarketTrades, loadWallet, placeMarketBid } from "../marketplace.ts";
+import { deleteSubjectWatch, loadSubjectWatch, saveSubjectWatch } from "../petExchange.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
@@ -311,6 +312,16 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
     .delete("/marketplace/trades/:id", ({ params, protectRoute, status }) => protectRoute(async (user) => {
       try { const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "player not found"); await cancelMarketTrade(player.id, params.id); return { ok: true }; }
       catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not cancel trade"); }
+    }))
+    .get("/marketplace/subjects/:id/watch", ({ params, protectRoute }) => protectRoute(async (user) => {
+      const player = await resolvePlayerByUserSub(user.sub); return { watch: player ? await loadSubjectWatch(player.id, params.id) : null };
+    }))
+    .put("/marketplace/subjects/:id/watch", ({ params, body, protectRoute, status }) => protectRoute(async (user) => {
+      try { const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "link GitHub before watching a subject"); return { watch: await saveSubjectWatch(player.id, params.id, body) }; }
+      catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not save watch"); }
+    }))
+    .delete("/marketplace/subjects/:id/watch", ({ params, protectRoute, status }) => protectRoute(async (user) => {
+      const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "player not found"); await deleteSubjectWatch(player.id, params.id); return { ok: true };
     }))
     .get("/pet-books", ({ protectRoute }) => protectRoute(async (user) => {
       const player = await resolvePlayerByUserSub(user.sub);

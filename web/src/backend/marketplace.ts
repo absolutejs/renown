@@ -1,4 +1,8 @@
-import { cents, sellerFee, steamLikeWalletPolicy } from "@absolutejs/wallet";
+import {
+  assertIdempotencyKey, assertMarketAmount, criteriaFromAsset, decodeMarketCursor, encodeMarketCursor,
+  normalizeAuctionDraft, normalizeListingDraft, normalizeOrderDuration, steamLikeMarketplacePolicy,
+} from "@absolutejs/marketplace";
+import { cents, steamLikeWalletPolicy } from "@absolutejs/wallet";
 import { and, desc, eq, ilike, inArray, lt, or, sql } from "drizzle-orm";
 import {
   marketAuctions, marketBids, marketBuyOrders, marketListings, marketTrades, petOwnershipEvents, petPrintings, petSubjects, players, walletAccounts,
@@ -6,21 +10,13 @@ import {
 } from "../../../db/schema.ts";
 import { gameDb } from "./sync.ts";
 import { notifyMarketplace } from "./push.ts";
+import { notifySubjectWatchers } from "./petExchange.ts";
 
 const PAGE_MAX = 60;
-type ListingCursor = { at: string; id: string };
-const encodeCursor = (value: ListingCursor) => Buffer.from(JSON.stringify(value)).toString("base64url");
-const decodeCursor = (raw: unknown): ListingCursor | null => {
-  if (typeof raw !== "string" || !raw) return null;
-  try {
-    const value = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as ListingCursor;
-    return typeof value.at === "string" && !Number.isNaN(Date.parse(value.at)) && typeof value.id === "string" ? value : null;
-  } catch { return null; }
-};
 
 export const loadMarketplace = async (query: Record<string, unknown> = {}) => {
   const limit = Math.max(1, Math.min(PAGE_MAX, Number(query.limit ?? 24) || 24));
-  const cursor = decodeCursor(query.cursor);
+  const cursor = decodeMarketCursor(query.cursor);
   const q = typeof query.q === "string" ? query.q.trim().slice(0, 80) : "";
   const finish = typeof query.finish === "string" ? query.finish : "";
   const listingId = typeof query.listingId === "string" ? query.listingId : "";
@@ -47,9 +43,9 @@ export const loadMarketplace = async (query: Record<string, unknown> = {}) => {
     .leftJoin(petPrintings, eq(petPrintings.id, wildSeedSources.printingId))
     .leftJoin(petSubjects, eq(petSubjects.id, petPrintings.subjectId))
     .where(where).orderBy(desc(marketListings.createdAt), desc(marketListings.id)).limit(limit + 1);
-  const items = rows.slice(0, limit).map((row) => ({ ...row, sellerReceivesCents: sellerFee(row.priceCents, steamLikeWalletPolicy.sellerFeeBps).sellerNetCents }));
+  const items = rows.slice(0, limit).map((row) => ({ ...row, sellerReceivesCents: row.priceCents - Math.ceil(row.priceCents * steamLikeMarketplacePolicy.wallet.sellerFeeBps / 10_000) }));
   const last = items.at(-1);
-  return { items, nextCursor: rows.length > limit && last ? encodeCursor({ at: last.createdAt.toISOString(), id: last.id }) : null, policy: steamLikeWalletPolicy };
+  return { items, nextCursor: rows.length > limit && last ? encodeMarketCursor({ at: last.createdAt.toISOString(), id: last.id }) : null, policy: steamLikeMarketplacePolicy.wallet };
 };
 
 export const loadWallet = async (playerId: string) => {
@@ -100,14 +96,15 @@ export const createMarketBuyOrder = async (buyerPlayerId: string, input: unknown
   if (openCount >= 20) throw new Error("cancel an existing buy order before posting another");
   const body = (input ?? {}) as { petSeed?: unknown; match?: unknown; priceCents?: unknown; maxSerial?: unknown; expiresInDays?: unknown };
   const template = await loadMarketPetTemplate(String(body.petSeed ?? "").trim());
-  const priceCents = cents(Number(body.priceCents), "buy order price");
-  if (priceCents < 100 || priceCents > steamLikeWalletPolicy.maximumTransactionCents) throw new Error("buy order price must be between $1.00 and $1,800.00");
+  const priceCents = assertMarketAmount(body.priceCents, "buy order price");
   const match = body.match === "exact" ? "exact" : body.match === "finish" ? "finish" : "printing";
-  const criteria: { printingId: string; subjectId?: string; finish?: string; material?: string; colorway?: string; pattern?: string; maxSerial?: number } = { printingId: template.printingId!, subjectId: template.subjectId ?? undefined };
-  if (match === "finish" || match === "exact") criteria.finish = template.finish ?? undefined;
-  if (match === "exact") { criteria.material = template.material ?? undefined; criteria.colorway = template.colorway ?? undefined; criteria.pattern = template.pattern ?? undefined; }
-  const maxSerial = Number(body.maxSerial); if (Number.isSafeInteger(maxSerial) && maxSerial > 0) criteria.maxSerial = maxSerial;
-  const days = Math.max(1, Math.min(30, Number(body.expiresInDays ?? 7) || 7));
+  const normalizedCriteria = criteriaFromAsset({ id: template.seed, ...template }, match, Number(body.maxSerial));
+  const criteria: { printingId: string; subjectId?: string; finish?: string; material?: string; colorway?: string; pattern?: string; maxSerial?: number } = {
+    printingId: normalizedCriteria.printingId!, subjectId: normalizedCriteria.subjectId, finish: normalizedCriteria.finish,
+    material: normalizedCriteria.material, colorway: normalizedCriteria.colorway, pattern: normalizedCriteria.pattern,
+    maxSerial: normalizedCriteria.maximumSerial,
+  };
+  const days = normalizeOrderDuration(body.expiresInDays);
   const expiresAt = new Date(Date.now() + days * 86_400_000); const id = `buy:${crypto.randomUUID()}`; const key = `buy-order:create:${id}`;
   const result = await gameDb.execute(sql`select * from create_market_buy_order(${id},${buyerPlayerId},${JSON.stringify(criteria)}::jsonb,${priceCents},${expiresAt},${key})`);
   if (!result.rows.length) throw new Error("buy order was not created");
@@ -118,7 +115,8 @@ export const cancelMarketBuyOrder = async (buyerPlayerId: string, orderId: strin
 
 type BuyOrderSettlementRow = { out_transaction_id: string; out_order_id: string; out_pet_seed: string; out_buyer: string; out_seller: string };
 export const fillMarketBuyOrder = async (sellerPlayerId: string, orderId: string, petSeed: string, idempotencyKey: string) => {
-  const result = await gameDb.execute(sql`select * from settle_market_buy_order(${orderId},${sellerPlayerId},${petSeed},${idempotencyKey})`);
+  const key = assertIdempotencyKey(idempotencyKey);
+  const result = await gameDb.execute(sql`select * from settle_market_buy_order(${orderId},${sellerPlayerId},${petSeed},${key})`);
   const row = (result.rows as unknown as BuyOrderSettlementRow[])[0]; if (!row) throw new Error("buy order did not settle");
   void notifyMarketplace(row.out_buyer, "Buy order filled", "A matching pet is now in your collection and the reserved funds settled.", `buy-order:filled:${orderId}`);
   void notifyMarketplace(row.out_seller, "Instant sale complete", "The buyer's reserved funds settled and your wallet is updated.", `buy-order:sold:${orderId}`);
@@ -157,17 +155,17 @@ export const createMarketAuction = async (sellerPlayerId: string, input: unknown
   const openCount = Number((await gameDb.select({ count: sql<number>`count(*)::int` }).from(marketAuctions).where(and(eq(marketAuctions.sellerPlayerId, sellerPlayerId), eq(marketAuctions.status, "active"))))[0]?.count ?? 0);
   if (openCount >= 10) throw new Error("cancel an auction without bids before starting another");
   const body = (input ?? {}) as { petSeed?: unknown; startCents?: unknown; reserveCents?: unknown; durationHours?: unknown };
-  const petSeed = String(body.petSeed ?? "").trim(); const startCents = cents(Number(body.startCents), "auction start");
-  const reserveRaw = Number(body.reserveCents); const reserveCents = Number.isSafeInteger(reserveRaw) && reserveRaw > 0 ? cents(reserveRaw, "auction reserve") : null;
-  const hours = Math.max(1, Math.min(168, Number(body.durationHours ?? 24) || 24)); const endsAt = new Date(Date.now() + hours * 3_600_000); const id = `auction:${crypto.randomUUID()}`;
+  const draft = normalizeAuctionDraft({ assetId: body.petSeed, startCents: body.startCents, reserveCents: body.reserveCents, durationHours: body.durationHours });
+  const { assetId: petSeed, startCents, reserveCents, endsAt } = draft; const id = `auction:${crypto.randomUUID()}`;
   await gameDb.execute(sql`select create_market_auction(${id},${sellerPlayerId},${petSeed},${startCents},${reserveCents},${endsAt})`);
+  void notifySubjectWatchers(petSeed, startCents, sellerPlayerId, "auction");
   return { id, petSeed, startCents, reserveCents, endsAt };
 };
 
 export const placeMarketBid = async (bidderPlayerId: string, auctionId: string, amountCentsRaw: unknown, idempotencyKey: string) => {
-  const amountCents = cents(Number(amountCentsRaw), "bid");
+  const amountCents = assertMarketAmount(amountCentsRaw, "bid"); const key = assertIdempotencyKey(idempotencyKey);
   const previous = (await gameDb.select({ bidderId: marketBids.bidderPlayerId }).from(marketBids).where(and(eq(marketBids.auctionId, auctionId), eq(marketBids.status, "active"))).orderBy(desc(marketBids.amountCents)).limit(1))[0];
-  const id = `bid:${crypto.randomUUID()}`; const result = await gameDb.execute(sql`select * from place_market_bid(${id},${auctionId},${bidderPlayerId},${amountCents},${idempotencyKey})`);
+  const id = `bid:${crypto.randomUUID()}`; const result = await gameDb.execute(sql`select * from place_market_bid(${id},${auctionId},${bidderPlayerId},${amountCents},${key})`);
   if (!result.rows.length) throw new Error("bid was not placed");
   if (previous && previous.bidderId !== bidderPlayerId) void notifyMarketplace(previous.bidderId, "You were outbid", "Your reserved funds were released. Raise your bid before the auction ends if you still want the pet.", `auction:outbid:${auctionId}`);
   return { id, amountCents, ...(result.rows[0] as object) };
@@ -181,18 +179,15 @@ export const createMarketListing = async (playerId: string, input: unknown) => {
   const openCount = Number((await gameDb.select({ count: sql<number>`count(*)::int` }).from(marketListings).where(and(eq(marketListings.sellerPlayerId, playerId), eq(marketListings.status, "active"))))[0]?.count ?? 0);
   if (openCount >= 50) throw new Error("active listing limit reached");
   const body = (input ?? {}) as { petSeed?: unknown; priceCents?: unknown; expiresAt?: unknown };
-  const petSeed = String(body.petSeed ?? "").trim();
-  const priceCents = cents(Number(body.priceCents), "listing price");
-  if (!petSeed) throw new Error("pet is required");
-  if (priceCents < 100) throw new Error("minimum listing price is $1.00");
-  if (priceCents > steamLikeWalletPolicy.maximumTransactionCents) throw new Error("maximum listing price is $1,800.00");
+  const draft = normalizeListingDraft({ assetId: body.petSeed, priceCents: body.priceCents, expiresAt: body.expiresAt });
+  const { assetId: petSeed, priceCents, expiresAt } = draft;
   const owned = (await gameDb.select({ seed: wildSeedSources.petSeed }).from(wildSeedSources)
     .where(and(eq(wildSeedSources.playerId, playerId), eq(wildSeedSources.petSeed, petSeed))).limit(1))[0];
   if (!owned) throw new Error("you do not own this pet");
-  const expiresAt = typeof body.expiresAt === "string" && !Number.isNaN(Date.parse(body.expiresAt)) ? new Date(body.expiresAt) : null;
   const id = `listing:${crypto.randomUUID()}`;
   await gameDb.insert(marketListings).values({ id, petSeed, sellerPlayerId: playerId, priceCents, expiresAt });
-  return { id, petSeed, priceCents, fee: sellerFee(priceCents, steamLikeWalletPolicy.sellerFeeBps) };
+  void notifySubjectWatchers(petSeed, priceCents, playerId, "listing");
+  return { id, petSeed, priceCents, fee: draft.fee };
 };
 
 export const cancelMarketListing = async (playerId: string, listingId: string) => {
@@ -204,8 +199,8 @@ export const cancelMarketListing = async (playerId: string, listingId: string) =
 
 type SettlementRow = { out_transaction_id: string; out_pet_seed: string; out_seller: string; out_buyer: string };
 export const buyMarketListing = async (buyerPlayerId: string, listingId: string, idempotencyKey: string) => {
-  if (!idempotencyKey.trim()) throw new Error("idempotency key is required");
-  const result = await gameDb.execute(sql`select * from settle_market_listing(${listingId}, ${buyerPlayerId}, ${idempotencyKey})`);
+  const key = assertIdempotencyKey(idempotencyKey);
+  const result = await gameDb.execute(sql`select * from settle_market_listing(${listingId}, ${buyerPlayerId}, ${key})`);
   const row = (result.rows as unknown as SettlementRow[])[0];
   if (!row) throw new Error("sale did not settle");
   void notifyMarketplace(row.out_seller, "Your pet sold", "The sale settled and your wallet and collection are updated.", `sale:${listingId}`);

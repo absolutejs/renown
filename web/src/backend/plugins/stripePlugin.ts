@@ -5,7 +5,8 @@
 // Runs WITHOUT keys: if STRIPE_SECRET_KEY is unset the plugin still mounts but billing routes
 // answer 503 "billing not configured" — so the server boots fine before the Stripe account exists.
 import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
-import { cents, steamLikeWalletPolicy } from "@absolutejs/wallet";
+import { steamLikeWalletPolicy } from "@absolutejs/wallet";
+import { createStripeWalletAdapter } from "@absolutejs/wallet-stripe";
 import { eq, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia, t } from "elysia";
@@ -23,6 +24,8 @@ type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<Sch
 const SECRET = process.env.STRIPE_SECRET_KEY;
 const PUBLISHABLE = process.env.STRIPE_PUBLISHABLE_KEY ?? null;
 const stripe = SECRET ? new Stripe(SECRET, { apiVersion: "2026-02-25.clover" }) : null;
+const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+const walletStripe = stripe && stripeWebhookSecret ? createStripeWalletAdapter({ stripe, webhookSecret: stripeWebhookSecret }) : null;
 const stripeMode = SECRET?.startsWith("sk_live_") ? "live" : SECRET?.startsWith("sk_test_") ? "test" : "unconfigured";
 const fundingRequested = process.env.STRIPE_WALLET_FUNDING_ENABLED === "true";
 const marketplaceApprovalRecorded = Boolean(process.env.STRIPE_MARKETPLACE_APPROVAL_REFERENCE?.trim());
@@ -90,9 +93,10 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
     // Closed-loop wallet deposit. Kept behind an explicit production switch until the
     // Stripe account has written marketplace approval; the verified webhook is the only credit path.
     .post("/wallet/deposit", ({ body, protectRoute, request, status }) => protectRoute(async (user) => {
-      if (!stripe) return status("Service Unavailable", "billing not configured");
+      if (!stripe || !walletStripe) return status("Service Unavailable", "wallet payments not configured");
       if (!walletFundingEnabled) return status("Service Unavailable", "wallet funding is awaiting payment-provider approval");
-      const amountCents = cents(Number((body as { amountCents?: unknown } | null)?.amountCents), "deposit");
+      const amountCents = Number((body as { amountCents?: unknown } | null)?.amountCents);
+      if (!Number.isSafeInteger(amountCents)) return status("Bad Request", "deposit must be an exact cent amount");
       if (amountCents < steamLikeWalletPolicy.minimumFundingCents) return status("Bad Request", "minimum deposit is $5.00");
       if (amountCents > steamLikeWalletPolicy.maximumTransactionCents) return status("Bad Request", "maximum deposit is $1,800.00");
       const player = await resolvePlayerByUserSub(user.sub);
@@ -106,18 +110,11 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
         await db.update(schema.users).set({ stripe_customer_id: customerId }).where(eq(schema.users.sub, user.sub));
       }
       const origin = new URL(request.url).origin;
-      const session = await stripe.checkout.sessions.create({
-        mode: "payment", customer: customerId,
-        client_reference_id: user.sub,
-        payment_method_types: ["card"],
-        billing_address_collection: "required",
-        customer_update: { address: "auto", name: "auto" },
-        line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amountCents, product_data: { name: "Renown wallet deposit", description: "Closed-loop marketplace balance; not redeemable for cash." } } }],
-        payment_intent_data: { description: "Renown closed-loop wallet funding", metadata: { kind: "wallet_funding", user_sub: user.sub, player_id: player.id } },
-        metadata: { kind: "wallet_funding", user_sub: user.sub, player_id: player.id, amount_cents: String(amountCents) },
-        success_url: `${origin}/marketplace?funding=success`, cancel_url: `${origin}/marketplace?funding=cancel`,
-        expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
-        custom_text: { submit: { message: "Funds stay inside Renown and cannot be withdrawn or redeemed for cash." } },
+      const session = await walletStripe.createFundingCheckout({
+        amountCents, ownerId: player.id, userSub: user.sub, customerId,
+        productName: "Renown wallet deposit", description: "Closed-loop marketplace balance; not redeemable for cash.",
+        statement: "Renown closed-loop wallet funding",
+        successUrl: `${origin}/marketplace?funding=success`, cancelUrl: `${origin}/marketplace?funding=cancel`,
       });
       return { url: session.url };
     }))
@@ -166,11 +163,10 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
     .post("/webhooks/stripe", async ({ request, status }) => {
       if (!stripe) return status("Service Unavailable", "billing not configured");
       const signature = request.headers.get("stripe-signature") ?? "";
-      const secret = process.env.STRIPE_WEBHOOK_SECRET;
-      if (!signature || !secret) return status("Bad Request", "missing signature/secret");
+      if (!signature || !walletStripe) return status("Bad Request", "missing signature/secret");
       let event: Stripe.Event;
       try {
-        event = await stripe.webhooks.constructEventAsync(await request.text(), signature, secret);
+        event = await walletStripe.verifyWebhook(await request.text(), signature);
       } catch (e) {
         console.error("renown: stripe webhook verify failed", e);
         return status("Bad Request", "invalid signature");
@@ -189,50 +185,18 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
         const rows = await db.select().from(schema.users).where(eq(schema.users.stripe_customer_id, id));
         return rows[0] ?? null;
       };
-      const fundingIdentity = async (paymentIntent: string | Stripe.PaymentIntent | null) => {
-        const intent = typeof paymentIntent === "string" ? await stripe.paymentIntents.retrieve(paymentIntent) : paymentIntent;
-        if (!intent || intent.metadata.kind !== "wallet_funding") return null;
-        const playerId = intent.metadata.player_id; const userSub = intent.metadata.user_sub;
-        if (!playerId || !userSub) return null;
-        const player = await resolvePlayerByUserSub(userSub); if (!player || player.id !== playerId) throw new Error("wallet adjustment identity mismatch");
-        return { playerId, userSub, paymentIntentId: intent.id };
-      };
-      try { switch (event.type) {
-        case "checkout.session.completed":
-        case "checkout.session.async_payment_succeeded": {
-          const session = event.data.object;
-          if (session.metadata?.kind !== "wallet_funding" || session.payment_status !== "paid") break;
-          const playerId = session.metadata.player_id;
-          const userSub = session.metadata.user_sub;
-          const amountCents = Number(session.metadata.amount_cents);
-          if (!playerId || !userSub || !Number.isSafeInteger(amountCents)) break;
-          const player = await resolvePlayerByUserSub(userSub);
-          if (!player || player.id !== playerId) throw new Error("wallet funding identity mismatch");
-          const paymentRef = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? session.id;
-          await gameDb.execute(sql`select * from fund_player_wallet(${playerId}, ${amountCents}, ${`stripe:wallet:${session.id}`}, ${paymentRef})`);
-          break;
+      try {
+        const walletAction = await walletStripe.normalizeEvent(event);
+        if (walletAction.kind !== "ignored") {
+          const player = await resolvePlayerByUserSub(walletAction.userSub);
+          if (!player || player.id !== walletAction.ownerId) throw new Error("wallet adjustment identity mismatch");
+          if (walletAction.kind === "fund") {
+            await gameDb.execute(sql`select * from fund_player_wallet(${walletAction.ownerId},${walletAction.amountCents},${walletAction.idempotencyKey},${walletAction.paymentRef})`);
+          } else {
+            await gameDb.execute(sql`select * from adjust_wallet_external(${walletAction.ownerId},${walletAction.amountCents},${walletAction.idempotencyKey},${walletAction.kind},${walletAction.paymentRef},${walletAction.freeze})`);
+          }
         }
-        case "refund.created":
-        case "refund.updated": {
-          const refund = event.data.object;
-          if (refund.status !== "succeeded") break;
-          const identity = await fundingIdentity(typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id ?? null);
-          if (!identity) break;
-          await gameDb.execute(sql`select * from adjust_wallet_external(${identity.playerId},${-refund.amount},${`stripe:refund:${refund.id}`},'refund',${refund.id},false)`);
-          break;
-        }
-        case "charge.dispute.created": {
-          const dispute = event.data.object; const identity = await fundingIdentity(typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id ?? null);
-          if (!identity) break;
-          await gameDb.execute(sql`select * from adjust_wallet_external(${identity.playerId},${-dispute.amount},${`stripe:dispute:${dispute.id}:opened`},'dispute',${dispute.id},true)`);
-          break;
-        }
-        case "charge.dispute.closed": {
-          const dispute = event.data.object; if (dispute.status !== "won") break;
-          const identity = await fundingIdentity(typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id ?? null); if (!identity) break;
-          await gameDb.execute(sql`select * from adjust_wallet_external(${identity.playerId},${dispute.amount},${`stripe:dispute:${dispute.id}:won`},'dispute-reversal',${dispute.id},true)`);
-          break;
-        }
+        switch (event.type) {
         case "customer.subscription.created":
         case "customer.subscription.updated": {
           const sub = event.data.object;
@@ -259,7 +223,8 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
         }
         default:
           break;
-      } } catch (error) {
+        }
+      } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await gameDb.update(stripeWebhookEvents).set({ status: "failed", error: message.slice(0, 1000) }).where(eq(stripeWebhookEvents.id, event.id));
         throw error;

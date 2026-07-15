@@ -23,6 +23,7 @@ try {
       or exists(select 1 from wild_seed_sources where pet_seed in ('__trade_fixture_pet_a__', '__trade_fixture_pet_b__'))
       or exists(select 1 from market_trades where id = '__trade_fixture_trade__')
       or exists(select 1 from market_buy_orders where id = '__buy_fixture_order__')
+      or exists(select 1 from market_watchlists where id = '__watch_fixture__')
       or exists(select 1 from market_auctions where id in ('__auction_fixture__','__auction_cancel_fixture__')) then
       raise exception 'synthetic trade fixtures already exist; refusing to touch them';
     end if;
@@ -35,6 +36,9 @@ try {
     insert into players(id, handle) values
       ('__trade_fixture_player_a__', 'Synthetic Trader A'),
       ('__trade_fixture_player_b__', 'Synthetic Trader B');
+    insert into market_watchlists(id,player_id,subject_id,finish,maximum_price_cents)
+      select '__watch_fixture__','__trade_fixture_player_a__',subject_id,'Base',500 from pet_printings where id=v_printing;
+    if (select maximum_price_cents from market_watchlists where id='__watch_fixture__') <> 500 then raise exception 'subject watch was not stored'; end if;
     insert into wild_seed_sources(player_id, pet_seed, github_login, name, tier, finish, printing_id) values
       ('__trade_fixture_player_a__', '__trade_fixture_pet_a__', '__synthetic_a__', 'Rollback Raccoon', 'Common', 'Base', v_printing),
       ('__trade_fixture_player_b__', '__trade_fixture_pet_b__', '__synthetic_b__', 'Transaction Terrier', 'Rare', 'Holo', v_printing);
@@ -141,11 +145,12 @@ const residue = await sql`
     (select count(*)::integer from market_buy_orders where id = '__buy_fixture_order__') as buy_orders,
     (select count(*)::integer from market_auctions where id in ('__auction_fixture__','__auction_cancel_fixture__')) as auctions,
     (select count(*)::integer from market_bids where id in ('__auction_bid_fixture__','__ignored_retry_id__','__bad_retry_id__')) as bids,
+    (select count(*)::integer from market_watchlists where id='__watch_fixture__') as watches,
     (select count(*)::integer from wallet_reservations where idempotency_key in ('__buy_fixture_create__','__auction_bid_reserve__')) as reservations,
     (select count(*)::integer from wallet_transactions where idempotency_key in ('__trade_fixture_idempotency__','__buy_fixture_settle__','__auction_settle_fixture__','__external_debit_fixture__','__external_reversal_fixture__')) as transactions,
     (select count(*)::integer from pet_ownership_events where pet_seed in ('__trade_fixture_pet_a__', '__trade_fixture_pet_b__')) as events,
     (select count(*)::integer from onchain_transfer_outbox where pet_seed in ('__trade_fixture_pet_a__', '__trade_fixture_pet_b__')) as onchain_outbox`;
-const counts = residue[0] as { players: number; pets: number; trades: number; buy_orders: number; auctions: number; bids: number; reservations: number; transactions: number; events: number; onchain_outbox: number };
+const counts = residue[0] as { players: number; pets: number; trades: number; buy_orders: number; auctions: number; bids: number; watches: number; reservations: number; transactions: number; events: number; onchain_outbox: number };
 if (Object.values(counts).some(Number)) throw new Error(`synthetic fixture cleanup failed: ${JSON.stringify(counts)}`);
 
 console.log("market trade settlement passed; rollback verified with zero synthetic residue");

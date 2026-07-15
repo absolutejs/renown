@@ -7,21 +7,15 @@
 // proof layer would record ("the seed is the asset"). Powers collectibles AND pets.
 import { R, type RGB, fg, hsvToRgb } from "./shiny.ts";
 import { DEFAULT_PET_LOOK_ID, isPetLookId, type PetLookId } from "./petLooks.ts";
+import {
+  chooseWeightedEdition, createSeededRng, printingId as collectiblePrintingId, seededIndex,
+  serialPermutation as collectibleSerialPermutation, shuffledSerial as collectibleShuffledSerial,
+  stableToken as collectibleStableToken, type SeededRng,
+} from "@absolutejs/collectibles";
 
 // ---- seeded PRNG: xmur3 (string→ints) feeding sfc32 (full-period, high quality) ----
-const xmur3 = (str: string) => {
-  let h = 1779033703 ^ str.length;
-  for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
-  return () => { h = Math.imul(h ^ (h >>> 16), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return (h ^= h >>> 16) >>> 0; };
-};
-const sfc32 = (a: number, b: number, c: number, d: number) => () => {
-  a |= 0; b |= 0; c |= 0; d |= 0;
-  const t = ((a + b) | 0) + d | 0; d = (d + 1) | 0;
-  a = b ^ (b >>> 9); b = (c + (c << 3)) | 0; c = (c << 21) | (c >>> 11); c = (c + t) | 0;
-  return (t >>> 0) / 4294967296;
-};
-export type Rng = () => number;
-export const makeRng = (seed: string): Rng => { const s = xmur3(seed); const r = sfc32(s(), s(), s(), s()); for (let i = 0; i < 12; i++) r(); return r; };
+export type Rng = SeededRng;
+export const makeRng = createSeededRng;
 const rint = (rng: Rng, n: number) => Math.floor(rng() * n);
 
 // ---- weighted traits (rarity lives in the weights) ----
@@ -114,6 +108,7 @@ export const CARD_VARIANTS: Record<CardVariant, CardVariantConfig> = {
   "one-of-one": { tier: "Mythic",    finish: "Masterpiece", printRun: 1,          weight: 100,     probability: .0001, pullOdds: 10_000 },
 };
 const CARD_VARIANT_ORDER = Object.keys(CARD_VARIANTS) as CardVariant[];
+const CARD_EDITION_CATALOG = CARD_VARIANT_ORDER.map((key) => ({ key, label: CARD_VARIANTS[key].finish, supply: CARD_VARIANTS[key].printRun, weight: CARD_VARIANTS[key].weight }));
 export const CARD_SET = "genesis-2026";
 export const BUILTIN_CARD_SUBJECTS = 256;
 export const CARD_RECIPE_VERSION = "genesis-v2";
@@ -136,39 +131,20 @@ export type CopyTraits = { scale: string; colorway: string; material: string; co
 const rarityComponent = (group: RarityComponent["group"], label: string, value: string, probability: number): RarityComponent =>
   ({ group, label, value, probability, score: +(-Math.log2(probability)).toFixed(2) });
 
-const gcd = (a: number, b: number) => { while (b) [a, b] = [b, a % b]; return Math.abs(a); };
-export const serialPermutation = (printingId: string, printRun: number) => {
-  if (printRun <= 1) return { offset: 0, step: 1 };
-  const rng = makeRng(`card-serial-permutation:${printingId}`);
-  const offset = rint(rng, printRun);
-  let step = Math.max(1, rint(rng, printRun));
-  while (gcd(step, printRun) !== 1) step = step >= printRun - 1 ? 1 : step + 1;
-  return { offset, step };
-};
+export const serialPermutation = (printingId: string, printRun: number) => collectibleSerialPermutation(printingId, printRun, "card-serial-permutation");
 export const shuffledSerial = (printingId: string, mintNumber: number, printRun: number) => {
-  if (!Number.isInteger(mintNumber) || mintNumber < 1 || mintNumber > printRun) throw new Error("mint number outside print run");
-  const { offset, step } = serialPermutation(printingId, printRun);
-  return ((offset + (mintNumber - 1) * step) % printRun) + 1;
+  return collectibleShuffledSerial(printingId, mintNumber, printRun, "card-serial-permutation");
 };
 
-export const stableToken = (value: string) => {
-  const h = xmur3(value);
-  return [h(), h(), h()].map((n) => n.toString(36).padStart(7, "0")).join("").slice(0, 18);
-};
+export const stableToken = collectibleStableToken;
 export const cardPrintingId = (setId: string, subjectSeed: string, variant: CardVariant) =>
-  `${setId}:${stableToken(subjectSeed)}:${variant}`;
+  collectiblePrintingId(setId, subjectSeed, variant);
 export const builtInCardSubjectSeed = (index: number, setId = CARD_SET) =>
   `card-subject:${setId}:${Math.max(0, Math.floor(index)).toString(36).padStart(2, "0")}`;
 export const cardSubjectIndex = (pullSeed: string, count: number, attempt = 0) =>
-  count > 0 ? rint(makeRng(`card-subject-pick:${pullSeed}:${attempt}`), count) : 0;
-export const chooseCardVariant = (pullSeed: string, attempt = 0): CardVariant => {
-  let roll = makeRng(`card-variant:${pullSeed}:${attempt}`)() * 1_000_000;
-  for (const variant of CARD_VARIANT_ORDER) {
-    roll -= CARD_VARIANTS[variant].weight;
-    if (roll < 0) return variant;
-  }
-  return "base";
-};
+  seededIndex(pullSeed, count, "card-subject-pick", attempt);
+export const chooseCardVariant = (pullSeed: string, attempt = 0): CardVariant =>
+  chooseWeightedEdition(pullSeed, CARD_EDITION_CATALOG, "card-variant", attempt);
 export const cardCopyToken = (ownerKey: string, provenanceSeed: string) => stableToken(`${ownerKey}:${provenanceSeed}`);
 export const cardSeedPrefix = (setId: string, subjectSeed: string, variant: CardVariant) =>
   `card:v2:${encodeURIComponent(setId)}:${encodeURIComponent(subjectSeed)}:${variant}`;

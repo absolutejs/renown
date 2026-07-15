@@ -7,7 +7,7 @@ import { SiteHeader } from "../components/SiteHeader";
 type Listing = {
   id: string; seed: string; priceCents: number; sellerReceivesCents: number; seller: string | null; sellerHandle: string;
   name: string; tier: string; finish: string | null; mutation: string | null; material: string | null; colorway: string | null;
-  copyPattern: string | null; serialNumber: number | null; printRun: number | null; subjectName: string | null; createdAt: string | Date;
+  copyPattern: string | null; serialNumber: number | null; printRun: number | null; subjectId: string | null; subjectName: string | null; createdAt: string | Date;
 };
 type WalletPolicy = { minimumFundingCents: number; maximumBalanceCents: number; maximumTransactionCents: number; sellerFeeBps: number; tradeFeeCents: number; currency: string };
 type MarketData = { items: Listing[]; nextCursor: string | null; policy: WalletPolicy };
@@ -39,6 +39,7 @@ const ListingCard = ({ item, wallet, signedIn, busy, buy }: { item: Listing; wal
       <div className="marketCardTitle"><a href={`/pet/${encodeURIComponent(item.seed)}`}>{item.name || item.subjectName}</a><span>{item.tier}</span></div>
       <div className="marketTraits"><span>{item.finish}</span>{item.serialNumber && <span>#{item.serialNumber}/{item.printRun}</span>}{item.material !== "Standard" && <span>{item.material}</span>}{item.mutation !== "Standard" && <span>{item.mutation}</span>}</div>
       <a className="marketSeller" href={item.seller ? `/profile/${item.seller}` : "#"}>Sold by {item.seller ? `@${item.seller}` : item.sellerHandle}</a>
+      {item.subjectId && <a className="marketSeller" href={`/marketplace/subjects/${encodeURIComponent(item.subjectId)}`}>View every {item.subjectName ?? "subject"} copy →</a>}
       <div className="marketPrice"><div><strong>{money(item.priceCents)}</strong><small>buyer pays</small></div>
         {signedIn ? <button disabled={busy === item.id || (wallet?.availableCents ?? 0) < item.priceCents} onClick={() => buy(item)}>{busy === item.id ? "Settling…" : (wallet?.availableCents ?? 0) < item.priceCents ? "Add funds" : "Buy now"}</button> : <a href="/">Sign in to buy</a>}
       </div>

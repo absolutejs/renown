@@ -78,6 +78,14 @@ await sql`create table if not exists market_bids (
   created_at timestamp not null default now()
 )`;
 await sql`create index if not exists market_bids_auction_amount_idx on market_bids(auction_id, amount_cents desc, created_at)`;
+await sql`create table if not exists market_watchlists (
+  id text primary key, player_id text not null references players(id) on delete cascade,
+  subject_id text not null references pet_subjects(id) on delete cascade,
+  finish text, maximum_price_cents integer check(maximum_price_cents is null or maximum_price_cents between 100 and 180000),
+  created_at timestamp not null default now(), updated_at timestamp not null default now()
+)`;
+await sql`create index if not exists market_watchlists_player_idx on market_watchlists(player_id,created_at desc)`;
+await sql`create index if not exists market_watchlists_subject_idx on market_watchlists(subject_id,finish,maximum_price_cents)`;
 await sql`create table if not exists market_trades (
   id text primary key, proposer_player_id text not null references players(id) on delete restrict,
   counterparty_player_id text not null references players(id) on delete restrict,

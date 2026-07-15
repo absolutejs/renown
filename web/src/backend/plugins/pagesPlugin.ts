@@ -13,6 +13,7 @@ import { RenownPet } from "../../frontend/react/pages/RenownPet";
 import { RenownPets } from "../../frontend/react/pages/RenownPets";
 import { RenownMarketplace } from "../../frontend/react/pages/RenownMarketplace";
 import { RenownPolicies } from "../../frontend/react/pages/RenownPolicies";
+import { RenownPetExchange } from "../../frontend/react/pages/RenownPetExchange";
 import { loadRecentPets } from "../petGallery";
 import { RenownAchievements } from "../../frontend/react/pages/RenownAchievements";
 import { loadAchievementsIndex } from "../achievementsIndex";
@@ -46,6 +47,7 @@ import { achievementShareSnippet, loadAchievement } from "../achievement";
 import { achievementOgEtag, renderAchievementOgPng } from "../achievementOg";
 import { renderCached } from "../renderCache";
 import { loadMarketplace, loadPetMarketState } from "../marketplace";
+import { loadPetExchange } from "../petExchange";
 
 // Resolve the absolute origin (https://host) the request was made to. Used
 // for OG/canonical URL tags so shared profile links produce fully-qualified
@@ -159,6 +161,10 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   const marketplacePage = async ({ request }: { request: Request }) => handleReactPageRequest({
     index: asset(manifest, "RenownMarketplaceIndex"), Page: RenownMarketplace,
     props: { cssPath, market: await loadMarketplace({ limit: 24, listingId: new URL(request.url).searchParams.get("buy") ?? "" }), origin: originOf(request) }, request,
+  });
+  const petExchangePage = async ({ request, params }: { request: Request; params: { id: string } }) => handleReactPageRequest({
+    index: asset(manifest, "RenownPetExchangeIndex"), Page: RenownPetExchange,
+    props: { cssPath, exchange: await loadPetExchange(String(params.id ?? "")), origin: originOf(request) }, request,
   });
   const policyPage = (kind: "terms" | "privacy" | "marketplace") => ({ request }: { request: Request }) => handleReactPageRequest({
     index: asset(manifest, "RenownPoliciesIndex"), Page: RenownPolicies, props: { cssPath, origin: originOf(request), kind }, request,
@@ -319,6 +325,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/profile/:login", profile)
     .get("/pets", petsPage)
     .get("/marketplace", marketplacePage)
+    .get("/marketplace/subjects/:id", petExchangePage)
     .get("/marketplace/rules", policyPage("marketplace"))
     .get("/terms", policyPage("terms"))
     .get("/privacy", policyPage("privacy"))
