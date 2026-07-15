@@ -87,6 +87,12 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
       props: { cssPath, directory, origin: originOf(request) }, request,
     });
   };
+  // Generic shell only: the private repository identity stays in the URL fragment (which is
+  // never sent to the server) and the hydrated page loads it through the protected POST API.
+  const privateProjectPage = ({ request }: { request: Request }) => handleReactPageRequest({
+    index: asset(manifest, "RenownProjectIndex"), Page: RenownProject,
+    props: { cssPath, origin: originOf(request), privateMode: true }, request,
+  });
   // /profile/:login — public, no-auth, SSR-prefetched profile data so OG tags
   // can vary per-profile and crawlers see real content. Pre-fetch via the
   // shared loader so the page and the /api/profile/:login JSON endpoint
@@ -329,6 +335,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/", home)
     .get("/leaderboard", leaderboard)
     .get("/repos", reposPage)
+    .get("/private-project", privateProjectPage)
     .get("/guide", guide)
     .get("/admin", admin)
     .get("/achievements", achievementsPage)

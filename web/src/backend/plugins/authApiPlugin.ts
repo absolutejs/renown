@@ -40,6 +40,7 @@ import { loadPrivateProject } from "../privateProject.ts";
 import { normalizeProjectSort } from "../project.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; bindingStore: LinkedProviderBindingStore; credentialResolver: LinkedProviderCredentialResolver; db: NeonHttpDatabase<SchemaType>; grantStore: LinkedProviderGrantStore };
+type SessionId = Parameters<AuthSessionStore<User>["getSession"]>[0];
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
 const ACHIEVEMENT_PAGE_MAX = 100;
 
@@ -110,6 +111,26 @@ const getCachedPlayerInfo = async (login: string): Promise<CachedPlayerInfo | nu
   const value: CachedPlayerInfo = { login: p.githubLogin ?? login, avatarSeed: p.avatarSeed, avatarLookId, isAi: !!p.isAi };
   playerInfoCache.set(login, { value, expiresAt: now + PLAYER_INFO_TTL_MS });
   return value;
+};
+
+const loadAccountPrivateRepoPage = async ({
+  authSessionStore, bindingStore, credentialResolver, db, grantStore, page, query, sessionId, userSub,
+}: Deps & { page: number; query: string; sessionId?: SessionId; userSub: string }) => {
+  const identities = await listDBAuthIdentitiesByUser({ db, userSub });
+  const allowedLogins = identities
+    .filter((identity) => identity.auth_provider === "github")
+    .map((identity) => githubIdentityLogin(identity) ?? "")
+    .filter(Boolean);
+  let result = await loadPrivateReposFromGithubGrants({ allowedLogins, credentialResolver, ownerRef: userSub, page, query });
+  // One-time bridge for sessions established before grant storage shipped.
+  if (result.repos.length === 0 && result.needsGithubAuth && page === 1 && !query) {
+    const session = sessionId ? await authSessionStore.getSession(sessionId) : undefined;
+    if (session?.accessToken && session.user.sub === userSub) {
+      const imported = await bootstrapGithubRepoGrantFromSession({ accessToken: session.accessToken, allowedLogins, bindingStore, grantStore, ownerRef: userSub });
+      if (imported) result = await loadPrivateReposFromGithubGrants({ allowedLogins, credentialResolver, ownerRef: userSub, page, query });
+    }
+  }
+  return result;
 };
 
 // The whole account picture in one shape: who you are + every login + any pending merges.
@@ -217,27 +238,17 @@ export const authApiPlugin = ({ authSessionStore, bindingStore, credentialResolv
     .get("/", ({ protectRoute }) => protectRoute((user) => accountPayload(db, user.sub)))
     // Live, owner-only private repository list. The OAuth token is session-scoped and the
     // response inherits this plugin's `private, no-store` policy. Nothing is persisted.
-    .get("/repos", ({ cookie, protectRoute }) => protectRoute(async (user) => {
-      const identities = await listDBAuthIdentitiesByUser({ db, userSub: user.sub });
-      const allowedLogins = identities
-        .filter((identity) => identity.auth_provider === "github")
-        .map((identity) => githubIdentityLogin(identity) ?? "")
-        .filter(Boolean);
-      let result = await loadPrivateReposFromGithubGrants({ allowedLogins, credentialResolver, ownerRef: user.sub });
-      // One-time bridge for sessions established before grant storage shipped. The token is
-      // accepted only after GitHub proves its immutable identity belongs to this Renown user and
-      // confirms the `repo` scope; successful import immediately switches subsequent reads to the
-      // linked-provider resolver.
-      if (result.repos.length === 0 && result.needsGithubAuth) {
-        const sessionId = cookie.user_session_id.value;
-        const session = sessionId ? await authSessionStore.getSession(sessionId) : undefined;
-        if (session?.accessToken && session.user.sub === user.sub) {
-          const imported = await bootstrapGithubRepoGrantFromSession({ accessToken: session.accessToken, allowedLogins, bindingStore, grantStore, ownerRef: user.sub });
-          if (imported) result = await loadPrivateReposFromGithubGrants({ allowedLogins, credentialResolver, ownerRef: user.sub });
-        }
-      }
-      return result;
-    }))
+    .get("/repos", ({ cookie, protectRoute }) => protectRoute((user) => loadAccountPrivateRepoPage({
+      authSessionStore, bindingStore, credentialResolver, db, grantStore, page: 1, query: "", sessionId: cookie.user_session_id.value, userSub: user.sub,
+    })))
+    // Search and pagination use POST so private search terms never appear in proxy URLs/logs.
+    .post("/repos/search", ({ body, cookie, protectRoute }) => protectRoute((user) => loadAccountPrivateRepoPage({
+      authSessionStore, bindingStore, credentialResolver, db, grantStore,
+      page: Math.max(1, Math.min(100, Math.floor(Number(body.page) || 1))),
+      query: String(body.query ?? "").trim().slice(0, 100),
+      sessionId: cookie.user_session_id.value,
+      userSub: user.sub,
+    })), { body: t.Object({ page: t.Optional(t.Number()), query: t.Optional(t.String({ maxLength: 100 })) }) })
     // Live private-repository board. POST keeps owner/repo out of proxy access-log URLs; the
     // protected response is no-store, and loadPrivateProject rechecks the viewer's linked GitHub
     // grant against the exact repository before returning any identity or contribution data.

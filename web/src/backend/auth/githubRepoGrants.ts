@@ -123,18 +123,24 @@ type LoadGithubGrantReposInput = {
   allowedLogins: string[];
   credentialResolver: LinkedProviderCredentialResolver;
   ownerRef: string;
+  page?: number;
+  query?: string;
 };
 
-export const loadPrivateReposFromGithubGrants = async ({ allowedLogins, credentialResolver, ownerRef }: LoadGithubGrantReposInput) => {
+export const loadPrivateReposFromGithubGrants = async ({ allowedLogins, credentialResolver, ownerRef, page = 1, query = "" }: LoadGithubGrantReposInput) => {
   const allowed = new Set(allowedLogins.map((login) => login.toLowerCase()));
   const bindings = (await credentialResolver.listBindings({ ownerRef, connectorProvider: GITHUB_REPOS_CONNECTOR, status: "active" }))
     .filter((binding) => binding.username && allowed.has(binding.username.toLowerCase()));
   if (bindings.length === 0) {
-    return { repos: [], needsGithubAuth: true, reason: "Reconnect GitHub once to grant private repository access." };
+    return { repos: [], needsGithubAuth: true, reason: "Reconnect GitHub once to grant private repository access.", page, hasMore: false, query };
   }
 
   const repos = new Map<string, Awaited<ReturnType<typeof loadAccessiblePrivateRepos>>["repos"][number]>();
   let successfulBindings = 0;
+  let hasMore = false;
+  // Divide one bounded UI page across linked identities. This keeps the response at roughly 24
+  // repositories even when a Renown account has several GitHub identities.
+  const perBinding = Math.max(1, Math.floor(24 / bindings.length));
   for (const binding of bindings) {
     const credential = await credentialResolver.resolveCredential({
       bindingId: binding.id,
@@ -146,9 +152,10 @@ export const loadPrivateReposFromGithubGrants = async ({ allowedLogins, credenti
     if (!credential) continue;
     try {
       const lease = await credentialResolver.getAccessToken(credential, { requiredScopes: [GITHUB_PRIVATE_REPO_SCOPE] });
-      const result = await loadAccessiblePrivateRepos(lease.accessToken, [binding.username!]);
+      const result = await loadAccessiblePrivateRepos(lease.accessToken, [binding.username!], { page, perPage: perBinding, query });
       if (result.needsGithubAuth) continue;
       successfulBindings += 1;
+      hasMore ||= result.hasMore;
       for (const repo of result.repos) repos.set(repo.key.toLowerCase(), repo);
     } catch {
       // A disconnected/revoked grant remains isolated to this binding. Other linked GitHub
@@ -160,6 +167,9 @@ export const loadPrivateReposFromGithubGrants = async ({ allowedLogins, credenti
   return {
     needsGithubAuth,
     reason: needsGithubAuth ? "Reconnect GitHub to refresh private repository access for every linked account." : null,
+    page,
+    hasMore,
+    query,
     repos: [...repos.values()].sort((a, b) => Date.parse(b.pushedAt ?? b.updatedAt ?? "0") - Date.parse(a.pushedAt ?? a.updatedAt ?? "0")),
   };
 };
