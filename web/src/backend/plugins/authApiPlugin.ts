@@ -29,7 +29,7 @@ import {
 import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookAssignment, type PetLookAssignments } from "../petLooks.ts";
 import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { loadPetCollection } from "../petGallery.ts";
-import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks } from "../petBooks.ts";
+import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots } from "../petBooks.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
@@ -254,6 +254,14 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         await deleteCollectorBookSlot(player.id, params.id, Number(params.position));
         return { ok: true };
       } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not remove slot"); }
+    }))
+    .post("/pet-books/:id/order", ({ params, body, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "player not found");
+        await reorderCollectorBookSlots(player.id, params.id, (body as { positions?: unknown } | null)?.positions);
+        return { ok: true };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not reorder pockets"); }
     }))
     .delete("/pet-books/:id", ({ params, protectRoute, status }) => protectRoute(async (user) => {
       try {

@@ -44,6 +44,7 @@ const PersonalBinder = ({ book, options, onBack, refresh, message }: { book: Per
   const [kind, setKind] = useState("freeform");
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState<number | null>(null);
   const editable = !book.owner;
   const add = async (body: unknown) => {
     setBusy(true);
@@ -55,6 +56,24 @@ const PersonalBinder = ({ book, options, onBack, refresh, message }: { book: Per
     await fetch(`/api/account/pet-books/${encodeURIComponent(book.id)}/slots/${position}`, { method: "DELETE" });
     await refresh();
   };
+  const reorder = async (positions: number[]) => {
+    const response = await fetch(`/api/account/pet-books/${encodeURIComponent(book.id)}/order`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ positions }) });
+    if (!response.ok) message(await response.text()); else await refresh();
+  };
+  const move = (position: number, delta: number) => {
+    const positions = book.slots.map((slot) => slot.position);
+    const from = positions.indexOf(position), to = from + delta;
+    if (from < 0 || to < 0 || to >= positions.length) return;
+    [positions[from], positions[to]] = [positions[to], positions[from]];
+    void reorder(positions);
+  };
+  const drop = (position: number) => {
+    if (dragging == null || dragging === position) return setDragging(null);
+    const positions = book.slots.map((slot) => slot.position);
+    const from = positions.indexOf(dragging), to = positions.indexOf(position);
+    positions.splice(to, 0, positions.splice(from, 1)[0]);
+    setDragging(null); void reorder(positions);
+  };
   const share = async () => {
     const url = `${window.location.origin}/pets?book=${encodeURIComponent(book.id)}`;
     await navigator.clipboard.writeText(url);
@@ -63,12 +82,12 @@ const PersonalBinder = ({ book, options, onBack, refresh, message }: { book: Per
   return <section className="petBookOpen personalBinder">
     <div className="petBookOpenHead"><button className="petBookBack" onClick={onBack}>← Book shelf</button><div><span className="collectionEyebrow">PERSONAL COLLECTOR BOOK{book.owner ? ` · @${book.owner}` : ""}</span><h2>{book.name}</h2><p>{book.description || "A collection with your rules."}</p>{book.visibility !== "private" && <button className="shareBook" onClick={() => void share()}>Copy share link</button>}</div><div className="petBookCompletion"><strong>{book.filled}/{book.slots.length}</strong><span>slots filled</span><small>{book.visibility}</small></div></div>
     <div className="personalBinderGrid">
-      {book.slots.map((slot) => <article className={`personalBinderSlot${slot.pet ? " isFilled" : ""}`} key={slot.position}>
+      {book.slots.map((slot, index) => <article className={`personalBinderSlot${slot.pet ? " isFilled" : ""}${dragging === slot.position ? " isDragging" : ""}`} key={slot.position} draggable={editable} onDragStart={() => setDragging(slot.position)} onDragOver={(event) => event.preventDefault()} onDrop={() => drop(slot.position)}>
         <span className="binderSlotNumber">Pocket {slot.position}</span>
         {slot.pet ? <a className="personalPetArt" href={`/pet/${encodeURIComponent(slot.pet.seed)}`} dangerouslySetInnerHTML={{ __html: petSvg(slot.pet.seed, 112) }} /> : <div className="emptyBinderPocket">+</div>}
         <strong>{slot.pet?.name ?? slot.target.label}</strong>
         <span className="binderHint">{slot.pet ? `${slot.pet.finish ?? slot.pet.tier} · ${slot.pet.mutation ?? "Standard"}` : `${slot.target.kind}${slot.target.value ? ` · ${slot.target.value}` : ""}`}</span>
-        {editable && <button className="binderRemove" onClick={() => void remove(slot.position)}>Remove</button>}
+        {editable && <div className="binderPocketControls"><button disabled={index === 0} onClick={() => move(slot.position, -1)} title="Move pocket left">←</button><button disabled={index === book.slots.length - 1} onClick={() => move(slot.position, 1)} title="Move pocket right">→</button><button onClick={() => void remove(slot.position)}>Remove</button></div>}
       </article>)}
       {book.slots.length === 0 && <div className="personalBinderEmpty"><strong>This binder has fresh pages.</strong><span>Add owned copies or define the things you want to chase.</span></div>}
     </div>

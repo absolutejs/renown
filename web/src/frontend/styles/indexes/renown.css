@@ -959,9 +959,15 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .parallelRow i { width: auto; height: 6px; border-radius: 3px; }
 .personalBinderGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 13px; min-height: 170px; }
 .personalBinderSlot { padding-top: 27px; }
+.personalBinderSlot[draggable="true"] { cursor: grab; }
+.personalBinderSlot.isDragging { opacity: .45; transform: scale(.98); }
 .personalPetArt, .emptyBinderPocket { display: flex; height: 130px; align-items: center; justify-content: center; margin-bottom: 9px; color: inherit; background: var(--surface-inset); border: 1px solid var(--line); border-radius: var(--r-sm); text-decoration: none; }
 .emptyBinderPocket { color: var(--faint); font: 300 38px var(--font-display); border-style: dashed; }
 .binderRemove { position: absolute; top: 6px; right: 6px; border: 0; color: var(--muted); background: transparent; font-size: 9px; cursor: pointer; }
+.binderPocketControls { position: absolute; top: 4px; right: 5px; display: flex; gap: 2px; }
+.binderPocketControls button { min-width: 20px; height: 20px; padding: 0 4px; color: var(--muted); background: transparent; border: 0; border-radius: var(--r-xs); font-size: 9px; cursor: pointer; }
+.binderPocketControls button:hover { color: var(--text); background: var(--surface-2); }
+.binderPocketControls button:disabled { opacity: .25; cursor: default; }
 .personalBinderEmpty { display: flex; min-height: 120px; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--muted); border: 1px dashed var(--line-strong); border-radius: var(--r-md); text-align: center; }
 .binderBuilder { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line-2); }
 .binderBuilder > div { padding: 16px; background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-md); }

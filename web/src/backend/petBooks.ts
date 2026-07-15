@@ -7,6 +7,7 @@ import {
   players, type CollectorSlotTarget,
 } from "../../../db/schema.ts";
 import { gameDb } from "./sync.ts";
+import { sql as neonSql } from "../../../db/index.ts";
 
 const variantEntries = Object.entries(CARD_VARIANTS) as [CardVariant, (typeof CARD_VARIANTS)[CardVariant]][];
 const safeText = (value: unknown, max: number) => String(value ?? "").trim().slice(0, max);
@@ -157,6 +158,21 @@ export const addCollectorBookSlot = async (playerId: string, bookId: string, raw
 export const deleteCollectorBookSlot = async (playerId: string, bookId: string, position: number) => {
   if (!await ownedBook(playerId, bookId)) throw new Error("book not found");
   await gameDb.delete(collectorBookSlots).where(and(eq(collectorBookSlots.bookId, bookId), eq(collectorBookSlots.position, position)));
+  await gameDb.update(collectorBooks).set({ updatedAt: new Date() }).where(eq(collectorBooks.id, bookId));
+};
+
+export const reorderCollectorBookSlots = async (playerId: string, bookId: string, rawPositions: unknown) => {
+  if (!await ownedBook(playerId, bookId)) throw new Error("book not found");
+  const positions = Array.isArray(rawPositions) ? rawPositions.map(Number) : [];
+  const current = await gameDb.select({ position: collectorBookSlots.position }).from(collectorBookSlots)
+    .where(eq(collectorBookSlots.bookId, bookId)).orderBy(asc(collectorBookSlots.position));
+  const expected = current.map((row) => row.position);
+  if (positions.length !== expected.length || new Set(positions).size !== positions.length || [...positions].sort((a, b) => a - b).some((value, index) => value !== expected[index])) throw new Error("invalid pocket order");
+  if (positions.length < 2) return;
+  await neonSql.transaction([
+    neonSql`update collector_book_slots set position = position + 1000000 where book_id = ${bookId}`,
+    ...positions.map((oldPosition, index) => neonSql`update collector_book_slots set position = ${index + 1} where book_id = ${bookId} and position = ${oldPosition + 1_000_000}`),
+  ]);
   await gameDb.update(collectorBooks).set({ updatedAt: new Date() }).where(eq(collectorBooks.id, bookId));
 };
 
