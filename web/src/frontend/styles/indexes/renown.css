@@ -166,6 +166,7 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .nav button:hover, .nav a:hover { color: var(--text); background: var(--surface-2); }
 .nav button.on, .nav a.on { color: var(--accent-bright); background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); }
 .authbox { margin-left: auto; display: flex; gap: var(--s-2); align-items: center; }
+.headerAccountSlot { width: 42px; height: 42px; border: 1px solid var(--line); border-radius: var(--r-pill); opacity: .45; }
 .siteHeader { min-height: 62px; }
 .primaryNav { align-items: center; }
 .moreMenu, .accountMenu, .mobileNav { position: relative; }
@@ -193,7 +194,7 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
   font-size: 15px; cursor: pointer; transition: background .14s var(--ease), border-color .14s var(--ease);
 }
 .soundToggle:hover { background: var(--surface-2); border-color: var(--accent-line); }
-.accountMenu > summary { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 4px 9px 4px 5px; color: var(--text); background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-pill); font: 600 12px var(--font-display); }
+.accountMenu > summary { display: flex; align-items: center; gap: 9px; min-height: 42px; box-sizing: border-box; padding: 4px 9px 4px 5px; color: var(--text); background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-pill); font: 600 12px var(--font-display); }
 .accountMenu[open] > summary, .accountMenu > summary:hover { background: var(--surface-2); border-color: var(--accent-line); }
 .accountAvatar { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; overflow: hidden; color: var(--accent-bright); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 50%; font: 700 13px var(--font-display); }
 .accountAvatar .landingPetSprite { transform: scale(.82); }

@@ -1,4 +1,5 @@
 import type { MouseEvent, ReactNode } from "react";
+import { HeaderAccountMenu } from "./HeaderAccountMenu";
 
 export type SiteSection = "home" | "leaderboard" | "pets" | "achievements" | "season" | "guide";
 export type BackTarget = { href: string; label: string };
@@ -46,7 +47,7 @@ export const SiteHeader = ({ current, back, trailing }: { current?: SiteSection;
           <div>{MORE.map((item) => <a key={item.id} className={current === item.id ? "on" : ""} href={item.href}>{item.label}</a>)}</div>
         </details>
       </nav>
-      <div className="authbox">{back && <SmartBack target={back} />}{trailing}</div>
+      <div className="authbox">{back && <SmartBack target={back} />}{trailing === undefined ? <HeaderAccountMenu /> : trailing}</div>
       <details className="mobileNav">
         <summary aria-label="Open navigation"><span aria-hidden>☰</span></summary>
         <nav aria-label="Mobile navigation">
