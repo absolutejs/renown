@@ -331,7 +331,7 @@ const LiveLandingActivity = () => {
         <div className="landingTickerTrack">
           {[false, true].map((duplicate) => <div className="landingTickerGroup" aria-hidden={duplicate || undefined} key={String(duplicate)}>
             {petItems.map((pet) => (
-              <a className="landingPetDrop" href={`/pet/${pet.seed}`} key={pet.seed} tabIndex={duplicate ? -1 : undefined}>
+              <a className="landingPetDrop" href={`/pet/${encodeURIComponent(pet.seed)}`} key={pet.seed} tabIndex={duplicate ? -1 : undefined}>
                 <LandingPet seed={pet.seed} />
                 <span><strong>{pet.name || generate(pet.seed).name}</strong><small>{pet.tier} {pet.species ? `· ${pet.species}` : ""}</small><em>{pet.login ? `@${pet.login} · ` : ""}{pulledAgo(pet.earnedAt)}</em></span>
               </a>

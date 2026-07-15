@@ -187,6 +187,20 @@ export const parseCardSeed = (seed: string): CardCopyIdentity | null => {
   } catch { return null; }
 };
 
+// Routers normally decode a path parameter once. Serialized seeds already encode their
+// subject component, so an unescaped link can arrive with that component decoded and extra
+// colons. Recover the canonical ledger seed while old links remain in circulation.
+export const canonicalPetSeed = (raw: string) => {
+  if (parseCardSeed(raw)) return raw;
+  const parts = raw.split(":");
+  if (parts.length < 8 || parts[0] !== "card" || parts[1] !== "v1") return raw;
+  const variantAt = parts.length - 4;
+  const variant = parts[variantAt] as CardVariant;
+  if (!CARD_VARIANTS[variant]) return raw;
+  const subjectSeed = parts.slice(3, variantAt).join(":");
+  return `card:v1:${encodeURIComponent(parts[2])}:${encodeURIComponent(subjectSeed)}:${parts.slice(variantAt).join(":")}`;
+};
+
 // ---- ASCII sprite: symmetric silhouette (CA + mirror) + parts + palette ----
 const EYE: Record<string, string> = { dot: "•", round: "o", sleepy: "‿", fierce: ">", star: "*", void: "◦", cyclops: "O", many: "∷" };
 const MOUTH: Record<string, [string, number]> = { smile: ["‿", 1], neutral: ["—", 1], fangs: ["ᴥ", 1], agape: ["o", 1], none: ["", 0], grin: ["▿", 1], tongue: ["ᵕ", 1] };

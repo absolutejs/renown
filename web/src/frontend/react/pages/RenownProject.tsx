@@ -97,7 +97,7 @@ const ProjectBody = ({ project, origin }: { project: ProjectForUI; origin: strin
         </div>
         {project.topContributor?.avatarSeed && (
           <div style={{ textAlign: "center", flexShrink: 0 }}>
-            <PetSprite seed={project.topContributor.avatarSeed} box={96} href={`/pet/${project.topContributor.avatarSeed}`} />
+            <PetSprite seed={project.topContributor.avatarSeed} box={96} href={`/pet/${encodeURIComponent(project.topContributor.avatarSeed)}`} />
             <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>top · @{project.topContributor.login}</div>
           </div>
         )}

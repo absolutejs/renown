@@ -63,7 +63,7 @@ const OrgBody = ({ org, origin }: { org: OrgForUI; origin: string }) => {
         </div>
         {org.topContributor?.avatarSeed && (
           <div style={{ textAlign: "center", flexShrink: 0 }}>
-            <PetSprite seed={org.topContributor.avatarSeed} box={96} href={`/pet/${org.topContributor.avatarSeed}`} />
+            <PetSprite seed={org.topContributor.avatarSeed} box={96} href={`/pet/${encodeURIComponent(org.topContributor.avatarSeed)}`} />
             <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>top · @{org.topContributor.login}</div>
           </div>
         )}

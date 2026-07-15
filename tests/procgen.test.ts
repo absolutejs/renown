@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CARD_SET, CARD_VARIANTS, COPY_MUTATIONS, builtInCardSubjectSeed, cardCopyToken, generate, makeRng, parseCardSeed, rollWild, serializedCardSeed, shuffledSerial, type Tier } from "../core/procgen.ts";
+import { CARD_SET, CARD_VARIANTS, COPY_MUTATIONS, builtInCardSubjectSeed, canonicalPetSeed, cardCopyToken, generate, makeRng, parseCardSeed, rollWild, serializedCardSeed, shuffledSerial, type Tier } from "../core/procgen.ts";
 
 describe("procgen determinism (the seed is the asset)", () => {
   test("the same seed always reproduces the exact same creature", () => {
@@ -57,6 +57,12 @@ describe("serialized card printings", () => {
   test("a forged serial or total does not parse as a serialized card", () => {
     expect(parseCardSeed(`card:v1:${CARD_SET}:${encodeURIComponent(subjectSeed)}:legendary:501:500:nope`)).toBeNull();
     expect(parseCardSeed(`card:v1:${CARD_SET}:${encodeURIComponent(subjectSeed)}:legendary:1:999:nope`)).toBeNull();
+  });
+
+  test("a route-decoded subject is restored to the canonical ledger seed", () => {
+    const canonical = copy(34, "route");
+    expect(canonicalPetSeed(decodeURIComponent(canonical))).toBe(canonical);
+    expect(generate(canonicalPetSeed(decodeURIComponent(canonical))).card?.serialNumber).toBe(34);
   });
 
   test("mint order maps to a complete, non-sequential shuffled serial run", () => {

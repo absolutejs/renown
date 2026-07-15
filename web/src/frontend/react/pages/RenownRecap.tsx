@@ -71,7 +71,7 @@ const RecapBody = ({ recap, origin }: { recap: RecapForUI; origin: string }) => 
         </div>
         {seed && (
           <div style={{ textAlign: "center", flexShrink: 0 }}>
-            <PetSprite seed={seed} box={120} href={`/pet/${seed}`} />
+            <PetSprite seed={seed} box={120} href={`/pet/${encodeURIComponent(seed)}`} />
             <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{recap.tier}</div>
           </div>
         )}

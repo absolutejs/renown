@@ -29,7 +29,7 @@ import { profilePetsEtag, renderProfilePets } from "../profilePets";
 import { petCardEtag, renderPetCard } from "../petCard";
 import { petOgEtag, renderPetOgPng } from "../petOg";
 import { findPetOwner } from "../petOwner";
-import { generate } from "../../../../core/procgen.ts";
+import { canonicalPetSeed, generate } from "../../../../core/procgen.ts";
 import { loadProfile, profileShareSnippet } from "../profile";
 import { loadProject, normalizeProjectSort, projectShareSnippet } from "../project";
 import { projectOgEtag, renderProjectOgPng } from "../projectOg";
@@ -132,7 +132,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     return new Response(renderCached(etag, () => renderProfilePets(data)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
   const petCard = async ({ request, params }: { request: Request; params: { seed: string } }) => {
-    const seed = String(params.seed ?? "").trim();
+    const seed = canonicalPetSeed(String(params.seed ?? "").trim());
     if (!seed) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
     const owner = await findPetOwner(seed);
     const etag = petCardEtag(seed, owner);
@@ -141,7 +141,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     return new Response(renderCached(etag, () => renderPetCard(seed, owner)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
   const petPage = async ({ request, params }: { request: Request; params: { seed: string } }) => {
-    const seed = String(params.seed ?? "").trim();
+    const seed = canonicalPetSeed(String(params.seed ?? "").trim());
     const c = seed ? generate(seed) : null;   // a seed deterministically generates the creature (pure, no DB)
     const pet = c ? { seed, name: c.name, tier: c.tier, sizeN: c.sizeN, score: c.score, statRarity: c.statRarity, rarestTrait: c.rarestTrait, oneOfOne: c.oneOfOne, mythicAura: c.mythicAura, traits: c.traits, rarityBreakdown: c.rarityBreakdown, copyTraits: c.copyTraits, card: c.card } : null;
     const owner = c ? await findPetOwner(seed) : null;   // copy seed → at most one owner; links back to their profile
@@ -184,7 +184,7 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     return new Response(renderCached(etag, () => renderVersusOgPng(vs)), { headers: { ...headers, "content-type": "image/png" } });
   };
   const petOg = async ({ request, params }: { request: Request; params: { seed: string } }) => {
-    const seed = String(params.seed ?? "").trim();
+    const seed = canonicalPetSeed(String(params.seed ?? "").trim());
     if (!seed) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
     const owner = await findPetOwner(seed);
     const etag = petOgEtag(seed, owner);

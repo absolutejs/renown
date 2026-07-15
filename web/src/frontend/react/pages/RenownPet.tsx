@@ -35,7 +35,7 @@ const Fact = ({ label, value }: { label: string; value: ReactNode }) => <div sty
 
 const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origin: string }) => {
   const accent = hex(TIER_RGB[pet.tier as Tier] ?? [160, 160, 180]);
-  const pageUrl = `${origin}/pet/${pet.seed}`;
+  const pageUrl = `${origin}/pet/${encodeURIComponent(pet.seed)}`;
   const serial = owner?.serialNumber ?? pet.card?.serialNumber ?? null;
   const total = owner?.printRun ?? pet.card?.printRun ?? null;
   const variant = (owner?.variant ?? pet.card?.variant ?? null) as CardVariant | null;
@@ -136,8 +136,8 @@ export const RenownPet = ({ cssPath, pet = null, owner = null, origin = "", shar
   const finish = owner?.finish ?? pet?.card?.finish ?? pet?.tier;
   const title = pet ? `${pet.name}${edition} — ${finish} pet on Renown` : "A Renown pet";
   const desc = shareSnippet ?? (pet ? `${finish}${edition} · size ${pet.sizeN} · rarity score ${pet.score.toFixed(2)} — a collectible pet earned from real work.` : "A serialized pet on Renown.");
-  const fullUrl = pet ? `${origin}/pet/${pet.seed}` : `${origin}/`;
-  const image = pet ? `${origin}/pet/${pet.seed}/og.png` : undefined;
+  const fullUrl = pet ? `${origin}/pet/${encodeURIComponent(pet.seed)}` : `${origin}/`;
+  const image = pet ? `${origin}/pet/${encodeURIComponent(pet.seed)}/og.png` : undefined;
   return <html lang="en">
     <Head cssPath={cssPath} title={title} description={desc} canonical={fullUrl}
       openGraph={{ title, description: desc, type: "website", url: fullUrl, image, imageAlt: title, imageWidth: 1200, imageHeight: 630, siteName: "Renown" }}

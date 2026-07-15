@@ -44,13 +44,13 @@ const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; on
   const accent = hex(TIER_RGB[tier as Tier] ?? [160, 160, 180]);
   return (
     <article className={`collectionPet tier-${tier.toLowerCase()}${pet.isAvatar ? " isAvatar" : ""}`} style={{ "--pet-accent": accent } as CSSProperties}>
-      <a className="collectionPetArt" href={`/pet/${pet.seed}`} title={`${name} — ${tier}`}>
+      <a className="collectionPetArt" href={`/pet/${encodeURIComponent(pet.seed)}`} title={`${name} — ${tier}`}>
         {pet.isAvatar && <span className="collectionPetStatus">Current avatar</span>}
         <span dangerouslySetInnerHTML={{ __html: petSvgHtml(pet.seed, 112) }} />
       </a>
       <div className="collectionPetBody">
         <div className="collectionPetTitle">
-          <a href={`/pet/${pet.seed}`}>{name}</a>
+          <a href={`/pet/${encodeURIComponent(pet.seed)}`}>{name}</a>
           {serial != null && total != null && <span className="oneOfOne">#{serial.toLocaleString()} / {total.toLocaleString()}</span>}
         </div>
         <div className="collectionPetMeta"><strong>{finish}</strong><span>{species}</span><span>size {size}</span></div>
@@ -62,7 +62,7 @@ const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; on
         </div>}
         {!owned && pet.login && <a className="collectionPetOwner" href={`/profile/${encodeURIComponent(pet.login)}`}>@{pet.login}{pet.isAi ? " 🤖" : ""}</a>}
         <div className="collectionPetActions">
-          <a className="petAction" href={`/pet/${pet.seed}`}>View details</a>
+          <a className="petAction" href={`/pet/${encodeURIComponent(pet.seed)}`}>View details</a>
           {owned && !pet.isAvatar && <button className="petAction primary" onClick={() => onAvatar(pet.seed)}>Set avatar</button>}
         </div>
       </div>
