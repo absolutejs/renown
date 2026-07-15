@@ -90,4 +90,18 @@ await sql`
     attribution_query = excluded.attribution_query
 `;
 
+// Unclaimed personas have no GitHub-owner base score. Enforce this on every deploy so older
+// historical-score migrations or snapshots can never reintroduce a claimed-account floor.
+await sql`
+  update player_accounts pa set verified_score = pa.attribution_score
+  from players p
+  where p.id = pa.player_id and p.claim_status = 'unclaimed'
+    and p.reserved_github_id is not null and pa.verified_score <> pa.attribution_score
+`;
+await sql`
+  update players set verified_score = attribution_score, merit_score = 0
+  where claim_status = 'unclaimed' and reserved_github_id is not null
+    and (verified_score <> attribution_score or merit_score <> 0)
+`;
+
 console.log("✓ reserved AI identities ensured: Claude corrected, Codex available as unclaimed");

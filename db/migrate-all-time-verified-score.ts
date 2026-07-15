@@ -11,6 +11,7 @@ const restored = await sql`
       greatest(p.verified_score, coalesce(max(s.verified_score), 0))::bigint as peak
     from players p
     left join player_attribution_snapshots s on s.player_id = p.id
+    where p.claim_status <> 'unclaimed'
     group by p.id, p.verified_score
   ), account_totals as (
     select player_id, sum(verified_score)::bigint as total
