@@ -1,4 +1,3 @@
-import "reflect-metadata";
 import { networking, prepare } from "@absolutejs/absolute";
 import { apiKeysRoutes, auth, createNeonAccessTokenStore, createNeonApiClientStore, createNeonAuthSessionStore } from "@absolutejs/auth";
 import { sync } from "@absolutejs/sync";
