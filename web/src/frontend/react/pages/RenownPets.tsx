@@ -69,7 +69,7 @@ const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; on
         {!owned && pet.login && <a className="collectionPetOwner" href={`/profile/${encodeURIComponent(pet.login)}`}>@{pet.login}{pet.isAi ? " 🤖" : ""}</a>}
         <div className="collectionPetActions">
           <a className="petAction" href={`/pet/${encodeURIComponent(pet.seed)}`}>View details</a>
-          {owned && <a className="petAction" href={`/marketplace?sell=${encodeURIComponent(pet.seed)}`}>Sell</a>}
+          {owned && <><a className="petAction" href={`/marketplace?give=${encodeURIComponent(pet.seed)}`}>Trade</a><a className="petAction" href={`/marketplace?sell=${encodeURIComponent(pet.seed)}`}>Sell</a></>}
           {owned && !pet.isAvatar && <button className="petAction primary" onClick={() => onAvatar(pet.seed)}>Set avatar</button>}
         </div>
       </div>

@@ -348,8 +348,10 @@ export const marketTrades = pgTable("market_trades", {
   id: text("id").primaryKey(), proposerPlayerId: text("proposer_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),
   counterpartyPlayerId: text("counterparty_player_id").notNull().references(() => players.id, { onDelete: "restrict" }),
   offeredPetSeeds: jsonb("offered_pet_seeds").$type<string[]>().notNull().default([]), requestedPetSeeds: jsonb("requested_pet_seeds").$type<string[]>().notNull().default([]),
-  status: text("status").notNull().default("pending"), createdAt: timestamp("created_at").notNull().defaultNow(), expiresAt: timestamp("expires_at"),
-});
+  parentTradeId: text("parent_trade_id"), note: text("note").notNull().default(""),
+  status: text("status").notNull().default("pending"), createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"), settledAt: timestamp("settled_at"),
+}, (t) => ({ proposerIdx: index("market_trades_proposer_idx").on(t.proposerPlayerId, t.status, t.updatedAt), counterpartyIdx: index("market_trades_counterparty_idx").on(t.counterpartyPlayerId, t.status, t.updatedAt) }));
 
 // Public provenance deliberately contains ownership and settlement references only.
 // Payment-provider ids, identity data, and card data never belong here or on-chain.

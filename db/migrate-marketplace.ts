@@ -65,9 +65,18 @@ await sql`create table if not exists market_trades (
   id text primary key, proposer_player_id text not null references players(id) on delete restrict,
   counterparty_player_id text not null references players(id) on delete restrict,
   offered_pet_seeds jsonb not null default '[]'::jsonb, requested_pet_seeds jsonb not null default '[]'::jsonb,
-  status text not null default 'pending' check (status in ('pending','accepted','declined','cancelled','expired')),
-  created_at timestamp not null default now(), expires_at timestamp
+  parent_trade_id text, note text not null default '',
+  status text not null default 'pending' check (status in ('pending','accepted','declined','cancelled','expired','countered')),
+  created_at timestamp not null default now(), updated_at timestamp not null default now(), expires_at timestamp, settled_at timestamp
 )`;
+await sql`alter table market_trades add column if not exists parent_trade_id text`;
+await sql`alter table market_trades add column if not exists note text not null default ''`;
+await sql`alter table market_trades add column if not exists updated_at timestamp not null default now()`;
+await sql`alter table market_trades add column if not exists settled_at timestamp`;
+await sql`alter table market_trades drop constraint if exists market_trades_status_check`;
+await sql`alter table market_trades add constraint market_trades_status_check check (status in ('pending','accepted','declined','cancelled','expired','countered'))`;
+await sql`create index if not exists market_trades_proposer_idx on market_trades(proposer_player_id,status,updated_at desc)`;
+await sql`create index if not exists market_trades_counterparty_idx on market_trades(counterparty_player_id,status,updated_at desc)`;
 await sql`create table if not exists pet_ownership_events (
   id text primary key, pet_seed text not null, sequence integer not null, kind text not null,
   from_player_id text references players(id) on delete restrict, to_player_id text references players(id) on delete restrict,
@@ -178,4 +187,70 @@ begin
   return query select v_tx,l.pet_seed,l.seller_player_id,p_buyer;
 end $$`;
 
-console.log("marketplace wallet, orders, auctions, trades, provenance, and atomic sale settlement installed");
+// A direct trade is one indivisible database transaction: both fees, every ownership
+// move, presentation cleanup, provenance event, and inventory refresh commit together.
+await sql`create or replace function settle_market_trade(p_trade text, p_actor text, p_idempotency text)
+returns table(out_transaction_id text, out_trade_id text, out_status text) language plpgsql as $$
+declare t market_trades%rowtype; v_proposer_wallet text; v_counterparty_wallet text; v_tx text := 'wtx:'||md5(p_idempotency);
+  v_existing text; v_existing_meta jsonb; v_fee_each integer := 25; v_total_fee integer; v_seq integer; v_seed text;
+  v_offered_count integer; v_requested_count integer;
+begin
+  select id,metadata into v_existing,v_existing_meta from wallet_transactions where idempotency_key=p_idempotency;
+  if found then
+    if v_existing_meta->>'tradeId' is distinct from p_trade or v_existing_meta->>'actorId' is distinct from p_actor then raise exception 'idempotency key belongs to another trade'; end if;
+    select * into t from market_trades where id=p_trade;
+    return query select v_existing,p_trade,t.status; return;
+  end if;
+  select * into t from market_trades where id=p_trade for update;
+  if not found or t.status <> 'pending' or (t.expires_at is not null and t.expires_at <= now()) then raise exception 'trade is not available'; end if;
+  if t.counterparty_player_id <> p_actor then raise exception 'only the recipient can accept this trade'; end if;
+  if t.proposer_player_id=t.counterparty_player_id then raise exception 'cannot trade with yourself'; end if;
+  select jsonb_array_length(t.offered_pet_seeds),jsonb_array_length(t.requested_pet_seeds) into v_offered_count,v_requested_count;
+  if v_offered_count < 1 or v_offered_count > 10 or v_requested_count > 10 then raise exception 'trade must contain 1-10 offered pets and at most 10 requested pets'; end if;
+  if exists(select 1 from jsonb_array_elements_text(t.offered_pet_seeds) a join jsonb_array_elements_text(t.requested_pet_seeds) b on a.value=b.value) then raise exception 'a pet cannot appear on both sides'; end if;
+  if (select count(*) from (select value from jsonb_array_elements_text(t.offered_pet_seeds) group by value) x) <> v_offered_count
+    or (select count(*) from (select value from jsonb_array_elements_text(t.requested_pet_seeds) group by value) x) <> v_requested_count then raise exception 'trade contains duplicate pets'; end if;
+  perform 1 from wild_seed_sources where pet_seed in (
+    select value from jsonb_array_elements_text(t.offered_pet_seeds) union select value from jsonb_array_elements_text(t.requested_pet_seeds)
+  ) order by pet_seed for update;
+  if (select count(*) from wild_seed_sources where player_id=t.proposer_player_id and pet_seed in (select value from jsonb_array_elements_text(t.offered_pet_seeds))) <> v_offered_count then raise exception 'proposer no longer owns every offered pet'; end if;
+  if (select count(*) from wild_seed_sources where player_id=t.counterparty_player_id and pet_seed in (select value from jsonb_array_elements_text(t.requested_pet_seeds))) <> v_requested_count then raise exception 'recipient no longer owns every requested pet'; end if;
+  v_proposer_wallet:=ensure_player_wallet(t.proposer_player_id); v_counterparty_wallet:=ensure_player_wallet(t.counterparty_player_id);
+  insert into wallet_accounts(id) values('platform:revenue') on conflict(id) do nothing;
+  perform 1 from wallet_accounts where id in(v_proposer_wallet,v_counterparty_wallet,'platform:revenue') order by id for update;
+  if (select balance_cents-reserved_cents from wallet_accounts where id=v_proposer_wallet) < v_fee_each then raise exception 'proposer needs $0.25 available'; end if;
+  if v_requested_count > 0 and (select balance_cents-reserved_cents from wallet_accounts where id=v_counterparty_wallet) < v_fee_each then raise exception 'recipient needs $0.25 available'; end if;
+  v_total_fee:=case when v_requested_count > 0 then v_fee_each*2 else v_fee_each end;
+  insert into wallet_transactions(id,idempotency_key,kind,metadata) values(v_tx,p_idempotency,'trade-fee',jsonb_build_object('tradeId',t.id,'actorId',p_actor));
+  insert into wallet_entries values(v_tx,0,v_proposer_wallet,-v_fee_each);
+  if v_requested_count > 0 then insert into wallet_entries values(v_tx,1,v_counterparty_wallet,-v_fee_each),(v_tx,2,'platform:revenue',v_total_fee);
+  else insert into wallet_entries values(v_tx,1,'platform:revenue',v_total_fee); end if;
+  update wallet_accounts set balance_cents=balance_cents-v_fee_each where id=v_proposer_wallet;
+  if v_requested_count > 0 then update wallet_accounts set balance_cents=balance_cents-v_fee_each where id=v_counterparty_wallet; end if;
+  update wallet_accounts set balance_cents=balance_cents+v_total_fee where id='platform:revenue';
+  update wild_seed_sources set player_id=t.counterparty_player_id where player_id=t.proposer_player_id and pet_seed in (select value from jsonb_array_elements_text(t.offered_pet_seeds));
+  update wild_seed_sources set player_id=t.proposer_player_id where player_id=t.counterparty_player_id and pet_seed in (select value from jsonb_array_elements_text(t.requested_pet_seeds));
+  delete from pet_set_display_selections where (player_id=t.proposer_player_id and pet_seed in (select value from jsonb_array_elements_text(t.offered_pet_seeds)))
+    or (player_id=t.counterparty_player_id and pet_seed in (select value from jsonb_array_elements_text(t.requested_pet_seeds)));
+  update collector_book_slots s set pet_seed=null where (pet_seed in (select value from jsonb_array_elements_text(t.offered_pet_seeds)) and exists(select 1 from collector_books b where b.id=s.book_id and b.player_id=t.proposer_player_id))
+    or (pet_seed in (select value from jsonb_array_elements_text(t.requested_pet_seeds)) and exists(select 1 from collector_books b where b.id=s.book_id and b.player_id=t.counterparty_player_id));
+  update market_listings set status='cancelled',updated_at=now() where status='active' and pet_seed in (
+    select value from jsonb_array_elements_text(t.offered_pet_seeds) union select value from jsonb_array_elements_text(t.requested_pet_seeds));
+  update market_auctions set status='cancelled' where status='active' and pet_seed in (
+    select value from jsonb_array_elements_text(t.offered_pet_seeds) union select value from jsonb_array_elements_text(t.requested_pet_seeds));
+  for v_seed in select value from jsonb_array_elements_text(t.offered_pet_seeds) loop
+    select coalesce(max(sequence),0)+1 into v_seq from pet_ownership_events where pet_seed=v_seed;
+    insert into pet_ownership_events(id,pet_seed,sequence,kind,from_player_id,to_player_id,reason,settlement_ref)
+      values('own:trade:'||md5(p_idempotency||':'||v_seed),v_seed,v_seq,'transfer',t.proposer_player_id,t.counterparty_player_id,'trade',p_idempotency);
+  end loop;
+  for v_seed in select value from jsonb_array_elements_text(t.requested_pet_seeds) loop
+    select coalesce(max(sequence),0)+1 into v_seq from pet_ownership_events where pet_seed=v_seed;
+    insert into pet_ownership_events(id,pet_seed,sequence,kind,from_player_id,to_player_id,reason,settlement_ref)
+      values('own:trade:'||md5(p_idempotency||':'||v_seed),v_seed,v_seq,'transfer',t.counterparty_player_id,t.proposer_player_id,'trade',p_idempotency);
+  end loop;
+  update market_trades set status='accepted',updated_at=now(),settled_at=now() where id=t.id;
+  perform refresh_pet_inventory(t.proposer_player_id); perform refresh_pet_inventory(t.counterparty_player_id);
+  return query select v_tx,t.id,'accepted'::text;
+end $$`;
+
+console.log("marketplace wallet, orders, auctions, direct trades, provenance, and atomic settlement installed");

@@ -82,7 +82,7 @@ const PetBody = ({ pet, owner, market, origin }: { pet: PetForUI; owner: PetOwne
         {owner?.login
           ? <p style={{ margin: "13px 0 0" }}>Owned by <a href={`/profile/${encodeURIComponent(owner.login)}`} style={{ fontWeight: 700, color: accent, textDecoration: "none" }}>@{owner.login}</a>{owner.isAi && <span title="AI participant"> 🤖</span>}</p>
           : <p className="muted" style={{ margin: "13px 0 0", fontSize: 13 }}>Unclaimed — this exact copy has not been discovered.</p>}
-        {market.listing && <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 16 }}><strong style={{ fontSize: 22 }}>{money(market.listing.priceCents)}</strong><a className="btn" href={`/marketplace?buy=${encodeURIComponent(market.listing.id)}`}>Buy on market</a></div>}
+        {(market.listing || owner?.login) && <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 16 }}>{market.listing && <><strong style={{ fontSize: 22 }}>{money(market.listing.priceCents)}</strong><a className="btn" href={`/marketplace?buy=${encodeURIComponent(market.listing.id)}`}>Buy on market</a></>}{owner?.login && <a className="petAction" href={`/marketplace?trade=${encodeURIComponent(owner.login)}&want=${encodeURIComponent(pet.seed)}`}>Offer a trade</a>}</div>}
       </div>
     </section>
 

@@ -30,7 +30,7 @@ import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookA
 import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { loadPetCollection } from "../petGallery.ts";
 import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots, selectOfficialPetBookCopy } from "../petBooks.ts";
-import { buyMarketListing, cancelMarketListing, createMarketListing, loadWallet } from "../marketplace.ts";
+import { acceptMarketTrade, buyMarketListing, cancelMarketListing, cancelMarketTrade, createMarketListing, createMarketTrade, declineMarketTrade, loadCollectorTradePets, loadMarketTrades, loadWallet } from "../marketplace.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
@@ -252,6 +252,37 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         const idempotency = `sale:${params.id}:${player.id}:${retryToken}`;
         return { ok: true, ...(await buyMarketListing(player.id, params.id, idempotency)) };
       } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "sale could not settle"); }
+    }))
+    .get("/marketplace/trades", ({ protectRoute, status }) => protectRoute(async (user) => {
+      const player = await resolvePlayerByUserSub(user.sub);
+      return player ? loadMarketTrades(player.id) : status("Bad Request", "link GitHub before trading");
+    }))
+    .get("/marketplace/collectors/:login/pets", ({ params, protectRoute, status }) => protectRoute(async () => {
+      try { return await loadCollectorTradePets(params.login); }
+      catch (error) { return status("Not Found", error instanceof Error ? error.message : "collector not found"); }
+    }))
+    .post("/marketplace/trades", ({ body, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "link GitHub before trading");
+        return { ok: true, ...(await createMarketTrade(player.id, body)) };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not create trade"); }
+    }))
+    .post("/marketplace/trades/:id/accept", ({ params, request, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "player not found");
+        const retryToken = (request.headers.get("idempotency-key") ?? crypto.randomUUID()).slice(0, 200);
+        return { ok: true, ...(await acceptMarketTrade(player.id, params.id, `trade:${params.id}:${player.id}:${retryToken}`)) };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "trade could not settle"); }
+    }))
+    .post("/marketplace/trades/:id/decline", ({ params, protectRoute, status }) => protectRoute(async (user) => {
+      try { const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "player not found"); await declineMarketTrade(player.id, params.id); return { ok: true }; }
+      catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not decline trade"); }
+    }))
+    .delete("/marketplace/trades/:id", ({ params, protectRoute, status }) => protectRoute(async (user) => {
+      try { const player = await resolvePlayerByUserSub(user.sub); if (!player) return status("Bad Request", "player not found"); await cancelMarketTrade(player.id, params.id); return { ok: true }; }
+      catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not cancel trade"); }
     }))
     .get("/pet-books", ({ protectRoute }) => protectRoute(async (user) => {
       const player = await resolvePlayerByUserSub(user.sub);

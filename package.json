@@ -91,6 +91,7 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:check": "bun run db/check.ts",
+    "test:marketplace:integration": "bun run db/test-market-trade-integration.ts",
     "db:seed": "bun run db/seed.ts",
     "db:backup": "absolute db backup --exclude achievements",
     "db:restore": "absolute db restore && bun run db/recompute-rarity.ts",

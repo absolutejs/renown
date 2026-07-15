@@ -1,7 +1,7 @@
 import { cents, sellerFee, steamLikeWalletPolicy } from "@absolutejs/wallet";
 import { and, desc, eq, ilike, inArray, lt, or, sql } from "drizzle-orm";
 import {
-  marketListings, petOwnershipEvents, petPrintings, petSubjects, players, walletAccounts,
+  marketListings, marketTrades, petOwnershipEvents, petPrintings, petSubjects, players, walletAccounts,
   walletEntries, walletTransactions, wildSeedSources,
 } from "../../../db/schema.ts";
 import { gameDb } from "./sync.ts";
@@ -118,4 +118,115 @@ export const loadPetMarketState = async (petSeed: string) => {
   const people = ids.length ? await gameDb.select({ id: players.id, login: players.githubLogin, handle: players.handle }).from(players).where(inArray(players.id, ids)) : [];
   const names = new Map(people.map((person) => [person.id, { login: person.login, handle: person.handle }]));
   return { listing: listing[0] ?? null, events: events.map((event) => ({ ...event, from: event.fromPlayerId ? names.get(event.fromPlayerId) ?? null : null, to: event.toPlayerId ? names.get(event.toPlayerId) ?? null : null })) };
+};
+
+const tradeSeeds = (value: unknown, label: string) => {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  const seeds = value.map((seed) => String(seed).trim()).filter(Boolean);
+  if (seeds.length > 10) throw new Error(`${label} is limited to 10 pets`);
+  if (new Set(seeds).size !== seeds.length) throw new Error(`${label} contains duplicate pets`);
+  return seeds;
+};
+
+const loadTradePets = async (seeds: string[]) => seeds.length ? gameDb.select({
+  seed: wildSeedSources.petSeed, ownerId: wildSeedSources.playerId, name: wildSeedSources.name, tier: wildSeedSources.tier,
+  finish: wildSeedSources.finish, serialNumber: wildSeedSources.serialNumber, printRun: wildSeedSources.printRun,
+  mutation: wildSeedSources.mutation, material: wildSeedSources.material, colorway: wildSeedSources.colorway,
+}).from(wildSeedSources).where(inArray(wildSeedSources.petSeed, seeds)) : [];
+
+export const loadCollectorTradePets = async (login: string) => {
+  const collector = (await gameDb.select({ id: players.id, login: players.githubLogin, handle: players.handle }).from(players)
+    .where(and(eq(players.githubVerified, true), sql`lower(${players.githubLogin})=lower(${login.trim()})`)).limit(1))[0];
+  if (!collector) throw new Error("collector not found");
+  const pets = await gameDb.select({
+    seed: wildSeedSources.petSeed, name: wildSeedSources.name, tier: wildSeedSources.tier, finish: wildSeedSources.finish,
+    serialNumber: wildSeedSources.serialNumber, printRun: wildSeedSources.printRun, mutation: wildSeedSources.mutation,
+    material: wildSeedSources.material, colorway: wildSeedSources.colorway,
+  }).from(wildSeedSources).where(eq(wildSeedSources.playerId, collector.id)).orderBy(desc(wildSeedSources.rarityScore), desc(wildSeedSources.petSeed)).limit(100);
+  return { collector, pets };
+};
+
+export const createMarketTrade = async (proposerId: string, input: unknown) => {
+  const body = (input ?? {}) as { counterpartyLogin?: unknown; offeredPetSeeds?: unknown; requestedPetSeeds?: unknown; note?: unknown; expiresInDays?: unknown; parentTradeId?: unknown };
+  const login = String(body.counterpartyLogin ?? "").trim();
+  if (!login) throw new Error("choose a collector");
+  const counterparty = (await gameDb.select({ id: players.id, login: players.githubLogin, handle: players.handle }).from(players)
+    .where(and(eq(players.githubVerified, true), sql`lower(${players.githubLogin})=lower(${login})`)).limit(1))[0];
+  if (!counterparty) throw new Error("collector not found");
+  if (counterparty.id === proposerId) throw new Error("you cannot trade with yourself");
+  const parentTradeId = body.parentTradeId ? String(body.parentTradeId) : null;
+  if (parentTradeId) {
+    const parent = (await gameDb.select({
+      proposerPlayerId: marketTrades.proposerPlayerId, counterpartyPlayerId: marketTrades.counterpartyPlayerId,
+      status: marketTrades.status, expiresAt: marketTrades.expiresAt,
+    }).from(marketTrades).where(eq(marketTrades.id, parentTradeId)).limit(1))[0];
+    if (!parent || parent.status !== "pending" || (parent.expiresAt && parent.expiresAt.getTime() <= Date.now())) throw new Error("the original trade is no longer open");
+    if (parent.counterpartyPlayerId !== proposerId || parent.proposerPlayerId !== counterparty.id) throw new Error("that trade cannot be countered by this collector");
+  }
+  const offered = tradeSeeds(body.offeredPetSeeds, "offered pets");
+  const requested = tradeSeeds(body.requestedPetSeeds, "requested pets");
+  if (!offered.length) throw new Error("offer at least one pet");
+  if (offered.some((seed) => requested.includes(seed))) throw new Error("a pet cannot appear on both sides");
+  const pets = await loadTradePets([...offered, ...requested]);
+  if (offered.some((seed) => !pets.some((pet) => pet.seed === seed && pet.ownerId === proposerId))) throw new Error("you no longer own every offered pet");
+  if (requested.some((seed) => !pets.some((pet) => pet.seed === seed && pet.ownerId === counterparty.id))) throw new Error("the collector no longer owns every requested pet");
+  const days = Math.max(1, Math.min(30, Number(body.expiresInDays ?? 7) || 7));
+  const id = `trade:${crypto.randomUUID()}`;
+  await gameDb.insert(marketTrades).values({
+    id, proposerPlayerId: proposerId, counterpartyPlayerId: counterparty.id, offeredPetSeeds: offered, requestedPetSeeds: requested,
+    note: String(body.note ?? "").trim().slice(0, 280), parentTradeId,
+    expiresAt: new Date(Date.now() + days * 86_400_000),
+  });
+  if (parentTradeId) {
+    const changed = await gameDb.update(marketTrades).set({ status: "countered", updatedAt: new Date() })
+      .where(and(eq(marketTrades.id, parentTradeId), eq(marketTrades.status, "pending"))).returning({ id: marketTrades.id });
+    if (!changed.length) {
+      await gameDb.delete(marketTrades).where(eq(marketTrades.id, id));
+      throw new Error("the original trade changed before your counteroffer was sent");
+    }
+  }
+  return { id, counterparty, offered, requested, feeCents: requested.length ? steamLikeWalletPolicy.tradeFeeCents * 2 : steamLikeWalletPolicy.tradeFeeCents };
+};
+
+export const loadMarketTrades = async (playerId: string) => {
+  const trades = await gameDb.select().from(marketTrades)
+    .where(or(eq(marketTrades.proposerPlayerId, playerId), eq(marketTrades.counterpartyPlayerId, playerId)))
+    .orderBy(desc(marketTrades.updatedAt), desc(marketTrades.id)).limit(100);
+  const playerIds = [...new Set(trades.flatMap((trade) => [trade.proposerPlayerId, trade.counterpartyPlayerId]))];
+  const seeds = [...new Set(trades.flatMap((trade) => [...trade.offeredPetSeeds, ...trade.requestedPetSeeds]))];
+  const [people, pets] = await Promise.all([
+    playerIds.length ? gameDb.select({ id: players.id, login: players.githubLogin, handle: players.handle, isAi: players.isAi }).from(players).where(inArray(players.id, playerIds)) : [],
+    loadTradePets(seeds),
+  ]);
+  const peopleById = new Map(people.map((person) => [person.id, person]));
+  const petsBySeed = new Map(pets.map((pet) => [pet.seed, pet]));
+  const now = Date.now();
+  return { items: trades.map((trade) => ({
+    ...trade,
+    status: trade.status === "pending" && trade.expiresAt && trade.expiresAt.getTime() <= now ? "expired" : trade.status,
+    direction: trade.proposerPlayerId === playerId ? "outgoing" as const : "incoming" as const,
+    proposer: peopleById.get(trade.proposerPlayerId) ?? null, counterparty: peopleById.get(trade.counterpartyPlayerId) ?? null,
+    offeredPets: trade.offeredPetSeeds.map((seed) => petsBySeed.get(seed) ?? { seed, name: "Transferred pet", tier: "", finish: null, serialNumber: null, printRun: null }),
+    requestedPets: trade.requestedPetSeeds.map((seed) => petsBySeed.get(seed) ?? { seed, name: "Transferred pet", tier: "", finish: null, serialNumber: null, printRun: null }),
+  })), policy: { tradeFeeCents: steamLikeWalletPolicy.tradeFeeCents } };
+};
+
+type TradeSettlementRow = { out_transaction_id: string; out_trade_id: string; out_status: string };
+export const acceptMarketTrade = async (playerId: string, tradeId: string, idempotencyKey: string) => {
+  const result = await gameDb.execute(sql`select * from settle_market_trade(${tradeId}, ${playerId}, ${idempotencyKey})`);
+  const row = (result.rows as unknown as TradeSettlementRow[])[0];
+  if (!row) throw new Error("trade did not settle");
+  return row;
+};
+
+export const declineMarketTrade = async (playerId: string, tradeId: string) => {
+  const changed = await gameDb.update(marketTrades).set({ status: "declined", updatedAt: new Date() })
+    .where(and(eq(marketTrades.id, tradeId), eq(marketTrades.counterpartyPlayerId, playerId), eq(marketTrades.status, "pending"))).returning({ id: marketTrades.id });
+  if (!changed.length) throw new Error("pending incoming trade not found");
+};
+
+export const cancelMarketTrade = async (playerId: string, tradeId: string) => {
+  const changed = await gameDb.update(marketTrades).set({ status: "cancelled", updatedAt: new Date() })
+    .where(and(eq(marketTrades.id, tradeId), eq(marketTrades.proposerPlayerId, playerId), eq(marketTrades.status, "pending"))).returning({ id: marketTrades.id });
+  if (!changed.length) throw new Error("pending outgoing trade not found");
 };
