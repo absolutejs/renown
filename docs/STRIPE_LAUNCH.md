@@ -78,6 +78,17 @@ Keep the production funding flag false. In a staging/test-key environment:
 8. Confirm admin health reports zero ledger imbalances and no failed Stripe events.
 9. Run `bun run db/test-market-trade-integration.ts`; it must report zero synthetic residue.
 
+Completed July 15, 2026: the sandbox webhook endpoint was subscribed to every event above;
+hosted subscription Checkout and the customer portal were created successfully; Checkout was
+expired without a charge; and Stripe-generated async-payment, refund-created, refund-updated,
+dispute-created, and dispute-closed events each reached production exactly once with `processed`
+status and no handler error. Metadata-free fixtures did not touch a Renown wallet or pet. Temporary
+CLI-generated products and prices were archived after the drill.
+
+Public pre-live policy surfaces are available at `/terms`, `/privacy`, and `/marketplace/rules`.
+They currently use an 18+, United States-only launch posture and the GitHub issue tracker as the
+support channel. Replace the temporary support channel and obtain legal review before live funding.
+
 ## Controlled live opening
 
 After written approval, policies, tax decision, and the complete test drill:

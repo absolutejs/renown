@@ -255,5 +255,6 @@ export const RenownMarketplace = ({ cssPath, market: initialMarket, origin = "" 
       </>}
     </> : <PracticeMarket />}
     <section className="marketTrust"><div><strong>Atomic by design</strong><span>A pet cannot be sold twice or promised to two accepted trades.</span></div><div><strong>Origin is permanent</strong><span>Founder and original-earner marks survive every transfer.</span></div><div><strong>Public provenance, private payments</strong><span>Ownership may be anchored on-chain; financial and identity data never is.</span></div></section>
+    <nav className="marketLegal" aria-label="Marketplace policies"><a href="/marketplace/rules">Marketplace rules</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="https://github.com/absolutejs/renown/issues">Support</a></nav>
   </main></body></html>;
 };

@@ -12,6 +12,7 @@ import { RenownAchievement } from "../../frontend/react/pages/RenownAchievement"
 import { RenownPet } from "../../frontend/react/pages/RenownPet";
 import { RenownPets } from "../../frontend/react/pages/RenownPets";
 import { RenownMarketplace } from "../../frontend/react/pages/RenownMarketplace";
+import { RenownPolicies } from "../../frontend/react/pages/RenownPolicies";
 import { loadRecentPets } from "../petGallery";
 import { RenownAchievements } from "../../frontend/react/pages/RenownAchievements";
 import { loadAchievementsIndex } from "../achievementsIndex";
@@ -158,6 +159,9 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   const marketplacePage = async ({ request }: { request: Request }) => handleReactPageRequest({
     index: asset(manifest, "RenownMarketplaceIndex"), Page: RenownMarketplace,
     props: { cssPath, market: await loadMarketplace({ limit: 24, listingId: new URL(request.url).searchParams.get("buy") ?? "" }), origin: originOf(request) }, request,
+  });
+  const policyPage = (kind: "terms" | "privacy" | "marketplace") => ({ request }: { request: Request }) => handleReactPageRequest({
+    index: asset(manifest, "RenownPoliciesIndex"), Page: RenownPolicies, props: { cssPath, origin: originOf(request), kind }, request,
   });
   const achievementsPage = async ({ request }: { request: Request }) => {
     const index = await loadAchievementsIndex();
@@ -315,6 +319,9 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
     .get("/profile/:login", profile)
     .get("/pets", petsPage)
     .get("/marketplace", marketplacePage)
+    .get("/marketplace/rules", policyPage("marketplace"))
+    .get("/terms", policyPage("terms"))
+    .get("/privacy", policyPage("privacy"))
     .get("/season", seasonPage)
     .get("/vs/:a/:b/og.png", versusOg)
     .get("/vs/:a/:b", versusPage)

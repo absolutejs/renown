@@ -12,6 +12,7 @@ ledger use integer cents. The shared implementation lives in `@absolutejs/wallet
 - Marketplace fee: 10%, paid by the seller
 - Guaranteed direct trade: $0.25 per participant
 - Buyers pay exactly the displayed listing price
+- Initial paid launch: United States, age 18+
 
 These are launch risk controls, not claims about universal legal limits. Counsel and the
 payment provider must review the final product, countries, age policy, tax handling, and
