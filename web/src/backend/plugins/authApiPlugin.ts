@@ -7,7 +7,7 @@ import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
 import type { LinkedProviderBindingStore, LinkedProviderCredentialResolver, LinkedProviderGrantStore } from "@absolutejs/linked-providers";
 import { and, desc, eq, lt, or, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { achievements as achievementsTable, follows, playerAchievements, players, pushSubscriptions, webauthnCredentials, wildSeedSources } from "../../../../db/schema.ts";
 import { getFollowingLogins } from "../rivals.ts";
 import { notifyFollowed } from "../push.ts";
@@ -36,6 +36,8 @@ import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteC
 import { acceptMarketTrade, buyMarketListing, cancelMarketAuction, cancelMarketBuyOrder, cancelMarketListing, cancelMarketTrade, createMarketAuction, createMarketBuyOrder, createMarketListing, createMarketTrade, declineMarketTrade, fillMarketBuyOrder, loadCollectorTradePets, loadMarketPetTemplate, loadMarketTrades, loadWallet, placeMarketBid } from "../marketplace.ts";
 import { deleteSubjectWatch, loadSubjectWatch, saveSubjectWatch } from "../petExchange.ts";
 import { bootstrapGithubRepoGrantFromSession, loadPrivateReposFromGithubGrants } from "../auth/githubRepoGrants.ts";
+import { loadPrivateProject } from "../privateProject.ts";
+import { normalizeProjectSort } from "../project.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; bindingStore: LinkedProviderBindingStore; credentialResolver: LinkedProviderCredentialResolver; db: NeonHttpDatabase<SchemaType>; grantStore: LinkedProviderGrantStore };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
@@ -236,6 +238,23 @@ export const authApiPlugin = ({ authSessionStore, bindingStore, credentialResolv
       }
       return result;
     }))
+    // Live private-repository board. POST keeps owner/repo out of proxy access-log URLs; the
+    // protected response is no-store, and loadPrivateProject rechecks the viewer's linked GitHub
+    // grant against the exact repository before returning any identity or contribution data.
+    .post("/private-project", ({ body, protectRoute }) => protectRoute(async (user) => {
+      const identities = await listDBAuthIdentitiesByUser({ db, userSub: user.sub });
+      const allowedLogins = identities.filter((identity) => identity.auth_provider === "github")
+        .map((identity) => githubIdentityLogin(identity) ?? "").filter(Boolean);
+      const project = await loadPrivateProject({
+        allowedLogins,
+        credentialResolver,
+        owner: body.owner,
+        ownerRef: user.sub,
+        repo: body.repo,
+        sort: normalizeProjectSort(body.sort),
+      });
+      return project ? { project } : { error: "not_found_or_no_access" };
+    }), { body: t.Object({ owner: t.String({ maxLength: 100 }), repo: t.String({ maxLength: 100 }), sort: t.Optional(t.Union([t.Literal("xp"), t.Literal("commits"), t.Literal("lines")])) }) })
     // Keyset-paginated achievement details. The account bootstrap carries only the
     // denormalized count; rows are fetched when the trophy cabinet is actually visible.
     .get("/achievements", ({ query, protectRoute }) =>
