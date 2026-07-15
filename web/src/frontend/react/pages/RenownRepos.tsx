@@ -30,7 +30,10 @@ const EMPTY: Directory = { repos: [], query: "", contributor: "", contributorFou
 
 export const RenownRepos = ({ cssPath, directory = EMPTY, origin = "" }: Props) => {
   const [privateDirectory, setPrivateDirectory] = useState<PrivateDirectory | null>(null);
+  const [githubCallback, setGithubCallback] = useState<"oauth-error" | "linked" | "reconnected" | null>(null);
   useEffect(() => {
+    const callback = new URLSearchParams(window.location.search).get("github");
+    if (callback === "oauth-error" || callback === "linked" || callback === "reconnected") setGithubCallback(callback);
     const controller = new AbortController();
     fetch("/api/account/repos", { signal: controller.signal })
       .then(async (response) => response.ok ? response.json() as Promise<PrivateDirectory> : null)
@@ -57,6 +60,8 @@ export const RenownRepos = ({ cssPath, directory = EMPTY, origin = "" }: Props) 
           <section className="card">
             <h1 style={{ marginBottom: 4 }}>{directory.contributor ? `@${directory.contributor}'s repos` : "Explore repos"}</h1>
             <p className="muted">Search every public repository earning Renown, then open its contributor leaderboard.</p>
+            {githubCallback === "oauth-error" && <p role="alert" style={{ marginTop: 12, color: "#fca5a5" }}>GitHub did not issue a usable credential. Please reconnect once more; Renown has kept your existing account session intact.</p>}
+            {(githubCallback === "linked" || githubCallback === "reconnected") && <p role="status" style={{ marginTop: 12, color: "#86efac" }}>GitHub access updated. Your private repositories are now loaded only for this session.</p>}
             {directory.contributor && (
               <p style={{ marginTop: 10 }}><a href="/repos" style={{ color: "#c4b5fd", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>Clear contributor filter ×</a></p>
             )}

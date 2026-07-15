@@ -35,6 +35,7 @@ import {
 } from "../handlers/userHandlers";
 import { providersConfiguration } from "./providersConfiguration";
 import { assertReservedAiClaim, markReservedAiClaimed } from "../reservedAiClaim.ts";
+import { oauthAccessToken, oauthErrorCode, replaceSessionAccessToken } from "./oauthCallback.ts";
 
 // On a verified GitHub login, bind + verify the canonical player row (keyed by the login
 // under OAuth control, so nobody can impersonate someone's login) and recompute their score.
@@ -99,10 +100,25 @@ export const authConfig = (db: NeonHttpDatabase<SchemaType>) =>
     // account, not a fresh login. (renown has no connectors yet, so we never link_connector.)
     resolveAuthIntent: ({ currentUser }) =>
       currentUser !== undefined ? "link_identity" : "login",
-    onCallbackSuccess: async ({ authProvider, providerInstance, session, tokenResponse, unregisteredSession, cookie: { user_session_id } }) =>
-      instantiateUserSession<User>({
+    onCallbackSuccess: async ({ authProvider, providerConfiguration, providerInstance, redirect, session, tokenResponse, unregisteredSession, cookie: { user_session_id } }) => {
+      if (!oauthAccessToken(tokenResponse)) {
+        console.error("renown: oauth token exchange returned no access token", { authProvider, error: oauthErrorCode(tokenResponse) });
+        return redirect(authProvider === "github" ? "/repos?github=oauth-error" : "/?oauth_error=provider");
+      }
+      let resolvedAuthorization;
+      try {
+        resolvedAuthorization = await resolveOAuthAuthorization({ authProvider, providerConfiguration, providerInstance, tokenResponse });
+      } catch (error) {
+        // Do not leak the provider response or token to the browser. The server log retains the
+        // provider/status detail needed to distinguish a revoked token from an exchange failure.
+        console.error("renown: oauth identity resolution failed", { authProvider, error: error instanceof Error ? error.message : String(error) });
+        return redirect(authProvider === "github" ? "/repos?github=oauth-error" : "/?oauth_error=provider");
+      }
+      return instantiateUserSession<User>({
         authProvider,
+        providerConfiguration,
         providerInstance,
+        resolvedAuthorization,
         session,
         tokenResponse,
         unregisteredSession,
@@ -113,17 +129,34 @@ export const authConfig = (db: NeonHttpDatabase<SchemaType>) =>
           if (user === undefined) throw new Error("Failed to create user");
           return user;
         }
-      }),
+      });
+    },
     // Add a second (or third) login to the already-signed-in user.
-    onLinkIdentity: async ({ authProvider, currentUser, providerInstance, redirect, tokenResponse }) => {
+    onLinkIdentity: async ({ authProvider, currentUser, providerConfiguration, providerInstance, redirect, session, tokenResponse, userSessionId }) => {
       if (currentUser === undefined) throw new Error("Identity linking requires an active signed-in user");
-      const { userIdentity } = await resolveOAuthAuthorization({ authProvider, providerInstance, tokenResponse });
+      if (!oauthAccessToken(tokenResponse)) {
+        console.error("renown: oauth link returned no access token", { authProvider, error: oauthErrorCode(tokenResponse) });
+        return redirect(authProvider === "github" ? "/repos?github=oauth-error" : "/?oauth_error=provider");
+      }
+      let authorization;
+      try {
+        authorization = await resolveOAuthAuthorization({ authProvider, providerConfiguration, providerInstance, tokenResponse });
+      } catch (error) {
+        console.error("renown: oauth link identity resolution failed", { authProvider, error: error instanceof Error ? error.message : String(error) });
+        return redirect(authProvider === "github" ? "/repos?github=oauth-error" : "/?oauth_error=provider");
+      }
+      const { userIdentity } = authorization;
       const linked = await linkUserIdentity({ authProvider, db, userIdentity, userSub: currentUser.sub });
       // Linking a GitHub login also verifies the player (same as a first-time GitHub login).
       if (authProvider === "github") {
+        // The auth library keeps one provider token on the active session. Reconnecting GitHub
+        // must replace an older GitHub/Google token or `/api/account/repos` cannot use the newly
+        // granted private-repository scope.
+        replaceSessionAccessToken(session, userSessionId, authorization.accessToken, authorization.refreshToken);
         const login = (userIdentity as { login?: string }).login;
         if (login) await onGithubVerified(login).catch((e) => console.error("renown: github verify failed", e));
       }
+      if (authProvider === "github") return redirect(`/repos?github=${linked.status === "already_linked" ? "reconnected" : "linked"}`);
       return redirect(linked.status === "already_linked" ? "/?linked=already" : `/?linked=${authProvider}`);
     },
     // The login the user tried to add already belongs to a different account: queue a merge
