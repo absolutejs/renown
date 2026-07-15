@@ -13,17 +13,20 @@ const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}
 const BG = "#16131f", TITLE = "#f4f1fb", MUTED = "#9a90b4";
 const FONT = "Inter, Segoe UI, Verdana, DejaVu Sans, sans-serif";
 
-export const petCardEtag = (seed: string) => `"petcard:${Bun.hash(seed).toString(36)}"`;
+type Edition = { serialNumber?: number | null; printRun?: number | null } | null;
+export const petCardEtag = (seed: string, edition?: Edition) => `"petcard:${Bun.hash(`${seed}:${edition?.serialNumber ?? ""}:${edition?.printRun ?? ""}`).toString(36)}"`;
 
-export const renderPetCard = (seed: string): string => {
+export const renderPetCard = (seed: string, editionOverride?: Edition): string => {
   const c = generate(seed);
   const tint = TIER_RGB[c.tier as Tier] ?? [160, 160, 180];
   const W = 300, H = 320, PAD = 18, ART = 196;
   const pet = spriteToSvg(c, { box: ART });
   const px = (W - pet.width) / 2;
   const py = PAD + (ART - pet.height) / 2;
-  const edition = c.card
-    ? `<text x="${(W - PAD).toFixed(1)}" y="${(PAD + 14).toFixed(1)}" text-anchor="end" font-family="${FONT}" font-size="12" font-weight="700" fill="${hex(tint)}">#${c.card.serialNumber.toLocaleString()} / ${c.card.printRun.toLocaleString()}</text>`
+  const serialNumber = editionOverride?.serialNumber ?? c.card?.serialNumber;
+  const printRun = editionOverride?.printRun ?? c.card?.printRun;
+  const edition = serialNumber != null && printRun != null
+    ? `<text x="${(W - PAD).toFixed(1)}" y="${(PAD + 14).toFixed(1)}" text-anchor="end" font-family="${FONT}" font-size="12" font-weight="700" fill="${hex(tint)}">#${serialNumber.toLocaleString()} / ${printRun.toLocaleString()}</text>`
     : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(c.name)} — ${c.tier}">
   <rect width="${W}" height="${H}" rx="14" fill="${BG}"/>

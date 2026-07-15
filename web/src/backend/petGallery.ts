@@ -1,7 +1,7 @@
 // Database-backed pet discovery and inventory. Deterministic procgen metadata is
 // materialized in wild_seed_sources so search/filter/sort remains keyset-paginated.
 import { and, asc, desc, eq, gt, ilike, lt, or, sql, type SQL } from "drizzle-orm";
-import { players, wildSeedSources } from "../../../db/schema.ts";
+import { petPrintings, players, wildSeedSources } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
 import { getPlayerPetLookAssignments } from "./petLooks.ts";
 import { gameDb } from "./sync.ts";
@@ -24,6 +24,10 @@ export type GalleryPet = {
   printingId: string | null;
   serialNumber: number | null;
   printRun: number | null;
+  finish: string | null;
+  mutation: string | null;
+  population: number | null;
+  sizeRank: number | null;
   isAvatar?: boolean;
   lookId?: string;
 };
@@ -67,7 +71,7 @@ const orderFor = (sort: PetSort) => sort === "rarest"
 const cursorValue = (row: { earnedAt: Date; rarityScore: number; size: number; name: string }, sort: PetSort) =>
   sort === "rarest" ? row.rarityScore : sort === "biggest" ? row.size : sort === "name" ? row.name : row.earnedAt.toISOString();
 
-type PetQuery = { limit?: number; cursor?: unknown; mode?: unknown; sort?: unknown; q?: unknown; tier?: unknown; species?: unknown };
+type PetQuery = { limit?: number; cursor?: unknown; mode?: unknown; sort?: unknown; q?: unknown; tier?: unknown; species?: unknown; finish?: unknown; mutation?: unknown };
 
 const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string | null): Promise<GalleryPage> => {
   const limit = Math.max(1, Math.min(60, Number(query.limit) || 24));
@@ -77,12 +81,16 @@ const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string 
   const q = cleanFilter(query.q);
   const tier = cleanFilter(query.tier);
   const species = cleanFilter(query.species);
+  const finish = cleanFilter(query.finish);
+  const mutation = cleanFilter(query.mutation);
   const filters: (SQL | undefined)[] = [
     eq(players.githubVerified, true),
     playerId ? eq(wildSeedSources.playerId, playerId) : undefined,
     q ? or(ilike(wildSeedSources.name, `%${q}%`), ilike(wildSeedSources.petSeed, `%${q}%`), ilike(wildSeedSources.githubLogin, `%${q}%`)) : undefined,
     tier && tier !== "all" ? eq(wildSeedSources.tier, tier) : undefined,
     species && species !== "all" ? eq(wildSeedSources.species, species) : undefined,
+    finish && finish !== "all" ? eq(wildSeedSources.finish, finish) : undefined,
+    mutation === "mutated" ? sql`${wildSeedSources.mutation} <> 'Standard'` : mutation && mutation !== "all" ? eq(wildSeedSources.mutation, mutation) : undefined,
   ];
   const baseWhere = and(...filters);
   const [{ total = 0 } = { total: 0 }] = await gameDb
@@ -97,9 +105,12 @@ const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string 
       name: wildSeedSources.name, petTier: wildSeedSources.tier, rarityScore: wildSeedSources.rarityScore,
       size: wildSeedSources.size, species: wildSeedSources.species, aura: wildSeedSources.aura, oneOfOne: wildSeedSources.oneOfOne,
       printingId: wildSeedSources.printingId, serialNumber: wildSeedSources.serialNumber, printRun: wildSeedSources.printRun,
+      finish: wildSeedSources.finish, mutation: wildSeedSources.mutation, population: petPrintings.issued,
+      sizeRank: sql<number>`(select 1 + count(*) from wild_seed_sources other where other.printing_id = ${wildSeedSources.printingId} and other.size > ${wildSeedSources.size})::int`,
     })
     .from(wildSeedSources)
     .innerJoin(players, eq(players.id, wildSeedSources.playerId))
+    .leftJoin(petPrintings, eq(petPrintings.id, wildSeedSources.printingId))
     .where(and(baseWhere, cursorCondition(cursor, sort)))
     .orderBy(...orderFor(sort))
     .limit(limit + 1);
@@ -112,6 +123,7 @@ const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string 
     rarityScore: row.rarityScore, size: row.size, species: row.species, aura: row.aura,
     oneOfOne: row.oneOfOne, isAvatar: row.seed === avatarSeed, lookId: assignments[row.seed],
     printingId: row.printingId, serialNumber: row.serialNumber, printRun: row.printRun,
+    finish: row.finish, mutation: row.mutation, population: row.population, sizeRank: row.sizeRank,
   }));
   const last = pageRows.at(-1);
   return {
@@ -140,7 +152,7 @@ export const loadRecentPets = async (query: PetQuery = {}): Promise<GalleryPage>
     if (!seed) return [];
     return [{ seed, login: row.login, handle: row.handle, tier: normalizeTier(row.accountTier), isAi: row.isAi,
       earnedAt: row.verifiedAt?.toISOString() ?? null, name: "", rarityScore: 0, size: 0, species: "", aura: "none", oneOfOne: false,
-      printingId: null, serialNumber: null, printRun: null }];
+      printingId: null, serialNumber: null, printRun: null, finish: null, mutation: null, population: null, sizeRank: null }];
   });
   return { mode, sort: "newest", total: pets.length, pets, nextCursor: null };
 };

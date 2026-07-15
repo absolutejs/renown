@@ -3,8 +3,8 @@
 // inside PostgreSQL's issue_pet_copy() function.
 import { and, eq, sql } from "drizzle-orm";
 import {
-  CARD_SET, CARD_VARIANTS, cardCopyToken, cardPrintingId, cardSeedPrefix,
-  cardSubjectIndex, chooseCardVariant, generate, type CardVariant,
+  CARD_VARIANTS, cardCopyToken, cardPrintingId, cardSeedPrefix,
+  cardSubjectIndex, chooseCardVariant, generate, serialPermutation, type CardVariant,
 } from "../../../core/procgen.ts";
 import { petSubjects, wildSeedSources } from "../../../db/schema.ts";
 import { gameDb } from "./sync.ts";
@@ -26,7 +26,7 @@ type IssueRow = {
   out_created: boolean;
 };
 
-const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: string, subjects: { id: string; subjectSeed: string; name: string }[]): Promise<IssuedPet | null> => {
+const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: string, subjects: { id: string; setId: string; subjectSeed: string; name: string }[]): Promise<IssuedPet | null> => {
   // Exhausted short runs retry another deterministic subject/variant. The final
   // attempts use the effectively inexhaustible base run, so a valid pull is never lost.
   for (let attempt = 0; attempt < 16; attempt++) {
@@ -34,11 +34,13 @@ const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: s
     if (!subject) return null;
     const variant: CardVariant = attempt < 12 ? chooseCardVariant(provenanceSeed, attempt) : "base";
     const printRun = CARD_VARIANTS[variant].printRun;
-    const printingId = cardPrintingId(CARD_SET, subject.subjectSeed, variant);
+    const printingId = cardPrintingId(subject.setId, subject.subjectSeed, variant);
+    const permutation = serialPermutation(printingId, printRun);
     const copyToken = cardCopyToken(playerId, provenanceSeed);
     const result = await gameDb.execute(sql`select * from issue_pet_copy(
       ${playerId}, ${githubLogin}, ${provenanceSeed}, ${subject.id}, ${subject.subjectSeed}, ${subject.name},
-      ${CARD_SET}, ${variant}, ${printingId}, ${printRun}, ${cardSeedPrefix(CARD_SET, subject.subjectSeed, variant)}, ${copyToken}
+      ${subject.setId}, ${variant}, ${printingId}, ${printRun}, ${permutation.offset}, ${permutation.step}, ${CARD_VARIANTS[variant].finish},
+      ${cardSeedPrefix(subject.setId, subject.subjectSeed, variant)}, ${copyToken}
     )`);
     const row = (result.rows as unknown as IssueRow[])[0];
     if (!row) continue; // this printing sold out between selection and allocation
@@ -55,6 +57,7 @@ const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: s
       await gameDb.update(wildSeedSources).set({
         name: pet.name, tier: pet.tier, rarityScore: pet.score, size: pet.sizeN,
         species: pet.traits.species, aura: pet.traits.aura, oneOfOne: pet.oneOfOne,
+        mutation: pet.copyTraits?.mutation ?? "Standard", colorway: pet.copyTraits?.colorway ?? "Original",
       }).where(and(eq(wildSeedSources.playerId, playerId), eq(wildSeedSources.petSeed, issued.seed)));
     }
     return issued;
@@ -65,9 +68,9 @@ const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: s
 export const issuePetCopies = async ({ playerId, githubLogin, provenanceSeeds }: {
   playerId: string; githubLogin: string; provenanceSeeds: string[];
 }): Promise<IssuedPet[]> => {
-  const subjects = await gameDb.select({ id: petSubjects.id, subjectSeed: petSubjects.subjectSeed, name: petSubjects.name })
-    .from(petSubjects).where(eq(petSubjects.setId, CARD_SET)).orderBy(petSubjects.id);
-  if (subjects.length === 0) throw new Error(`pet set ${CARD_SET} has no subjects; run db/migrate-serialized-pets.ts`);
+  const subjects = await gameDb.select({ id: petSubjects.id, setId: petSubjects.setId, subjectSeed: petSubjects.subjectSeed, name: petSubjects.name })
+    .from(petSubjects).orderBy(petSubjects.setId, petSubjects.id);
+  if (subjects.length === 0) throw new Error(`pet catalog has no subjects; run db/migrate-serialized-pets.ts`);
   const unique = [...new Set(provenanceSeeds.filter(Boolean))];
   const out: IssuedPet[] = [];
   for (const provenanceSeed of unique) {

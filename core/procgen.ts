@@ -70,6 +70,8 @@ export interface Creature {
   // Legacy creatures omit both fields and therefore render exactly as they always have.
   visualSeed?: string;
   card?: CardCopyIdentity;
+  rarityBreakdown: RarityComponent[];
+  copyTraits?: CopyTraits;
   // Continuous size (1-100), biased smoothly within the categorical size trait. Drives the
   // voxel grid dimensions — bigger sizeN = more pixels/voxels = a physically bigger creature.
   // Sortable: "biggest" leaderboard ranks by max(sizeN) across a player's wild.
@@ -98,18 +100,18 @@ const MYTHIC_PREDICATE = 0x37;   // hidden "shiny" combo on the seed hash (~1/25
 
 // ── serialized card lineage ────────────────────────────────────────────────
 // A pet subject is the recognizable character; a printing is that subject in a
-// specific variant with an immutable run; a copy owns one sequential serial.
+// specific finish with an immutable run; a copy owns one shuffled unique serial.
 // `/N` is therefore always supply. Pull odds are a separate field.
 export type CardVariant = "base" | "uncommon" | "rare" | "epic" | "legendary" | "mythic" | "one-of-one";
-type CardVariantConfig = { tier: Tier; printRun: number; weight: number; pullOdds: number };
+export type CardVariantConfig = { tier: Tier; finish: string; printRun: number; weight: number; probability: number; pullOdds: number };
 export const CARD_VARIANTS: Record<CardVariant, CardVariantConfig> = {
-  base:         { tier: "Common",    printRun: 10_000_000, weight: 780_000, pullOdds: 1 },
-  uncommon:     { tier: "Uncommon",  printRun: 1_000_000,  weight: 140_000, pullOdds: 7 },
-  rare:         { tier: "Rare",      printRun: 100_000,    weight: 50_000,  pullOdds: 20 },
-  epic:         { tier: "Epic",      printRun: 10_000,     weight: 20_000,  pullOdds: 50 },
-  legendary:    { tier: "Legendary", printRun: 500,        weight: 8_000,   pullOdds: 125 },
-  mythic:       { tier: "Mythic",    printRun: 25,         weight: 1_900,   pullOdds: 526 },
-  "one-of-one": { tier: "Mythic",    printRun: 1,          weight: 100,     pullOdds: 10_000 },
+  base:         { tier: "Common",    finish: "Base",        printRun: 10_000_000, weight: 780_000, probability: .78,   pullOdds: 1 / .78 },
+  uncommon:     { tier: "Uncommon",  finish: "Foil",        printRun: 1_000_000,  weight: 140_000, probability: .14,   pullOdds: 1 / .14 },
+  rare:         { tier: "Rare",      finish: "Holo",        printRun: 100_000,    weight: 50_000,  probability: .05,   pullOdds: 20 },
+  epic:         { tier: "Epic",      finish: "Glitch",      printRun: 10_000,     weight: 20_000,  probability: .02,   pullOdds: 50 },
+  legendary:    { tier: "Legendary", finish: "Prismatic",   printRun: 500,        weight: 8_000,   probability: .008,  pullOdds: 125 },
+  mythic:       { tier: "Mythic",    finish: "Spectral",    printRun: 25,         weight: 1_900,   probability: .0019, pullOdds: 1 / .0019 },
+  "one-of-one": { tier: "Mythic",    finish: "Black Label", printRun: 1,          weight: 100,     probability: .0001, pullOdds: 10_000 },
 };
 const CARD_VARIANT_ORDER = Object.keys(CARD_VARIANTS) as CardVariant[];
 export const CARD_SET = "genesis-2026";
@@ -123,6 +125,27 @@ export type CardCopyIdentity = {
   serialNumber: number;
   printRun: number;
   pullOdds: number;
+  finish: string;
+};
+
+export type RarityComponent = { group: "Subject" | "Finish" | "Copy"; label: string; value: string; probability: number; score: number };
+export type CopyTraits = { scale: string; colorway: string; mutation: string; shiny: boolean };
+const rarityComponent = (group: RarityComponent["group"], label: string, value: string, probability: number): RarityComponent =>
+  ({ group, label, value, probability, score: +(-Math.log2(probability)).toFixed(2) });
+
+const gcd = (a: number, b: number) => { while (b) [a, b] = [b, a % b]; return Math.abs(a); };
+export const serialPermutation = (printingId: string, printRun: number) => {
+  if (printRun <= 1) return { offset: 0, step: 1 };
+  const rng = makeRng(`card-serial-permutation:${printingId}`);
+  const offset = rint(rng, printRun);
+  let step = Math.max(1, rint(rng, printRun));
+  while (gcd(step, printRun) !== 1) step = step >= printRun - 1 ? 1 : step + 1;
+  return { offset, step };
+};
+export const shuffledSerial = (printingId: string, mintNumber: number, printRun: number) => {
+  if (!Number.isInteger(mintNumber) || mintNumber < 1 || mintNumber > printRun) throw new Error("mint number outside print run");
+  const { offset, step } = serialPermutation(printingId, printRun);
+  return ((offset + (mintNumber - 1) * step) % printRun) + 1;
 };
 
 export const stableToken = (value: string) => {
@@ -160,7 +183,7 @@ export const parseCardSeed = (seed: string): CardCopyIdentity | null => {
   try {
     const setId = decodeURIComponent(parts[2]), subjectSeed = decodeURIComponent(parts[3]);
     if (!setId || !subjectSeed) return null;
-    return { setId, subjectSeed, variant, printingId: cardPrintingId(setId, subjectSeed, variant), serialNumber, printRun, pullOdds: cfg.pullOdds };
+    return { setId, subjectSeed, variant, printingId: cardPrintingId(setId, subjectSeed, variant), serialNumber, printRun, pullOdds: cfg.pullOdds, finish: cfg.finish };
   } catch { return null; }
 };
 
@@ -429,7 +452,7 @@ export const rarerThan = (score: number) => {                    // fraction of 
   return Math.max(0.0001, 1 - pctile);                           // fraction RARER (floored so 1-in-N is finite)
 };
 export const rarityLabel = (c: Creature) => {
-  if (c.card) return `#${c.card.serialNumber.toLocaleString()} / ${c.card.printRun.toLocaleString()} · pull odds ≈ 1 in ${c.card.pullOdds.toLocaleString()}`;
+  if (c.card) return `${c.card.finish} · #${c.card.serialNumber.toLocaleString()} / ${c.card.printRun.toLocaleString()} · ${c.card.pullOdds === 1 ? "every pull" : `1 in ${c.card.pullOdds.toLocaleString()}`}`;
   if (c.oneOfOne) return "THE ONLY ONE — 1 of 1";
   if (c.mythicAura) return "mythic aura · ≈ 1 in 256";
   const frac = rarerThan(c.score);                               // fraction this-rare-or-rarer
@@ -457,7 +480,13 @@ const generateLegacy = (seed: string): Creature => {
   for (const slot of SLOTS) traits[slot.key] = draw(rng, slot.opts);
   // OpenRarity-style information content: Σ -log2(P(trait)); rarer traits dominate
   let score = 0, prod = 1, rarest = SLOTS[0].key, rarestP = 1;
-  for (const slot of SLOTS) { const p = freq(slot, traits[slot.key]); score += -Math.log2(p); prod *= p; if (p < rarestP) { rarestP = p; rarest = `${traits[slot.key]} ${slot.key}`; } }
+  const rarityBreakdown: RarityComponent[] = [];
+  for (const slot of SLOTS) {
+    const p = freq(slot, traits[slot.key]);
+    score += -Math.log2(p); prod *= p;
+    rarityBreakdown.push(rarityComponent("Subject", slot.key, traits[slot.key], p));
+    if (p < rarestP) { rarestP = p; rarest = `${traits[slot.key]} ${slot.key}`; }
+  }
   const statRarity = Math.round(1 / prod);   // "≈ 1 in N" — probability of this exact combination
   const hashRng = makeRng(seed + ":gate");
   const mythicAura = traits.aura === "rainbow" || (rint(hashRng, 256) === MYTHIC_PREDICATE);
@@ -476,7 +505,7 @@ const generateLegacy = (seed: string): Creature => {
   // Numerical size (continuous 1-100) — a separate RNG stream so changing other generation
   // logic in the future doesn't shift sizeN for existing seeds.
   const sizeN = computeSizeN(makeRng(seed + ":size"), traits.size);
-  const creature: Creature = { seed, traits, tier, score: +score.toFixed(2), statRarity, rarestTrait: rarest, oneOfOne, mythicAura, name, palette, eyeColor, sizeN, sprite: () => "" };
+  const creature: Creature = { seed, traits, tier, score: +score.toFixed(2), statRarity, rarestTrait: rarest, oneOfOne, mythicAura, name, palette, eyeColor, sizeN, rarityBreakdown, sprite: () => "" };
   creature.sprite = () => renderCreature(creature, 0);
   return creature;
 };
@@ -485,7 +514,20 @@ const clampChannel = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
 const copyTint = (rgb: RGB, factor: number, bias: number): RGB => [
   clampChannel(rgb[0] * factor + bias), clampChannel(rgb[1] * factor + bias / 2), clampChannel(rgb[2] * factor - bias / 3),
 ];
-const SCORE_FLOOR: Record<CardVariant, number> = { base: 10, uncommon: 15.45, rare: 18.14, epic: 20.31, legendary: 22.34, mythic: 24.36, "one-of-one": 34 };
+const COPY_SCALE = (delta: number): { value: string; probability: number } => delta <= -5
+  ? { value: "Miniature", probability: 2 / 13 }
+  : delta <= -2 ? { value: "Compact", probability: 3 / 13 }
+    : delta <= 1 ? { value: "Standard", probability: 3 / 13 }
+      : delta <= 4 ? { value: "Large", probability: 3 / 13 }
+        : { value: "Colossal", probability: 2 / 13 };
+export const COPY_MUTATIONS = [
+  { max: .0001, value: "Singularity", probability: .0001 },
+  { max: .001, value: "Negative", probability: .0009 },
+  { max: .005, value: "Chromatic", probability: .004 },
+  { max: .02, value: "Iridescent", probability: .015 },
+  { max: 1, value: "Standard", probability: .98 },
+] as const;
+const COLORWAYS = ["Rose", "Azure", "Verdant", "Golden", "Violet"] as const;
 
 // Serialized copies share their subject's name, traits and line silhouette. The copy
 // token introduces bounded size/palette variation, so two cards in the same printing
@@ -500,8 +542,30 @@ export const generate = (seed: string): Creature => {
   const sizeN = Math.max(1, Math.min(100, base.sizeN + sizeDelta));
   const factor = 0.94 + copyRng() * 0.12;
   const bias = (copyRng() - 0.5) * 18;
-  const palette: [RGB, RGB] = [copyTint(base.palette[0], factor, bias), copyTint(base.palette[1], factor, -bias)];
-  const eyeColor = copyTint(base.eyeColor, 0.96 + copyRng() * 0.08, -bias / 2);
+  let palette: [RGB, RGB] = [copyTint(base.palette[0], factor, bias), copyTint(base.palette[1], factor, -bias)];
+  let eyeColor = copyTint(base.eyeColor, 0.96 + copyRng() * 0.08, -bias / 2);
+  const traitRng = makeRng(`card-copy-traits:${seed}`);
+  const colorway = COLORWAYS[rint(traitRng, COLORWAYS.length)];
+  const mutationRoll = traitRng();
+  const mutation = COPY_MUTATIONS.find((entry) => mutationRoll < entry.max) ?? COPY_MUTATIONS.at(-1)!;
+  const scale = COPY_SCALE(sizeDelta);
+  const finishBoost: Record<CardVariant, [number, number]> = { base: [1, 0], uncommon: [1.04, 8], rare: [1.08, 12], epic: [1.12, -8], legendary: [1.16, 18], mythic: [.82, 45], "one-of-one": [.55, 70] };
+  const [finishFactor, finishBias] = finishBoost[card.variant];
+  palette = [copyTint(palette[0], finishFactor, finishBias), copyTint(palette[1], finishFactor, -finishBias / 2)];
+  eyeColor = copyTint(eyeColor, finishFactor, finishBias);
+  if (mutation.value === "Iridescent") palette = [copyTint(palette[0], 1.12, 20), copyTint(palette[1], 1.12, 12)];
+  if (mutation.value === "Chromatic") palette = [eyeColor, [255 - eyeColor[0], 255 - eyeColor[1], 255 - eyeColor[2]]];
+  if (mutation.value === "Negative") palette = [[255 - palette[0][0], 255 - palette[0][1], 255 - palette[0][2]], [255 - palette[1][0], 255 - palette[1][1], 255 - palette[1][2]]];
+  if (mutation.value === "Singularity") { palette = [[8, 8, 14], [112, 0, 255]]; eyeColor = [255, 255, 255]; }
+  const rarityBreakdown = [
+    ...base.rarityBreakdown,
+    rarityComponent("Finish", "finish", cfg.finish, cfg.probability),
+    rarityComponent("Copy", "scale", scale.value, scale.probability),
+    rarityComponent("Copy", "colorway", colorway, 1 / COLORWAYS.length),
+    rarityComponent("Copy", "mutation", mutation.value, mutation.probability),
+  ];
+  const totalProbability = rarityBreakdown.reduce((product, part) => product * part.probability, 1);
+  const score = rarityBreakdown.reduce((sum, part) => sum + part.score, 0);
   const oneOfOne = card.printRun === 1;
   const creature: Creature = {
     ...base,
@@ -509,13 +573,15 @@ export const generate = (seed: string): Creature => {
     visualSeed: `card-line:${card.printingId}`,
     card,
     tier: cfg.tier,
-    score: +Math.max(SCORE_FLOOR[card.variant], base.score).toFixed(2),
-    statRarity: cfg.pullOdds,
+    score: +score.toFixed(2),
+    statRarity: Math.max(1, Math.round(1 / totalProbability)),
     oneOfOne,
     mythicAura: card.variant === "mythic" || oneOfOne,
     palette,
     eyeColor,
     sizeN,
+    rarityBreakdown,
+    copyTraits: { scale: scale.value, colorway, mutation: mutation.value, shiny: mutation.value !== "Standard" },
     sprite: () => "",
   };
   creature.sprite = () => renderCreature(creature, 0);

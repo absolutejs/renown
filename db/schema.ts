@@ -151,7 +151,7 @@ export const petSubjects = pgTable("pet_subjects", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ setIdx: index("pet_subjects_set_idx").on(t.setId, t.id) }));
 
-// One supply-capped variant of a subject. `issued` is the authoritative next serial;
+// One supply-capped variant of a subject. `issued` is the authoritative mint ordinal;
 // it only advances inside issue_pet_copy(), in the same transaction that creates the copy.
 export const petPrintings = pgTable("pet_printings", {
   id: text("id").primaryKey(),
@@ -160,6 +160,8 @@ export const petPrintings = pgTable("pet_printings", {
   variant: text("variant").notNull(),
   printRun: integer("print_run").notNull(),
   issued: integer("issued").notNull().default(0),
+  serialOffset: integer("serial_offset").notNull().default(0),
+  serialStep: integer("serial_step").notNull().default(1),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ subjectVariantUniq: uniqueIndex("pet_printings_subject_variant_uniq").on(t.subjectId, t.variant) }));
 
@@ -173,6 +175,11 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   printingId: text("printing_id").references(() => petPrintings.id),
   serialNumber: integer("serial_number"),
   printRun: integer("print_run"),
+  mintNumber: integer("mint_number"),
+  variant: text("variant"),
+  finish: text("finish"),
+  mutation: text("mutation"),
+  colorway: text("colorway"),
   earnedAt: timestamp("earned_at").notNull().defaultNow(),
   // Materialized deterministic procgen fields make collection search/filter/sort a
   // normal indexed database query instead of regenerating every pet on each request.
@@ -189,6 +196,8 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   ownerRecentIdx: index("wild_seed_sources_owner_recent_idx").on(t.playerId, t.earnedAt, t.petSeed),
   ownerRarityIdx: index("wild_seed_sources_owner_rarity_idx").on(t.playerId, t.rarityScore, t.petSeed),
   ownerSizeIdx: index("wild_seed_sources_owner_size_idx").on(t.playerId, t.size, t.petSeed),
+  finishRecentIdx: index("wild_seed_sources_finish_recent_idx").on(t.finish, t.earnedAt, t.petSeed),
+  mutationRecentIdx: index("wild_seed_sources_mutation_recent_idx").on(t.mutation, t.earnedAt, t.petSeed),
   copySerialUniq: uniqueIndex("wild_seed_sources_printing_serial_uniq").on(t.printingId, t.serialNumber),
   provenanceUniq: uniqueIndex("wild_seed_sources_player_provenance_uniq").on(t.playerId, t.provenanceSeed),
 }));

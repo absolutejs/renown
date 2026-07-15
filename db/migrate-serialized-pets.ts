@@ -1,9 +1,9 @@
 // Serialized pet-card engine: subjects → supply-capped printings → owned copies.
-// Additive and idempotent. Existing pets keep their seed/visuals and become serial #1
-// in a legacy printing; future pulls are issued atomically by issue_pet_copy().
+// Additive and idempotent. Existing pets keep their ownership/provenance and become
+// active Founders subjects; serials are a deterministic shuffle of each fixed run.
 import {
   BUILTIN_CARD_SUBJECTS, CARD_SET, CARD_VARIANTS, builtInCardSubjectSeed,
-  cardPrintingId, generate, stableToken, type CardVariant,
+  cardPrintingId, generate, serialPermutation, shuffledSerial, stableToken, type CardVariant,
 } from "../core/procgen.ts";
 import { sql } from "./index.ts";
 
@@ -23,20 +23,32 @@ await sql`create table if not exists pet_printings (
   variant text not null,
   print_run integer not null check (print_run > 0),
   issued integer not null default 0 check (issued >= 0 and issued <= print_run),
+  serial_offset integer not null default 0,
+  serial_step integer not null default 1,
   created_at timestamp not null default now()
 )`;
 await sql`create unique index if not exists pet_printings_subject_variant_uniq on pet_printings (subject_id, variant)`;
+await sql`alter table pet_printings add column if not exists serial_offset integer not null default 0`;
+await sql`alter table pet_printings add column if not exists serial_step integer not null default 1`;
 
 await sql`alter table wild_seed_sources add column if not exists provenance_seed text`;
 await sql`alter table wild_seed_sources add column if not exists printing_id text references pet_printings(id)`;
 await sql`alter table wild_seed_sources add column if not exists serial_number integer`;
 await sql`alter table wild_seed_sources add column if not exists print_run integer`;
+await sql`alter table wild_seed_sources add column if not exists mint_number integer`;
+await sql`alter table wild_seed_sources add column if not exists variant text`;
+await sql`alter table wild_seed_sources add column if not exists finish text`;
+await sql`alter table wild_seed_sources add column if not exists mutation text`;
+await sql`alter table wild_seed_sources add column if not exists colorway text`;
 await sql`create unique index if not exists wild_seed_sources_printing_serial_uniq on wild_seed_sources (printing_id, serial_number)`;
 await sql`create unique index if not exists wild_seed_sources_player_provenance_uniq on wild_seed_sources (player_id, provenance_seed)`;
+await sql`create index if not exists wild_seed_sources_finish_recent_idx on wild_seed_sources (finish, earned_at, pet_seed)`;
+await sql`create index if not exists wild_seed_sources_mutation_recent_idx on wild_seed_sources (mutation, earned_at, pet_seed)`;
 
 // One function call is one PostgreSQL transaction. The advisory lock makes retries for
 // the same player/provenance idempotent; the row UPDATE serializes different pulls from
 // the same printing. If copy insertion fails, the serial increment rolls back with it.
+await sql`drop function if exists issue_pet_copy(text, text, text, text, text, text, text, text, text, integer, text, text)`;
 await sql`create or replace function issue_pet_copy(
   p_player_id text,
   p_github_login text,
@@ -48,6 +60,9 @@ await sql`create or replace function issue_pet_copy(
   p_variant text,
   p_printing_id text,
   p_print_run integer,
+  p_serial_offset integer,
+  p_serial_step integer,
+  p_finish text,
   p_seed_prefix text,
   p_copy_token text
 ) returns table (out_pet_seed text, out_serial_number integer, out_print_run integer, out_printing_id text, out_created boolean)
@@ -55,7 +70,10 @@ language plpgsql as $$
 declare
   v_existing record;
   v_serial integer;
+  v_mint integer;
   v_total integer;
+  v_offset integer;
+  v_step integer;
   v_pet_seed text;
   v_subject_seed text;
 begin
@@ -77,22 +95,24 @@ begin
   select s.subject_seed into v_subject_seed from pet_subjects s where s.id = p_subject_id;
   if v_subject_seed is distinct from p_subject_seed then raise exception 'pet subject identity mismatch for %', p_subject_id; end if;
 
-  insert into pet_printings (id, subject_id, set_id, variant, print_run)
-  values (p_printing_id, p_subject_id, p_set_id, p_variant, p_print_run)
+  insert into pet_printings (id, subject_id, set_id, variant, print_run, serial_offset, serial_step)
+  values (p_printing_id, p_subject_id, p_set_id, p_variant, p_print_run, p_serial_offset, p_serial_step)
   on conflict (id) do nothing;
-  select p.print_run into v_total from pet_printings p where p.id = p_printing_id;
+  select p.print_run, p.serial_offset, p.serial_step into v_total, v_offset, v_step from pet_printings p where p.id = p_printing_id;
   if v_total is distinct from p_print_run then raise exception 'immutable print run mismatch for %', p_printing_id; end if;
+  if v_offset is distinct from p_serial_offset or v_step is distinct from p_serial_step then raise exception 'immutable serial permutation mismatch for %', p_printing_id; end if;
 
   update pet_printings p set issued = p.issued + 1
    where p.id = p_printing_id and p.issued < p.print_run
-   returning p.issued, p.print_run into v_serial, v_total;
+   returning p.issued, p.print_run into v_mint, v_total;
   if not found then return; end if;
 
+  v_serial := (mod(p_serial_offset::bigint + (v_mint::bigint - 1) * p_serial_step::bigint, v_total::bigint) + 1)::integer;
   v_pet_seed := p_seed_prefix || ':' || v_serial || ':' || v_total || ':' || p_copy_token;
   insert into wild_seed_sources (
-    player_id, pet_seed, github_login, provenance_seed, printing_id, serial_number, print_run
+    player_id, pet_seed, github_login, provenance_seed, printing_id, serial_number, print_run, mint_number, variant, finish
   ) values (
-    p_player_id, v_pet_seed, p_github_login, p_provenance_seed, p_printing_id, v_serial, v_total
+    p_player_id, v_pet_seed, p_github_login, p_provenance_seed, p_printing_id, v_serial, v_total, v_mint, p_variant, p_finish
   );
   return query select v_pet_seed, v_serial, v_total, p_printing_id, true;
 end $$`;
@@ -126,8 +146,9 @@ for (const row of legacyRows) {
   const name = generate(subjectSeed).name;
   await sql`insert into pet_subjects (id, set_id, subject_seed, name)
     values (${subjectId}, ${setId}, ${subjectSeed}, ${name}) on conflict (id) do nothing`;
-  await sql`insert into pet_printings (id, subject_id, set_id, variant, print_run)
-    values (${printingId}, ${subjectId}, ${setId}, ${variant}, ${printRun}) on conflict (id) do nothing`;
+  const permutation = serialPermutation(printingId, printRun);
+  await sql`insert into pet_printings (id, subject_id, set_id, variant, print_run, serial_offset, serial_step)
+    values (${printingId}, ${subjectId}, ${setId}, ${variant}, ${printRun}, ${permutation.offset}, ${permutation.step}) on conflict (id) do nothing`;
   await sql`with allocated as (
     update pet_printings set issued = issued + 1
      where id = ${printingId}
@@ -135,8 +156,39 @@ for (const row of legacyRows) {
      returning issued, print_run
   ) update wild_seed_sources w set
       provenance_seed = coalesce(w.provenance_seed, w.pet_seed),
-      printing_id = ${printingId}, serial_number = allocated.issued, print_run = allocated.print_run
+      printing_id = ${printingId}, serial_number = allocated.issued, print_run = allocated.print_run,
+      variant = ${variant}, finish = ${CARD_VARIANTS[variant].finish}
     from allocated where w.player_id = ${row.player_id} and w.pet_seed = ${row.pet_seed}`;
+}
+
+// Install stable permutations for pre-existing printings, then give every already-earned
+// copy its mint ordinal and shuffled serial. We preserve pet_seed so every historical link,
+// avatar, showcase and appearance assignment remains valid; the ledger is authoritative.
+const printingRows = await sql`select id, print_run from pet_printings` as { id: string; print_run: number }[];
+for (const printing of printingRows) {
+  const permutation = serialPermutation(printing.id, Number(printing.print_run));
+  await sql`update pet_printings set serial_offset = ${permutation.offset}, serial_step = ${permutation.step} where id = ${printing.id}`;
+}
+const unnumbered = await sql`select player_id, pet_seed, printing_id from wild_seed_sources where mint_number is null and printing_id is not null` as { player_id: string; pet_seed: string; printing_id: string }[];
+if (unnumbered.length > 0) {
+  await sql`update wild_seed_sources set serial_number = null where mint_number is null and printing_id is not null`;
+  await sql`with ranked as (
+    select player_id, pet_seed, printing_id,
+      row_number() over (partition by printing_id order by earned_at, player_id, pet_seed)::int as mint_number
+    from wild_seed_sources where mint_number is null and printing_id is not null
+  ) update wild_seed_sources w set mint_number = ranked.mint_number
+    from ranked where w.player_id = ranked.player_id and w.pet_seed = ranked.pet_seed`;
+  const copies = await sql`select w.player_id, w.pet_seed, w.printing_id, w.mint_number, p.print_run, p.variant
+    from wild_seed_sources w join pet_printings p on p.id = w.printing_id where w.serial_number is null` as { player_id: string; pet_seed: string; printing_id: string; mint_number: number; print_run: number; variant: CardVariant }[];
+  for (const copy of copies) {
+    const serial = shuffledSerial(copy.printing_id, Number(copy.mint_number), Number(copy.print_run));
+    const pet = generate(copy.pet_seed);
+    const rarityScore = pet.card ? pet.score : +(pet.score - Math.log2(CARD_VARIANTS[copy.variant].probability)).toFixed(2);
+    await sql`update wild_seed_sources set serial_number = ${serial}, print_run = ${copy.print_run}, variant = ${copy.variant},
+      finish = ${CARD_VARIANTS[copy.variant].finish}, mutation = ${pet.copyTraits?.mutation ?? "Standard"}, colorway = ${pet.copyTraits?.colorway ?? "Original"},
+      rarity_score = ${rarityScore}
+      where player_id = ${copy.player_id} and pet_seed = ${copy.pet_seed}`;
+  }
 }
 
 console.log(`✓ serialized pet engine ensured (${BUILTIN_CARD_SUBJECTS} Genesis subjects, ${legacyRows.length} legacy copies backfilled)`);

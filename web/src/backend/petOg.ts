@@ -12,15 +12,19 @@ const hex = ([r, g, b]: RGB) => `#${[r, g, b].map((v) => Math.round(v).toString(
 const rgb = ([r, g, b]: RGB, a = 1) => `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${a})`;
 const compact = (n: number) => (n >= 1_000_000_000 ? `${(n / 1_000_000_000).toFixed(1)}B` : n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 10_000 ? `${Math.round(n / 1_000)}k` : n.toLocaleString("en-US"));
 
-export const petOgEtag = (seed: string) => `"pet-og:${Bun.hash(seed).toString(36)}"`;
+type Edition = { serialNumber?: number | null; printRun?: number | null; finish?: string | null; mutation?: string | null } | null;
+export const petOgEtag = (seed: string, edition?: Edition) => `"pet-og:${Bun.hash(`${seed}:${edition?.serialNumber ?? ""}:${edition?.printRun ?? ""}:${edition?.finish ?? ""}:${edition?.mutation ?? ""}`).toString(36)}"`;
 
-export const renderPetOgPng = (seed: string) => {
+export const renderPetOgPng = (seed: string, editionOverride?: Edition) => {
   const c = generate(seed);
   const accent = TIER_RGB[c.tier];
   const { svg, width, height } = spriteToSvg(c, { box: 300 });
   const px = 880 - width / 2, py = 300 - height / 2;
-  const edition = c.card ? `#${compact(c.card.serialNumber)} / ${compact(c.card.printRun)}` : "legacy pet";
-  const rarity = `pull odds ≈ 1 in ${compact(c.card?.pullOdds ?? c.statRarity)}`;
+  const serialNumber = editionOverride?.serialNumber ?? c.card?.serialNumber;
+  const printRun = editionOverride?.printRun ?? c.card?.printRun;
+  const edition = serialNumber != null && printRun != null ? `#${compact(serialNumber)} / ${compact(printRun)}` : "legacy pet";
+  const finish = editionOverride?.finish ?? c.card?.finish ?? c.tier;
+  const distinction = editionOverride?.mutation && editionOverride.mutation !== "Standard" ? ` · ${editionOverride.mutation}` : "";
 
   const page = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -47,7 +51,7 @@ export const renderPetOgPng = (seed: string) => {
     <rect width="${c.tier.length * 22 + 40}" height="44" rx="22" fill="${rgb(accent, 0.18)}" stroke="${rgb(accent, 0.5)}" />
     <text x="${(c.tier.length * 22 + 40) / 2}" y="30" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="24" fill="${hex(accent)}" font-weight="900">${esc(c.tier)}</text>
   </g>
-  <text x="82" y="356" font-family="Inter, Arial, sans-serif" font-size="26" fill="rgba(245,247,251,0.78)" font-weight="700">size ${c.sizeN} · ${esc(rarity)}</text>
+  <text x="82" y="356" font-family="Inter, Arial, sans-serif" font-size="26" fill="rgba(245,247,251,0.78)" font-weight="700">${esc(finish)} · size ${c.sizeN}${esc(distinction)}</text>
   <text x="82" y="396" font-family="Inter, Arial, sans-serif" font-size="22" fill="rgba(224,229,238,0.6)" font-weight="700">rarest trait · ${esc(c.rarestTrait)}${c.oneOfOne ? " · one of one" : ""}</text>
   <circle cx="880" cy="300" r="190" fill="rgba(255,255,255,0.055)" stroke="${rgb(accent, 0.7)}" stroke-width="3" />
   <ellipse cx="880" cy="${300 + height / 2 + 6}" rx="120" ry="22" fill="rgba(0,0,0,0.32)" />

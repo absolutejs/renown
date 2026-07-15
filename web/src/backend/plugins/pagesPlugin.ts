@@ -134,15 +134,16 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   const petCard = async ({ request, params }: { request: Request; params: { seed: string } }) => {
     const seed = String(params.seed ?? "").trim();
     if (!seed) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
-    const etag = petCardEtag(seed);
+    const owner = await findPetOwner(seed);
+    const etag = petCardEtag(seed, owner);
     const headers = { "cache-control": "public, max-age=86400", etag };   // a seed → creature is deterministic; cache hard
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-    return new Response(renderCached(etag, () => renderPetCard(seed)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
+    return new Response(renderCached(etag, () => renderPetCard(seed, owner)), { headers: { ...headers, "content-type": "image/svg+xml; charset=utf-8" } });
   };
   const petPage = async ({ request, params }: { request: Request; params: { seed: string } }) => {
     const seed = String(params.seed ?? "").trim();
     const c = seed ? generate(seed) : null;   // a seed deterministically generates the creature (pure, no DB)
-    const pet = c ? { seed, name: c.name, tier: c.tier, sizeN: c.sizeN, statRarity: c.statRarity, rarestTrait: c.rarestTrait, oneOfOne: c.oneOfOne, mythicAura: c.mythicAura, traits: c.traits, card: c.card } : null;
+    const pet = c ? { seed, name: c.name, tier: c.tier, sizeN: c.sizeN, score: c.score, statRarity: c.statRarity, rarestTrait: c.rarestTrait, oneOfOne: c.oneOfOne, mythicAura: c.mythicAura, traits: c.traits, rarityBreakdown: c.rarityBreakdown, copyTraits: c.copyTraits, card: c.card } : null;
     const owner = c ? await findPetOwner(seed) : null;   // copy seed → at most one owner; links back to their profile
     return handleReactPageRequest({ index: asset(manifest, "RenownPetIndex"), Page: RenownPet, props: { cssPath, pet, owner, origin: originOf(request) }, request });
   };
@@ -185,10 +186,11 @@ export const pagesPlugin = (manifest: Record<string, string>) => {
   const petOg = async ({ request, params }: { request: Request; params: { seed: string } }) => {
     const seed = String(params.seed ?? "").trim();
     if (!seed) return new Response("not found", { status: 404, headers: { "cache-control": "public, max-age=60" } });
-    const etag = petOgEtag(seed);
+    const owner = await findPetOwner(seed);
+    const etag = petOgEtag(seed, owner);
     const headers = { "cache-control": "public, max-age=86400", etag };
     if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-    return new Response(renderCached(etag, () => renderPetOgPng(seed)), { headers: { ...headers, "content-type": "image/png" } });
+    return new Response(renderCached(etag, () => renderPetOgPng(seed, owner)), { headers: { ...headers, "content-type": "image/png" } });
   };
   // --- per-repo leaderboard: page + README badge + OG card (mirrors the profile trio) ---
   const projKey = (params: { owner: string; repo: string }) => `${params.owner}/${params.repo}`.toLowerCase();

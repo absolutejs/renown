@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CARD_SET, CARD_VARIANTS, builtInCardSubjectSeed, cardCopyToken, generate, makeRng, parseCardSeed, rollWild, serializedCardSeed, type Tier } from "../core/procgen.ts";
+import { CARD_SET, CARD_VARIANTS, COPY_MUTATIONS, builtInCardSubjectSeed, cardCopyToken, generate, makeRng, parseCardSeed, rollWild, serializedCardSeed, shuffledSerial, type Tier } from "../core/procgen.ts";
 
 describe("procgen determinism (the seed is the asset)", () => {
   test("the same seed always reproduces the exact same creature", () => {
@@ -57,6 +57,23 @@ describe("serialized card printings", () => {
   test("a forged serial or total does not parse as a serialized card", () => {
     expect(parseCardSeed(`card:v1:${CARD_SET}:${encodeURIComponent(subjectSeed)}:legendary:501:500:nope`)).toBeNull();
     expect(parseCardSeed(`card:v1:${CARD_SET}:${encodeURIComponent(subjectSeed)}:legendary:1:999:nope`)).toBeNull();
+  });
+
+  test("mint order maps to a complete, non-sequential shuffled serial run", () => {
+    const run = 25;
+    const serials = Array.from({ length: run }, (_, mint) => shuffledSerial("test-printing", mint + 1, run));
+    expect(new Set(serials).size).toBe(run);
+    expect([...serials].sort((a, b) => a - b)).toEqual(Array.from({ length: run }, (_, i) => i + 1));
+    expect(serials).not.toEqual(Array.from({ length: run }, (_, i) => i + 1));
+  });
+
+  test("published finish probabilities are exhaustive and rarity math is additive", () => {
+    expect(Object.values(CARD_VARIANTS).reduce((sum, row) => sum + row.probability, 0)).toBeCloseTo(1, 10);
+    expect(COPY_MUTATIONS.reduce((sum, row) => sum + row.probability, 0)).toBeCloseTo(1, 10);
+    const pet = generate(copy(34, "math"));
+    expect(pet.score).toBeCloseTo(pet.rarityBreakdown.reduce((sum, row) => sum + row.score, 0), 1);
+    expect(pet.rarityBreakdown.map((row) => row.group)).toContain("Finish");
+    expect(pet.rarityBreakdown.map((row) => row.label)).toContain("mutation");
   });
 });
 

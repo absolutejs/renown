@@ -95,7 +95,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
   return new Elysia({ prefix: "/api" })
     .get("/pets", ({ query }) => loadRecentPets({
       limit: Number(query.limit ?? 24), cursor: query.cursor, mode: query.mode,
-      sort: query.sort, q: query.q, tier: query.tier, species: query.species,
+      sort: query.sort, q: query.q, tier: query.tier, species: query.species, finish: query.finish, mutation: query.mutation,
     }))
     .get("/top", async ({ query }) => {
       const n = Math.min(TOP_MAX, Number(query.n ?? 20));
