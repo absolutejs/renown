@@ -760,6 +760,34 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .stat { display: flex; flex-direction: column; gap: 2px; padding: var(--s-3) var(--s-4); background: var(--surface-inset); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .stat .num { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--accent-bright); letter-spacing: -.01em; }
 .stat .lbl { font-family: var(--font-display); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.statDetail { margin-top: 4px; font-size: 11px; }
+.githubAccountsCard { border-color: var(--accent-line); }
+.githubAccountsCard h2 { margin: 4px 0; }
+.githubProvenanceNote { margin: var(--s-4) 0; padding: var(--s-3) var(--s-4); border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+.githubAccountGrid { display: grid; gap: var(--s-4); }
+.githubAccount { padding: var(--s-4); background: var(--surface-inset); border: 1px solid var(--line-strong); border-radius: var(--r-md); }
+.githubAccountHead { display: flex; align-items: center; gap: var(--s-3); }
+.githubAccountIdentity { display: flex; min-width: 150px; flex-direction: column; gap: 2px; }
+.githubAccountIdentity strong { overflow: hidden; color: var(--text); font: 700 15px var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
+.githubAccountIdentity a { color: var(--muted); font: 12px var(--font-mono); }
+.githubAccountIdentity a:hover { color: var(--accent-bright); }
+.githubAccountBadges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.githubAccountScore { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-3); margin-top: var(--s-4); }
+.githubAccountScore > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.githubAccountScore .num { overflow: hidden; color: var(--text); font: 700 23px var(--font-display); text-overflow: ellipsis; }
+.githubAccountScore .num.small { padding-top: 4px; font-size: 17px; }
+.githubAccountScore .lbl, .breakdownLabel { color: var(--muted); font: 700 10px var(--font-display); letter-spacing: .07em; text-transform: uppercase; }
+.scoreContributionBar { height: 5px; margin-top: var(--s-3); overflow: hidden; background: var(--surface-2); border-radius: var(--r-pill); }
+.scoreContributionBar span { display: block; height: 100%; min-width: 0; background: linear-gradient(90deg, var(--accent-deep), var(--accent-bright)); border-radius: inherit; }
+.githubAccountBreakdown { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); margin-top: var(--s-4); padding-top: var(--s-4); border-top: 1px solid var(--line); }
+.githubAccountBreakdown > div { min-width: 0; }
+.githubAccountBreakdown p { margin: 5px 0 0; color: var(--ink); font-size: 12px; line-height: 1.55; }
+.githubAccountBreakdown code { display: inline-block; max-width: 100%; margin-top: 5px; overflow: hidden; color: var(--accent-bright); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.accountSyncTime { display: block; margin-top: 3px; font-size: 11px; }
+.githubAccountFoot { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); margin-top: var(--s-4); padding-top: var(--s-3); border-top: 1px solid var(--line); font-size: 11px; }
+.githubCooldownNote { margin: var(--s-4) 0 0; }
+@media (max-width: 760px) { .githubAccountBreakdown { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .githubAccountHead { align-items: flex-start; flex-wrap: wrap; } .githubAccountIdentity { min-width: calc(100% - 56px); } .githubAccountBadges { justify-content: flex-start; width: 100%; margin-left: 56px; } .githubAccountScore { grid-template-columns: 1fr 1fr; } .githubAccountScore > div:last-child { grid-column: 1 / -1; } .githubAccountFoot { align-items: flex-start; flex-direction: column; } }
 
 /* ── CLI box ───────────────────────────────────────────────────────────────*/
 .cliBox { display: flex; align-items: center; gap: var(--s-3); padding: 11px 14px; background: #05070b; border: 1px solid var(--line-2); border-radius: var(--r-sm); font-family: var(--font-mono); position: relative; }

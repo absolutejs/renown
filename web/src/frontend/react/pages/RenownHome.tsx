@@ -27,7 +27,8 @@ type AiAttestation = { provider: string; claimedAt: string; evidenceUrl?: string
 type AchievementRow = { id: string; name: string; description: string; tier: string; category: string; unlockCount: number; unlockedAt?: string };
 type WebauthnCredential = { id: string; label: string; transports: string[]; createdAt: string; lastUsedAt: string | null };
 type PushPrefs = { verifiedAttestation?: boolean; newcomerToBoard?: boolean; mention?: boolean; levelUp?: boolean; achievement?: boolean; season?: boolean; marketplace?: boolean };
-type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; wild: string[]; activePetLookId?: string; petLookAssignments?: PetLookMap; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[]; rateLimitCount?: number; quirks?: Record<string, number> };
+type GithubAccount = { login: string; identityId: string | null; displayName: string | null; accountName: string; avatarUrl: string | null; loginLinked: boolean; isLoginPrimary: boolean; isProfilePrimary: boolean; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; verifiedSkillXp: Record<string, number>; prReviewsCount: number; crossRepoPrsCount: number; prsMergedCount: number; packageDownloads: number; substanceScore: number; lastMeritSyncAt: string | null; linkedAt: string | null };
+type GithubSync = { login: string; verified: boolean; verifiedScore: number; baseScore: number; attributionScore: number; attributionQuery: string | null; lastAttributionSyncAt: string | null; verifiedAt: string | null; totalLevel: number; playerId: string | null; accounts: GithubAccount[]; wild: string[]; activePetLookId?: string; petLookAssignments?: PetLookMap; avatarSeed: string | null; showcaseSeeds: string[]; petsCount: number; rarestPetScore: number; biggestPetSize: number; isAi: boolean; aiAttestation: AiAttestation | null; pushPrefs?: PushPrefs; webauthnCredentials?: WebauthnCredential[]; rateLimitCount?: number; quirks?: Record<string, number> };
 type Account = { sub: string; billing: Billing; github: GithubSync | null; identities: Identity[]; mergeRequests: MergeReq[]; achievementCount: number; following: string[] };
 type TierInfo = { name: string; blurb: string; perks: string[] };
 type Amount = { amount: number | null; currency: string; interval?: string };
@@ -1700,24 +1701,24 @@ const PetPortalCard = ({ activePetLookId, onSetLook, act }: { activePetLookId?: 
 
 // ── GitHub sync card ───────────────────────────────────────────────────────
 const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | null; refresh: () => void; onBanner: (b: { kind: "ok" | "info" | "warn"; text: string }) => void; onSummon: (pets: SummonPet[]) => void }) => {
-  const [busy, setBusy] = useState(false);
+  const [busyLogin, setBusyLogin] = useState<string | null>(null);
   if (!gh) return (
     <section className="card">
-      <h2>GitHub sync</h2>
+      <h2>GitHub accounts</h2>
       <p className="hint">Link your GitHub account above to start earning a <strong>verified score</strong> on the leaderboard. We recompute from your real public repos, stars, contributions to others' projects, and account age — never anything you can fake locally.</p>
     </section>
   );
-  const sync = async () => {
-    setBusy(true);
-    const r = await post("/api/verify", { login: gh.login });
-    setBusy(false);
+  const sync = async (account: GithubAccount) => {
+    setBusyLogin(account.login);
+    const r = await post("/api/verify", { login: account.login });
+    setBusyLogin(null);
     const j = r.data as { ok?: boolean; score?: number; attributionDelta?: number; throttled?: boolean; tier?: string; error?: string; newPets?: number; newPetSeeds?: string[]; newPetLooks?: Record<string, string>; newPetCopies?: { seed: string; serialNumber: number; printRun: number }[] } | null;
     if (!r.ok || j?.error) { onBanner({ kind: "warn", text: j?.error ?? "Sync failed." }); return; }
     refresh();
-    if (j?.throttled) onBanner({ kind: "info", text: `Sync cooldown hit (${j.tier ?? "your tier"}). Showing the last verified score.` });
+    if (j?.throttled) onBanner({ kind: "info", text: `@${account.login} is still in its ${j.tier ?? "account"} sync cooldown. Showing its last verified contribution.` });
     else {
       const delta = j?.attributionDelta ?? 0;
-      onBanner({ kind: "ok", text: `✓ Synced from GitHub — verified score ${(j?.score ?? gh.verifiedScore).toLocaleString()}${delta ? ` (+${delta.toLocaleString()} new attributions)` : ""}.` });
+      onBanner({ kind: "ok", text: `✓ Synced @${account.login}. Combined verified score is ${(j?.score ?? gh.verifiedScore).toLocaleString()}${delta ? ` (+${delta.toLocaleString()} new attributions from this account)` : ""}.` });
       // If the verify produced new pets, trigger the cinematic. Server caps the seed list
       // at 6 so this can't run forever; remaining pets land in the menagerie silently.
       const copies = j?.newPetCopies ?? [];
@@ -1732,29 +1733,96 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
       if (summonPets.length > 0) onSummon(summonPets);
     }
   };
+  const verifiedAccounts = gh.accounts.filter((account) => account.verified);
+  const totalVerifiedSkillXp = gh.accounts.reduce((total, account) =>
+    total + Object.values(account.verifiedSkillXp).reduce((sum, xp) => sum + Number(xp || 0), 0), 0);
   return (
-    <section className="card">
+    <section className="card githubAccountsCard">
       <div className="acctHead">
         <div>
-          <h2>GitHub sync</h2>
-          <p className="muted">Linked to <strong>@{gh.login}</strong> {gh.verified ? <span className="primary">verified</span> : <span className="tierBadge supporter">unverified</span>}{gh.isAi && <AiBadge isAi attestation={gh.aiAttestation} style={{ marginLeft: 8 }} />}</p>
+          <span className="collectionEyebrow">ONE PERSON · {gh.accounts.length} GITHUB {gh.accounts.length === 1 ? "ACCOUNT" : "ACCOUNTS"}</span>
+          <h2>GitHub contributions</h2>
+          <p className="muted">Your public profile is <strong>@{gh.login}</strong>. Scores below roll up into one Renown identity.{gh.isAi && <AiBadge isAi attestation={gh.aiAttestation} style={{ marginLeft: 8 }} />}</p>
           {gh.isAi && <p className="muted hint" style={{ marginTop: 6 }}>This account is marked as an <strong>AI participant</strong>. You earn score, pets, and achievements the same way humans do — the 🤖 badge shows up next to your handle on the leaderboard and your profile, in keeping with renown's "be honest about AI participation" stance.</p>}
         </div>
-        <button className="btn solid" disabled={busy} onClick={sync}>{busy ? "Syncing…" : "Sync now"}</button>
       </div>
       <div className="syncStats">
         <div className="stat">
           <span className="num">{gh.verifiedScore.toLocaleString()}</span>
-          <span className="lbl">verified score</span>
-          {gh.attributionScore > 0 && <span className="muted" style={{ fontSize: 11, marginTop: 4 }}>{gh.baseScore.toLocaleString()} base + {gh.attributionScore.toLocaleString()} attribution</span>}
+          <span className="lbl">combined verified score</span>
+          {gh.attributionScore > 0 && <span className="muted statDetail">{gh.baseScore.toLocaleString()} base + {gh.attributionScore.toLocaleString()} attribution</span>}
         </div>
-        <div className="stat"><span className="num">{gh.totalLevel.toLocaleString()}</span><span className="lbl">total level</span></div>
-        <div className="stat"><span className="num">{gh.verifiedAt ? when(gh.verifiedAt) : "—"}</span><span className="lbl">last synced</span></div>
+        <div className="stat"><span className="num">{verifiedAccounts.length}/{gh.accounts.length}</span><span className="lbl">verified GitHubs</span></div>
+        <div className="stat"><span className="num">{totalVerifiedSkillXp.toLocaleString()}</span><span className="lbl">GitHub-verified skill XP</span></div>
+        <div className="stat"><span className="num">{gh.totalLevel.toLocaleString()}</span><span className="lbl">person-level total</span></div>
         <WeeklyGrowthStat login={gh.login} />
       </div>
-      <p className="hint" style={{ marginTop: 14 }}>
-        Verified score = base (your public repos/stars/ext-contribs/account age){gh.attributionQuery ? <> + attribution (commits where you're credited via <code>{gh.attributionQuery}</code>, counted only since your last sync — never double-counted)</> : null}. Refresh cadence is tier-based (free 10 min · supporter 2 min · pro ~on demand).
+      <p className="hint githubProvenanceNote">
+        <strong>What rolls up:</strong> verified score, attribution, GitHub-derived skill XP, and merit are tracked per handle and combined. Local CLI/agent XP belongs to you as a person, so it appears in total level but is not assigned to a GitHub account.
       </p>
+      <div className="githubAccountGrid">
+        {gh.accounts.map((account) => {
+          const skillRows = Object.entries(account.verifiedSkillXp)
+            .filter(([, xp]) => Number(xp) > 0)
+            .sort((a, b) => Number(b[1]) - Number(a[1]));
+          const skillTotal = skillRows.reduce((sum, [, xp]) => sum + Number(xp), 0);
+          const share = gh.verifiedScore > 0 ? Math.round(account.verifiedScore / gh.verifiedScore * 100) : 0;
+          const meritSignals = [
+            account.prReviewsCount > 0 && `${account.prReviewsCount.toLocaleString()} reviews`,
+            account.crossRepoPrsCount > 0 && `${account.crossRepoPrsCount.toLocaleString()} cross-repo PRs`,
+            account.prsMergedCount > 0 && `${account.prsMergedCount.toLocaleString()} merged PRs`,
+            account.packageDownloads > 0 && `${account.packageDownloads.toLocaleString()} downloads`,
+            account.substanceScore > 0 && `${account.substanceScore.toFixed(1)} substance`,
+          ].filter((signal): signal is string => Boolean(signal));
+          return (
+            <article className="githubAccount" key={account.login.toLowerCase()}>
+              <div className="githubAccountHead">
+                {account.avatarUrl
+                  ? <img className="identityAvatar" src={account.avatarUrl} alt="" referrerPolicy="no-referrer" />
+                  : <span className="identityAvatar identityFallback gh" aria-hidden>{account.login.slice(0, 1).toUpperCase()}</span>}
+                <div className="githubAccountIdentity">
+                  <strong>{account.displayName || `@${account.login}`}</strong>
+                  <a href={`https://github.com/${encodeURIComponent(account.login)}`} target="_blank" rel="noreferrer">@{account.login}</a>
+                </div>
+                <div className="githubAccountBadges">
+                  {account.isProfilePrimary && <span className="primary" title="The handle used for your public Renown profile">public profile</span>}
+                  {account.isLoginPrimary && <span className="providerPill" title="The login that supplies your account name and email">default login</span>}
+                  <span className={account.verified ? "primary" : "tierBadge supporter"}>{account.verified ? "verified" : "not synced"}</span>
+                </div>
+              </div>
+              <div className="githubAccountScore">
+                <div><span className="num">{account.verifiedScore.toLocaleString()}</span><span className="lbl">score contribution {share > 0 ? `· ${share}%` : ""}</span></div>
+                <div><span className="num">{skillTotal.toLocaleString()}</span><span className="lbl">verified skill XP</span></div>
+                <div><span className="num small">{account.verifiedAt ? when(account.verifiedAt) : "Never"}</span><span className="lbl">last score sync</span></div>
+              </div>
+              <div className="scoreContributionBar" aria-label={`${share}% of combined verified score`}><span style={{ width: `${share}%` }} /></div>
+              <div className="githubAccountBreakdown">
+                <div>
+                  <span className="breakdownLabel">Score source</span>
+                  <p><strong>{account.baseScore.toLocaleString()}</strong> base + <strong>{account.attributionScore.toLocaleString()}</strong> attribution</p>
+                  {account.attributionQuery && <code>{account.attributionQuery}</code>}
+                </div>
+                <div>
+                  <span className="breakdownLabel">Top verified skills</span>
+                  {skillRows.length > 0
+                    ? <p>{skillRows.slice(0, 3).map(([id, xp]) => `${SKILLS.find((skill) => skill.id === id)?.name ?? id} ${Number(xp).toLocaleString()}`).join(" · ")}</p>
+                    : <p className="muted">No GitHub-derived skill XP yet</p>}
+                </div>
+                <div>
+                  <span className="breakdownLabel">Merit from this handle</span>
+                  <p className={meritSignals.length ? "" : "muted"}>{meritSignals.length ? meritSignals.join(" · ") : "No merit signals synced yet"}</p>
+                  {account.lastMeritSyncAt && <span className="muted accountSyncTime">Updated {when(account.lastMeritSyncAt)}</span>}
+                </div>
+              </div>
+              <div className="githubAccountFoot">
+                <span className="muted">{account.loginLinked ? "Available as a web login" : "Linked through the CLI score ledger"}</span>
+                <button className="btn ghost sm" disabled={busyLogin !== null} onClick={() => sync(account)}>{busyLogin === account.login ? `Syncing @${account.login}…` : `Sync @${account.login}`}</button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <p className="hint githubCooldownNote">Each GitHub account has its own sync timestamp and cooldown. Refresh cadence is tier-based (free 10 min · supporter 2 min · pro ~on demand).</p>
     </section>
   );
 };
@@ -1948,7 +2016,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
           <div>
             <span className="collectionEyebrow">SIGN-IN &amp; SECURITY</span>
             <h2>Your logins</h2>
-            <p className="muted hint">Every linked identity signs in to this same Renown account.</p>
+            <p className="muted hint">Every linked identity signs in to this same Renown account. “Default login” controls your account name/email; your public GitHub profile is labeled separately below.</p>
           </div>
         </div>
         <ul className="idents">
@@ -1966,7 +2034,7 @@ const AccountView = ({ account, cfg, user, refresh, onManage, onSubscribe, busy,
                 <span className={`providerPill ${PROVIDERS[id.provider]?.cls ?? ""}`}>{providerLabel(id.provider)}</span>
                 {id.isPrimary && <span className="primary">primary</span>}
                 <span className="idActions">
-                  {!id.isPrimary && <button className="link" onClick={() => act(() => post(`/api/account/identities/${id.id}/primary`))}>Make primary</button>}
+                  {!id.isPrimary && <button className="link" onClick={() => act(() => post(`/api/account/identities/${id.id}/primary`))}>Use as default login</button>}
                   {identities.length > 1 && !id.isPrimary && <button className="link danger" onClick={() => act(() => api(`/api/account/identities/${id.id}`, { method: "DELETE" }))}>Unlink</button>}
                 </span>
               </li>

@@ -29,6 +29,7 @@ import {
 import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookAssignment, type PetLookAssignments } from "../petLooks.ts";
 import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { presentIdentity } from "../auth/identityPresentation.ts";
+import { githubIdentityLogin, presentGithubAccounts } from "../auth/githubAccountPresentation.ts";
 import { loadPetCollection } from "../petGallery.ts";
 import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks, reorderCollectorBookSlots, selectOfficialPetBookCopy } from "../petBooks.ts";
 import { acceptMarketTrade, buyMarketListing, cancelMarketAuction, cancelMarketBuyOrder, cancelMarketListing, cancelMarketTrade, createMarketAuction, createMarketBuyOrder, createMarketListing, createMarketTrade, declineMarketTrade, fillMarketBuyOrder, loadCollectorTradePets, loadMarketPetTemplate, loadMarketTrades, loadWallet, placeMarketBid } from "../marketplace.ts";
@@ -115,14 +116,30 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
     listDBAuthIdentityMergeRequestsByTarget({ db, targetUserSub: userSub }),
   ]);
   const primaryId = user?.primary_auth_identity_id ?? null;
-  // GitHub link status — the player row (by github_login) holds the authoritative score, last
-  // verified timestamp, total level. Surfacing it here drives the Sync card in the UI.
-  const ghIdentity = identities.find((i) => i.auth_provider === "github");
-  const ghLogin = (ghIdentity?.metadata as { login?: string } | undefined)?.login ?? ghIdentity?.provider_subject ?? null;
+  const presentedIdentities = identities.map((i) => ({
+    id: i.id,
+    provider: i.auth_provider,
+    ...presentIdentity(i.auth_provider, i.provider_subject, i.metadata),
+    isPrimary: i.id === primaryId,
+    linkedAt: i.created_at,
+  }));
+  const githubIdentities = identities.filter((i) => i.auth_provider === "github");
+  const firstGithubLogin = githubIdentities.map(githubIdentityLogin).find(Boolean)
+    ?? githubIdentities[0]?.provider_subject
+    ?? null;
   // Resolve the ONE aggregate player for this user (across all their linked githubs), not the
   // first github's row. Fall back to login resolution for not-yet-stamped legacy players.
-  const player = (await resolvePlayerByUserSub(userSub)) ?? (ghLogin ? await resolvePlayerByGithubLogin(ghLogin) : null);
+  const player = (await resolvePlayerByUserSub(userSub)) ?? (firstGithubLogin ? await resolvePlayerByGithubLogin(firstGithubLogin) : null);
+  // players.github_login is the public/canonical profile handle. It is deliberately separate
+  // from users.primary_auth_identity_id, which may be Google or another GitHub login.
+  const ghLogin = player?.githubLogin ?? firstGithubLogin;
   const accounts = player ? await listPlayerAccounts(player.id) : [];
+  const githubAccounts = presentGithubAccounts({
+    profileLogin: ghLogin,
+    primaryIdentityId: primaryId,
+    identities: githubIdentities,
+    ledgerAccounts: accounts,
+  });
   const wild = Array.isArray(player?.wild) ? (player!.wild as string[]) : [];
   const [petLookAssignments, following, petCountRows] = await Promise.all([
     player?.id && wild.length > 0 ? getPlayerPetLookAssignments(player.id, wild) : Promise.resolve({} as PetLookAssignments),
@@ -149,8 +166,9 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
       verifiedAt: player?.verifiedAt ?? null,
       totalLevel: player?.totalLevel ?? 0,
       playerId: player?.id ?? null,
-      // Per-github provenance so the settings UI can show "alexkahndev 6,946 · absolutejs 1,298".
-      accounts: accounts.map((a) => ({ login: a.githubLogin, verified: a.githubVerified, verifiedScore: Number(a.verifiedScore), attributionScore: Number(a.attributionScore) })),
+      // Full per-GitHub provenance: the aggregate player above is one person, while every row
+      // below explains which owned login contributed score, skills, merit, and sync state.
+      accounts: githubAccounts,
       wild,
       activePetLookId: player?.activePetLookId ?? resolvePetLookId(undefined),
       petLookAssignments,
@@ -180,13 +198,7 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
     } : null,
     following,
     achievementCount: player?.achievements ?? 0,
-    identities: identities.map((i) => ({
-      id: i.id,
-      provider: i.auth_provider,
-      ...presentIdentity(i.auth_provider, i.provider_subject, i.metadata),
-      isPrimary: i.id === primaryId,
-      linkedAt: i.created_at,
-    })),
+    identities: presentedIdentities,
     mergeRequests: mergeRequests
       .filter((m) => m.status === "pending")
       .map((m) => ({ id: m.id, provider: m.conflicting_auth_provider, subject: m.conflicting_provider_subject })),
