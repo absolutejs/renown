@@ -66,6 +66,12 @@ export const players = pgTable("players", {
   // Visible as a 🤖 badge wherever the handle is shown. Set by an admin/migration OR by
   // an aiAttestation (below) that the player posts.
   isAi: boolean("is_ai").notNull().default(false),
+  // Reserved AI personas can be publicly observed from co-author evidence before anybody owns
+  // their GitHub login. Only OAuth/CLI proof of the pinned immutable GitHub numeric ID may flip
+  // an `unclaimed` persona to `claimed`.
+  claimStatus: text("claim_status").notNull().default("claimed"),
+  reservedGithubId: bigint("reserved_github_id", { mode: "number" }),
+  aiProvider: text("ai_provider"),
   // Cumulative count of AI-provider rate-limit pings, surfaced via the
   // easter-egg "Rate Limited" achievement family. Incremented by POST
   // /api/cli/rate-limited (the CLI command + agent wrappers fire it on

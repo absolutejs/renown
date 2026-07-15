@@ -9,6 +9,7 @@ import { fetchAttributedRepositories } from "./attribution.ts";
 import { fetchRepoImportance, scoreRepoShas } from "./repoScore.ts";
 import { resolvePlayerByGithubLogin } from "./resolvePlayer.ts";
 import { gameDb } from "./sync.ts";
+import { isPublicParticipant, publicParticipantCondition } from "./reservedAi.ts";
 
 export type ProjectData = Awaited<ReturnType<typeof loadProject>>;
 export type ProjectSort = "xp" | "commits" | "lines";
@@ -52,7 +53,7 @@ export const loadProject = async (key: string, sort: ProjectSort = "xp") => {
     xp: playerProjects.xp, commits: playerProjects.commits, lines: playerProjects.lines,
     vXp: playerProjects.verifiedXp, vCommits: playerProjects.verifiedCommits, vLines: playerProjects.verifiedLines,
   }).from(playerProjects).innerJoin(players, eq(players.id, playerProjects.playerId))
-    .where(and(sql`lower(${playerProjects.projectKey}) = ${k}`, eq(players.githubVerified, true)))
+    .where(and(sql`lower(${playerProjects.projectKey}) = ${k}`, publicParticipantCondition()))
     // Verified bucket first (keyed on verifiedXp, exactly like the `verified` flag below — so the
     // flag and the ranking can never disagree even when sort=commits/lines), then the chosen
     // metric's verified column, then self-reported.
@@ -105,8 +106,8 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export const loadTopProjects = async (limit = 12, window: ProjectWindow = "all") => {
   const recent = window === "week";
   const where = recent
-    ? and(eq(players.githubVerified, true), eq(projects.visibility, "public"), gte(playerProjects.updatedAt, new Date(Date.now() - WEEK_MS)))
-    : and(eq(players.githubVerified, true), eq(projects.visibility, "public"));
+    ? and(publicParticipantCondition(), eq(projects.visibility, "public"), gte(playerProjects.updatedAt, new Date(Date.now() - WEEK_MS)))
+    : and(publicParticipantCondition(), eq(projects.visibility, "public"));
   // Effective XP = the verified (GitHub-scored) value when present, else self-reported — the same
   // verified-preferred rule the /project board uses, so trending reflects trustworthy renown.
   const effXpSum = sql<number>`coalesce(sum(case when ${playerProjects.verifiedXp} > 0 then ${playerProjects.verifiedXp} else ${playerProjects.xp} end), 0)`;
@@ -132,7 +133,7 @@ export const loadTopProjects = async (limit = 12, window: ProjectWindow = "all")
   const contribs = await gameDb.select({
     key: playerProjects.projectKey, login: players.githubLogin, avatarSeed: players.avatarSeed,
   }).from(playerProjects).innerJoin(players, eq(players.id, playerProjects.playerId))
-    .where(and(inArray(playerProjects.projectKey, keys), eq(players.githubVerified, true)))
+    .where(and(inArray(playerProjects.projectKey, keys), publicParticipantCondition()))
     // verified-preferred (matches the board's #1), so the card's pet/top-@ isn't a self-reported inflator.
     .orderBy(desc(sql`case when ${playerProjects.verifiedXp} > 0 then ${playerProjects.verifiedXp} else ${playerProjects.xp} end`));
   const topByKey = new Map<string, { login: string | null; avatarSeed: string | null }>();
@@ -168,7 +169,7 @@ export const loadProjectDirectory = async ({
   const contributorPlayer = login ? await resolvePlayerByGithubLogin(login) : null;
 
   // A named contributor who is not a verified Renown player has no public repo list.
-  if (login && (!contributorPlayer || !contributorPlayer.githubVerified)) {
+  if (login && (!contributorPlayer || !isPublicParticipant(contributorPlayer))) {
     return { repos: [], query: q, contributor: login, contributorFound: false, sort, page: safePage, hasMore: false };
   }
 
@@ -182,7 +183,7 @@ export const loadProjectDirectory = async ({
   const escapedQuery = q.replace(/[\\%_]/g, "\\$&");
   const search = q ? or(ilike(projects.key, `%${escapedQuery}%`), ilike(projects.name, `%${escapedQuery}%`)) : undefined;
   const where = and(
-    eq(players.githubVerified, true),
+    publicParticipantCondition(),
     eq(projects.visibility, "public"),
     search,
     contributorKeys ? inArray(playerProjects.projectKey, contributorKeys) : undefined,

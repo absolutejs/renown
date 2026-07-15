@@ -16,6 +16,7 @@ would require fooling GitHub.
 | Surface | What it computes | How it's protected |
 | --- | --- | --- |
 | `POST /api/verify` | `verifiedScore`, attribution, pets | recomputes from GitHub API; requires `githubVerified`; per-tier reverify cooldown |
+| reserved-AI cron | co-author attribution and public repository associations | server searches public GitHub commits; SHA ledger prevents replay; does **not** claim GitHub ownership |
 | `POST /api/cli/merit-sync` | PR reviews, cross-repo PRs, shipper, maintainer, downloads | fetched from GitHub/npm with the server's token |
 | `POST /api/cli/substance-sync` | commit substance score | server classifies fetched commits |
 | `POST /api/ci/repo-sync` | per-repo `player_projects` xp/commits/lines | scores the contributor's real GitHub commits server-side; monotonic `greatest()` upsert; per-(player,repo) cooldown; credits linked players only |
@@ -39,8 +40,18 @@ and we've bounded it so it can't be weaponized:
   `unlock_count` rarity counter only moves for `githubVerified` players** — so throwaway accounts
   mass-claiming achievement ids can't distort the rarity % everyone sees.
 - **Rate limit**: `/api/submit` is capped at 120/min per session-or-IP (was uncovered).
-- **Read gating**: profiles and the headline board require `githubVerified`, so an unverified
-  forged player never appears publicly.
+- **Read gating**: profiles and the headline board require `githubVerified`, except source-pinned
+  reserved AI personas marked `unclaimed`. Those profiles contain only server-observed public
+  co-author evidence and are explicitly labelled unclaimed; arbitrary unverified players remain hidden.
+
+## Reserved AI identity claims
+
+Claude and Codex exist before ownership is claimed because their public `Co-authored-by` trailers
+are independently observable. Their GitHub usernames and immutable numeric account IDs are pinned
+in source and in the database. OAuth or CLI linking must prove the numeric ID—not merely the mutable
+username—before `claim_status` changes from `unclaimed` to `claimed` or `github_verified` becomes
+true. Credentials login, a lookalike username, a renamed/reassigned username, and self-attestation
+cannot claim these profiles.
 
 ## Tier 3 — cosmetic / self-reported by design (acceptable, labelled)
 

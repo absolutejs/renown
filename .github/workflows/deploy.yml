@@ -66,6 +66,9 @@ jobs:
       - name: Add idempotent attribution commit ledger
         run: bun --env-file=web/.env db/migrate-add-attribution-ledger.ts
 
+      - name: Reserve unclaimed Claude and Codex identities
+        run: bun --env-file=web/.env db/migrate-reserved-ai-identities.ts
+
       # Cleanup is intentionally non-blocking: the migration defaults every legacy row to
       # unknown, and the application exposes only confirmed-public rows. If GitHub rate-limits
       # classification, deploying the new binary is still the privacy-safe outcome; rerunning a

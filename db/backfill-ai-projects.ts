@@ -15,8 +15,7 @@ const accounts = await gameDb.select({
   attributionQuery: playerAccounts.attributionQuery,
 }).from(playerAccounts).innerJoin(players, eq(players.id, playerAccounts.playerId)).where(and(
   eq(players.isAi, true),
-  eq(players.githubVerified, true),
-  eq(playerAccounts.githubVerified, true),
+  isNotNull(players.reservedGithubId),
   isNotNull(playerAccounts.attributionQuery),
 ));
 

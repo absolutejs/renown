@@ -35,6 +35,9 @@ type ProfileForUI = {
   handle: string;
   tier: Tier;
   isAi: boolean;
+  githubVerified?: boolean;
+  claimStatus?: string;
+  aiProvider?: string | null;
   aiAttestation: Attestation | null;
   score: number;
   meritScore?: number;
@@ -138,6 +141,7 @@ const ProfileBody = ({ profile, url }: { profile: ProfileForUI; url: string }) =
             <span className="lbl">score</span>
           </div>
         </div>
+        {profile.claimStatus === "unclaimed" && <p className="muted hint" style={{ marginTop: 12 }}>Observed {profile.aiProvider ?? "AI"} identity based on public co-author evidence. This profile has not claimed or verified ownership of the reserved GitHub account.</p>}
         <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           <ShareButton url={url} />
           <a href={url.replace("/profile/", "/recap/")} style={{ fontSize: 13, fontWeight: 700, color: "#c4b5fd", textDecoration: "none" }}>This week →</a>

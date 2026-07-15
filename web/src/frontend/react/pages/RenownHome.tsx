@@ -14,7 +14,7 @@ import { subscribeSync } from "../../syncClient";
 type Tier = "free" | "supporter" | "pro";
 type PetLookMap = Record<string, PetLookId>;
 type SummonPet = { seed: string; lookId: PetLookId; serialNumber?: number; printRun?: number };
-type Entry = { id?: string; name: string; login?: string; score?: number; weekXp?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number; distinctSkills?: number; skillXp?: Record<string, number>; activePetLookId?: string; petLookAssignments?: PetLookMap };
+type Entry = { id?: string; name: string; login?: string; verified?: boolean; score?: number; weekXp?: number; baseScore?: number; meritScore?: number; level: number; totalLevel?: number; xp: number; streak: number; ach: number; tier?: Tier; isAi?: boolean; claimStatus?: string; aiProvider?: string | null; aiAttestation?: AiAttestation | null; petsCount?: number; rarestPetScore?: number; rarestPetSeed?: string | null; biggestPetSize?: number; biggestPetSeed?: string | null; avatarSeed?: string | null; rateLimitCount?: number; quirks?: Record<string, number>; prReviewsCount?: number; crossRepoPrsCount?: number; prsMergedCount?: number; packageDownloads?: number; substanceScore?: number; distinctSkills?: number; skillXp?: Record<string, number>; activePetLookId?: string; petLookAssignments?: PetLookMap };
 // Board ids: well-known fixed strings + a "quirk:<name>" dynamic family for the
 // cope leaderboards (one per registered quirk in web/src/backend/quirks.ts).
 type Board = "score" | "pets-count" | "rarest-pet" | "biggest-pet" | "rate-limited" | "achievements" | "breadth" | "merit" | `quirk:${string}` | `skill:${string}` | `merit:${"reviews" | "crossRepo" | "shipper" | "downloads" | "substance"}`;
@@ -485,7 +485,7 @@ const MeritPanel = ({ login, title = "Merit" }: { login: string; title?: string 
   );
 };
 
-const AiBadge = ({ isAi, attestation, compact, style }: { isAi?: boolean; attestation?: AiAttestation | null; compact?: boolean; style?: React.CSSProperties }) => {
+const AiBadge = ({ isAi, attestation, claimStatus, provider, compact, style }: { isAi?: boolean; attestation?: AiAttestation | null; claimStatus?: string; provider?: string | null; compact?: boolean; style?: React.CSSProperties }) => {
   if (!isAi) return null;
   // Tooltip composition: base note + attestation provider + verification source +
   // evidence URL. Three trust tiers, visually distinct:
@@ -502,11 +502,14 @@ const AiBadge = ({ isAi, attestation, compact, style }: { isAi?: boolean; attest
     : webauthnVerified
       ? " · self-keyed (WebAuthn hardware key)"
       : " (public claim)";
-  const title = attestation
+  const unclaimed = claimStatus === "unclaimed";
+  const title = unclaimed
+    ? `Observed ${provider ?? "AI"} persona · public co-author evidence · GitHub ownership is unclaimed`
+    : attestation
     ? `AI participant · attested as ${attestation.provider}${trustNote}${attestation.evidenceUrl ? ` · evidence: ${attestation.evidenceUrl}` : ""}`
     : "AI participant — earns score and pets the same way humans do, with the badge for transparency";
   const mark = verified ? " ✓" : webauthnVerified ? " ✦" : "";
-  const label = compact ? "🤖" : attestation ? `🤖 ${attestation.provider}${mark}` : "🤖 AI";
+  const label = compact ? (unclaimed ? "🤖?" : "🤖") : unclaimed ? `🤖 ${provider ?? "AI"} · unclaimed` : attestation ? `🤖 ${attestation.provider}${mark}` : "🤖 AI";
   return <span className={`aiBadge${compact ? " compact" : ""}${attestation ? " attested" : ""}${verified ? " verified" : ""}${webauthnVerified && !verified ? " selfKeyed" : ""}${expiringSoon ? " expiringSoon" : ""}`} style={style} title={title}>{label}</span>;
 };
 
@@ -904,9 +907,9 @@ const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => vo
     // when the login changes), 'top' as a fallback nudge to re-pull delta numbers since
     // the leader's own attribution might update without a leader-change.
     return subscribeSync(["weekly-ai-leader", "top"], (evt) => {
-        const payload = evt.payload as { login?: string; verifiedScore?: number; aiAttestation?: Entry["aiAttestation"]; avatarSeed?: string | null } | undefined;
+        const payload = evt.payload as { login?: string; verifiedScore?: number; verified?: boolean; claimStatus?: string; aiProvider?: string | null; aiAttestation?: Entry["aiAttestation"]; avatarSeed?: string | null } | undefined;
         if (evt.topic === "weekly-ai-leader" && payload?.login) {
-          setEntry((cur) => ({ ...(cur ?? { name: payload.login!, level: 0, xp: 0, streak: 0, ach: 0 }), login: payload.login!, score: payload.verifiedScore, aiAttestation: payload.aiAttestation, avatarSeed: payload.avatarSeed ?? null, isAi: true }));
+          setEntry((cur) => ({ ...(cur ?? { name: payload.login!, level: 0, xp: 0, streak: 0, ach: 0 }), login: payload.login!, score: payload.verifiedScore, verified: payload.verified, claimStatus: payload.claimStatus, aiProvider: payload.aiProvider, aiAttestation: payload.aiAttestation, avatarSeed: payload.avatarSeed ?? null, isAi: true }));
           fetch(`/api/growth/${encodeURIComponent(payload.login)}?days=7`).then((r) => r.json()).then((g: { delta?: number }) => setWeekDelta(g?.delta ?? null)).catch(() => {});
         } else if (evt.topic === "top") {
           load();
@@ -922,9 +925,9 @@ const AiOfTheWeekBanner = ({ openProfile }: { openProfile: (login: string) => vo
     >
       <span className="aiOtwLabel">🤖 AI of the Week</span>
       <span className="aiOtwName">@{entry.login}</span>
-      <AiBadge isAi attestation={entry.aiAttestation} compact />
+      <AiBadge isAi attestation={entry.aiAttestation} claimStatus={entry.claimStatus} provider={entry.aiProvider} compact />
       <span className="aiOtwScore">{(entry.score ?? 0).toLocaleString()}</span>
-      <span className="muted" style={{ fontSize: 11 }}>verified score{weekDelta !== null && weekDelta > 0 && <> · <span style={{ color: "#86efac" }}>+{weekDelta.toLocaleString()}</span> this week</>}</span>
+      <span className="muted" style={{ fontSize: 11 }}>{entry.verified ? "verified" : "observed"} score{weekDelta !== null && weekDelta > 0 && <> · <span style={{ color: "#86efac" }}>+{weekDelta.toLocaleString()}</span> this week</>}</span>
     </button>
   );
 };
@@ -1191,7 +1194,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, boardWindow, setBo
                         ? <SinglePet seed={seed} entranceBurst={fresh} lookId={resolvePetLookId(seed, e.activePetLookId, e.petLookAssignments)} />
                         : <span className="petCanvas rankPetEmpty" />}
                       </span>
-                      <span className="who">{e.name}<TierBadge tier={e.tier} /><AiBadge isAi={e.isAi} attestation={e.aiAttestation} compact /></span>
+                      <span className="who">{e.name}<TierBadge tier={e.tier} /><AiBadge isAi={e.isAi} attestation={e.aiAttestation} claimStatus={e.claimStatus} provider={e.aiProvider} compact /></span>
                       <span className="score">{boardWindow !== "all" && board === "score" ? `+${(e.weekXp ?? 0).toLocaleString()}` : meta.statOf(e)}</span>
                       <span className="muted">{boardWindow !== "all" && board === "score" ? `renown ${boardWindow === "season" ? "this season" : "this week"} · ${(e.score ?? 0).toLocaleString()} total` : `Lvl ${e.totalLevel ?? e.level} · 🔥${e.streak} · ${e.ach}🏆`}</span>
                       {(() => {
@@ -1227,7 +1230,7 @@ const Board = ({ top, board, setBoard, audience, setAudience, boardWindow, setBo
               <SpotlightView seed={spotlightSeed} lookId={spotlightEntry ? resolvePetLookId(spotlightSeed, spotlightEntry.activePetLookId, spotlightEntry.petLookAssignments) : undefined} />
               {spotlightEntry && (
                 <div className="boardSpotlightMeta">
-                  <h3>{spotlightEntry.name}<TierBadge tier={spotlightEntry.tier} /><AiBadge isAi={spotlightEntry.isAi} attestation={spotlightEntry.aiAttestation} /></h3>
+                  <h3>{spotlightEntry.name}<TierBadge tier={spotlightEntry.tier} /><AiBadge isAi={spotlightEntry.isAi} attestation={spotlightEntry.aiAttestation} claimStatus={spotlightEntry.claimStatus} provider={spotlightEntry.aiProvider} /></h3>
                   <p className="muted">{meta.statOf(spotlightEntry)} · Lvl {spotlightEntry.totalLevel ?? spotlightEntry.level}</p>
                 </div>
               )}

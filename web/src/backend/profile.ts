@@ -12,13 +12,14 @@ import { getPlayerPetLookAssignments, type PetLookAssignments } from "./petLooks
 import { confirmProjectPublic } from "./project.ts";
 import { resolvePlayerByGithubLogin } from "./resolvePlayer.ts";
 import { gameDb } from "./sync.ts";
+import { isPublicParticipant } from "./reservedAi.ts";
 
 export type ProfileData = Awaited<ReturnType<typeof loadProfile>>;
 
 export const loadProfile = async (login: string) => {
   // Resolve across all of a user's linked githubs (any of them → the one aggregate player).
   const p = await resolvePlayerByGithubLogin(login);
-  if (!p || !p.githubVerified) return null;
+  if (!p || !isPublicParticipant(p)) return null;
 
   const ach = await gameDb
     .select({ id: achievements.id, name: achievements.name, description: achievements.description, tier: achievements.tier, category: achievements.category, unlockCount: achievements.unlockCount })
@@ -67,6 +68,9 @@ export const loadProfile = async (login: string) => {
     following: followingRows[0]?.c ?? 0,
     tier: normalizeTier(p.tier),
     isAi: p.isAi,
+    githubVerified: p.githubVerified,
+    claimStatus: p.claimStatus,
+    aiProvider: p.aiProvider,
     aiAttestation: p.aiAttestation,
     // Score = headline number (base + attribution + merit) — matches /api/top sort.
     score: Number(p.verifiedScore) + Number(p.meritScore),

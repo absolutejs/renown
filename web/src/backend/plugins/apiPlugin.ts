@@ -32,6 +32,8 @@ import { loadRecentPets } from "../petGallery.ts";
 import { issuePetCopies } from "../petIssuance.ts";
 import { loadOfficialPetBooks, loadPetSubjectSheet, loadSharedCollectorBook } from "../petBooks.ts";
 import { loadMarketAuctions, loadMarketBuyOrders, loadMarketplace, loadPetProvenance } from "../marketplace.ts";
+import { assertReservedAiClaim, markReservedAiClaimed } from "../reservedAiClaim.ts";
+import { publicParticipantCondition } from "../reservedAi.ts";
 
 // Deterministic ISO-week index → quirk id rotation so the "quirk of the week" is the
 // same for every viewer in the same week, and cycles through the whole registry over
@@ -65,7 +67,7 @@ const recomputeWeeklyAiLeader = async () => {
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const weeklyOrder = sql<number>`(${players.attributionScore} - coalesce((select ${playerAttributionSnapshots.attributionScore} from ${playerAttributionSnapshots} where ${playerAttributionSnapshots.playerId} = ${players.id} and ${playerAttributionSnapshots.snapshotDate} >= ${cutoff} order by ${playerAttributionSnapshots.snapshotDate} asc limit 1), ${players.attributionScore}))`;
   const rows = await gameDb.select().from(players)
-    .where(and(eq(players.githubVerified, true), eq(players.isAi, true)))
+    .where(and(publicParticipantCondition(), eq(players.isAi, true)))
     .orderBy(desc(weeklyOrder))
     .limit(1);
   const top = rows[0];
@@ -75,6 +77,9 @@ const recomputeWeeklyAiLeader = async () => {
   hub.publish("weekly-ai-leader", {
     login: top.githubLogin,
     verifiedScore: top.verifiedScore,
+    verified: top.githubVerified,
+    claimStatus: top.claimStatus,
+    aiProvider: top.aiProvider,
     isAi: true,
     aiAttestation: top.aiAttestation,
     avatarSeed: top.avatarSeed,
@@ -117,7 +122,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         const vExpr = sql<number>`coalesce((${players.verifiedSkillXp} ->> ${skill})::int, 0)`;
         const sExpr = sql<number>`coalesce((${players.skillXp} ->> ${skill})::int, 0)`;
         const rows = await gameDb.select({ id: players.id, name: players.handle, v: vExpr, s: sExpr })
-          .from(players).where(eq(players.githubVerified, true)).orderBy(desc(vExpr), desc(sExpr)).limit(n);
+          .from(players).where(publicParticipantCondition()).orderBy(desc(vExpr), desc(sExpr)).limit(n);
         return rows.map((r) => {
           const verified = Number(r.v) > 0;
           const xp = verified ? Number(r.v) : Number(r.s);
@@ -191,7 +196,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const aiFilter = audience === "humans" ? eq(players.isAi, false)
         : audience === "ai" ? eq(players.isAi, true)
         : undefined;
-      const where = aiFilter ? and(eq(players.githubVerified, true), aiFilter) : eq(players.githubVerified, true);
+      const where = aiFilter ? and(publicParticipantCondition(), aiFilter) : publicParticipantCondition();
       // Weekly window — when ?window=week, sort by the past-7-day attribution_score delta
       // (derived from player_attribution_snapshots) instead of the all-time verified score.
       // Falls back to a player's earliest snapshot in the window if no row exactly 7 days
@@ -212,14 +217,14 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         const petLookAssignmentsByPlayer = await getPlayerPetLookAssignmentsForRows(rows);
         return rows.map((p) => {
           const assignments = petLookAssignmentsByPlayer.get(p.id) ?? {};
-          return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), weekXp: Math.max(0, Number(p.weekXp)), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, skillXp: p.skillXp ?? {}, distinctSkills: Object.values((p.skillXp as Record<string, number>) ?? {}).filter((v) => Number(v) > 0).length, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
+          return { id: p.id, name: p.handle, login: p.githubLogin, verified: p.githubVerified, claimStatus: p.claimStatus, score: Number(p.verifiedScore) + Number(p.meritScore), weekXp: Math.max(0, Number(p.weekXp)), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiProvider: p.aiProvider, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, skillXp: p.skillXp ?? {}, distinctSkills: Object.values((p.skillXp as Record<string, number>) ?? {}).filter((v) => Number(v) > 0).length, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
         });
       }
       const rows = await gameDb.select().from(players).where(where).orderBy(desc(orderCol)).limit(n);
       const petLookAssignmentsByPlayer = await getPlayerPetLookAssignmentsForRows(rows);
       return rows.map((p) => {
         const assignments = petLookAssignmentsByPlayer.get(p.id) ?? {};
-          return { id: p.id, name: p.handle, login: p.githubLogin, verified: true, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, skillXp: p.skillXp ?? {}, distinctSkills: Object.values((p.skillXp as Record<string, number>) ?? {}).filter((v) => Number(v) > 0).length, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
+          return { id: p.id, name: p.handle, login: p.githubLogin, verified: p.githubVerified, claimStatus: p.claimStatus, score: Number(p.verifiedScore) + Number(p.meritScore), baseScore: p.verifiedScore, meritScore: p.meritScore, tier: normalizeTier(p.tier), isAi: p.isAi, aiProvider: p.aiProvider, aiAttestation: p.aiAttestation, totalLevel: p.totalLevel, level: p.level, xp: p.xp, streak: p.streak, oss: p.ossCommits, ach: p.achievements, active: p.activeSec, petsCount: p.petsCount, rarestPetScore: p.rarestPetScore, rarestPetSeed: p.rarestPetSeed, biggestPetSize: p.biggestPetSize, biggestPetSeed: p.biggestPetSeed, avatarSeed: p.avatarSeed, rateLimitCount: p.rateLimitCount, quirks: p.quirks, prReviewsCount: p.prReviewsCount, crossRepoPrsCount: p.crossRepoPrsCount, prsMergedCount: p.prsMergedCount, packageDownloads: p.packageDownloads, substanceScore: p.substanceScore, skillXp: p.skillXp ?? {}, distinctSkills: Object.values((p.skillXp as Record<string, number>) ?? {}).filter((v) => Number(v) > 0).length, activePetLookId: p.activePetLookId, petLookAssignments: assignments };
       });
     })
     // Trending repos — the home page's discovery surface. Ranks every repo someone on renown
@@ -509,6 +514,9 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       const login = gh.login;
       if (!login) return { error: "could not read github login" };
       const subject = gh.id != null ? String(gh.id) : login;   // github numeric id (matches web OAuth); fallback to login
+      let reservedClaim: Awaited<ReturnType<typeof assertReservedAiClaim>>;
+      try { reservedClaim = await assertReservedAiClaim(login, subject); }
+      catch (error) { return { error: error instanceof Error ? error.message : "reserved AI claim rejected" }; }
       const handle = login.slice(0, 40);
       const attributionQuery = `author:${login}`;
 
@@ -518,7 +526,8 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
 
       // If this github already belongs to a DIFFERENT, populated player → don't steal it; the
       // human confirms a merge from the web (stage 4 / auth merge-request flow).
-      if (existing && existing.id !== playerId && (Number(existing.verifiedScore) > 0 || (Array.isArray(existing.wild) && existing.wild.length > 0))) {
+      const claimingReservedPlaceholder = Boolean(reservedClaim && existing?.id === reservedClaim.playerId && existing.claimStatus === "unclaimed");
+      if (existing && existing.id !== playerId && !claimingReservedPlaceholder && (Number(existing.verifiedScore) > 0 || (Array.isArray(existing.wild) && existing.wild.length > 0))) {
         return { needsMerge: true, login, otherPlayerId: existing.id, message: "this GitHub is already on another renown account — confirm a merge from the web settings page" };
       }
 
@@ -548,6 +557,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
       // Provenance ledger row for this github (per-account scoring lives here; stage 3 rolls up).
       await gameDb.insert(playerAccounts).values({ playerId: playerRow.id, githubLogin: login, attributionQuery, githubVerified: true })
         .onConflictDoUpdate({ target: [playerAccounts.playerId, playerAccounts.githubLogin], set: { githubVerified: true, attributionQuery } });
+      if (reservedClaim) await markReservedAiClaimed({ playerId: playerRow.id, login, githubSubject: subject, userSub });
       if (isPrimary) await gameDb.execute(sql`UPDATE players SET attribution_query = ${attributionQuery} WHERE id = ${playerRow.id} AND attribution_query IS NULL AND is_ai = false`);
 
       // Verify this github's base score → its per-account row (verified_score = base + this

@@ -34,6 +34,7 @@ import {
   upsertDBAuthIdentityMergeRequest,
 } from "../handlers/userHandlers";
 import { providersConfiguration } from "./providersConfiguration";
+import { assertReservedAiClaim, markReservedAiClaimed } from "../reservedAiClaim.ts";
 
 // On a verified GitHub login, bind + verify the canonical player row (keyed by the login
 // under OAuth control, so nobody can impersonate someone's login) and recompute their score.
@@ -53,11 +54,18 @@ const defaultAttributionQuery = (login: string) => `author:${login}`;
 // runs (createUser / linkUserIdentity wrote it), so we resolve the owning user from it.
 const onGithubVerified = async (login: string) => {
   const lower = login.toLowerCase();
-  const ident = (await gameDb.select({ userSub: authIdentities.user_sub }).from(authIdentities)
+  const ident = (await gameDb.select({ userSub: authIdentities.user_sub, providerSubject: authIdentities.provider_subject }).from(authIdentities)
     .where(and(eq(authIdentities.auth_provider, "github"), sql`lower(coalesce(${authIdentities.metadata}->>'login', ${authIdentities.provider_subject})) = ${lower}`)).limit(1))[0];
   const userSub = ident?.userSub ?? null;
+  // Reserved AI personas require the immutable GitHub numeric ID. Matching a mutable username
+  // is deliberately insufficient, even if an auth identity row already exists.
+  const reservedClaim = await assertReservedAiClaim(login, ident?.providerSubject);
   // Canonical player: by user (preferred) → by this login (legacy) → create on first github.
-  let player = (userSub ? await resolvePlayerByUserSub(userSub) : null) ?? await resolvePlayerByGithubLogin(login);
+  // A valid reserved claim always adopts the pre-existing persona; it must never attach the
+  // protected login to some other player merely because the claimant already has a Renown user.
+  let player = reservedClaim
+    ? await resolvePlayerByGithubLogin(login)
+    : (userSub ? await resolvePlayerByUserSub(userSub) : null) ?? await resolvePlayerByGithubLogin(login);
   if (!player) {
     const id = `gh:${login}`;   // keep gh:<login> as the id for the user's FIRST github (back-compat)
     await gameDb.insert(players).values({ attributionQuery: defaultAttributionQuery(login), githubLogin: login, githubVerified: true, handle: login.slice(0, 40), id, userSub })
@@ -71,6 +79,7 @@ const onGithubVerified = async (login: string) => {
   // Provenance ledger row for this github; backfill the default query only for the primary.
   await gameDb.insert(playerAccounts).values({ playerId: player.id, githubLogin: login, attributionQuery: defaultAttributionQuery(login), githubVerified: true })
     .onConflictDoUpdate({ target: [playerAccounts.playerId, playerAccounts.githubLogin], set: { githubVerified: true } });
+  if (reservedClaim) await markReservedAiClaimed({ playerId: player.id, login, githubSubject: ident!.providerSubject, userSub });
   if (isPrimary) await gameDb.execute(sql`UPDATE players SET attribution_query = ${defaultAttributionQuery(login)} WHERE id = ${player.id} AND attribution_query IS NULL AND is_ai = false`);
   // Verify this github's base into its account row (base + its own attribution), then roll up.
   const v = await verifyGithub(login);

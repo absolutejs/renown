@@ -18,6 +18,7 @@ import { rollupPlayerFromAccounts } from "../playerAccounts.ts";
 import { gameDb, grantAchievements, hub } from "../sync.ts";
 import { processOnchainTransferOutbox } from "../onchainOutbox.ts";
 import { syncAttributedProjects } from "../project.ts";
+import { syncObservedAiAttribution } from "../observedAi.ts";
 
 const sweepExpiredAttestations = async (): Promise<number> => {
   // jsonb update path: build the demoted attestation (drop .verified + .expiresAt,
@@ -100,21 +101,31 @@ export const cronPlugin = () =>
           const due = await gameDb.select({
             playerId: playerAccounts.playerId, login: playerAccounts.githubLogin,
             attributionQuery: playerAccounts.attributionQuery, verifiedAt: playerAccounts.verifiedAt,
+            lastAttributionSyncAt: playerAccounts.lastAttributionSyncAt,
+            claimStatus: players.claimStatus,
           }).from(playerAccounts).innerJoin(players, eq(players.id, playerAccounts.playerId))
             .where(and(
-              eq(players.isAi, true), eq(players.githubVerified, true), eq(playerAccounts.githubVerified, true),
-              isNotNull(playerAccounts.attributionQuery),
-              or(sql`${playerAccounts.verifiedAt} IS NULL`, lt(playerAccounts.verifiedAt, cutoff)),
+              eq(players.isAi, true), isNotNull(players.reservedGithubId), isNotNull(playerAccounts.attributionQuery),
+              or(
+                and(eq(players.claimStatus, "claimed"), eq(players.githubVerified, true), eq(playerAccounts.githubVerified, true),
+                  or(sql`${playerAccounts.verifiedAt} IS NULL`, lt(playerAccounts.verifiedAt, cutoff))),
+                and(eq(players.claimStatus, "unclaimed"),
+                  or(sql`${playerAccounts.lastAttributionSyncAt} IS NULL`, lt(playerAccounts.lastAttributionSyncAt, cutoff))),
+              ),
             )).orderBy(sql`${playerAccounts.verifiedAt} NULLS FIRST`).limit(10);
           const base = (process.env.RENOWN_PUBLIC_URL || `http://127.0.0.1:${process.env.PORT || "3000"}`).replace(/\/$/, "");
           for (const account of due) {
             try {
-              const response = await fetch(`${base}/api/verify`, {
-                method: "POST", headers: { "content-type": "application/json", "user-agent": "renown-ai-cron" },
-                body: JSON.stringify({ login: account.login }), signal: AbortSignal.timeout(120_000),
-              });
-              const result = await response.json().catch(() => ({})) as { error?: string };
-              if (!response.ok || result.error) throw new Error(result.error || `verify returned ${response.status}`);
+              if (account.claimStatus === "claimed") {
+                const response = await fetch(`${base}/api/verify`, {
+                  method: "POST", headers: { "content-type": "application/json", "user-agent": "renown-ai-cron" },
+                  body: JSON.stringify({ login: account.login }), signal: AbortSignal.timeout(120_000),
+                });
+                const result = await response.json().catch(() => ({})) as { error?: string };
+                if (!response.ok || result.error) throw new Error(result.error || `verify returned ${response.status}`);
+              } else {
+                await syncObservedAiAttribution(account.playerId, account.login, account.attributionQuery!);
+              }
               const projectResult = await syncAttributedProjects(account.playerId, account.attributionQuery!, {
                 maxCommits: 200, maxRepos: 15, samplePerRepo: 1,
                 offset: Math.floor(Date.now() / (60 * 60 * 1000)) * 15,

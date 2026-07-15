@@ -19,6 +19,7 @@ const resolveProfilePetLook = (seed: string, activePetLookId: string | undefined
 };
 type Profile = {
   login: string; handle: string; tier: Tier; isAi?: boolean; followers?: number; following?: number;
+  githubVerified?: boolean; claimStatus?: string; aiProvider?: string | null;
   aiAttestation?: { provider: string; claimedAt: string; evidenceUrl?: string; verified?: boolean; webauthnVerified?: boolean } | null;
   score: number; baseScore?: number; meritScore?: number; totalLevel: number;
   petsCount: number; rarestPetScore: number; biggestPetSize: number;
@@ -120,8 +121,8 @@ export const ProfileModal = ({ login, onClose, me = null, following = [], onTogg
                 <h2>
                   @{profile.login}
                   {profile.isAi && (
-                    <span className={`aiBadge${profile.aiAttestation ? " attested" : ""}`} style={{ marginLeft: 10 }} title={profile.aiAttestation ? `AI participant · attested as ${profile.aiAttestation.provider}` : "AI participant"}>
-                      🤖 {profile.aiAttestation ? profile.aiAttestation.provider : "AI"}
+                    <span className={`aiBadge${profile.aiAttestation ? " attested" : ""}`} style={{ marginLeft: 10 }} title={profile.claimStatus === "unclaimed" ? "Observed from public co-author evidence; reserved GitHub ownership is unclaimed" : profile.aiAttestation ? `AI participant · attested as ${profile.aiAttestation.provider}` : "AI participant"}>
+                      🤖 {profile.claimStatus === "unclaimed" ? `${profile.aiProvider ?? "AI"} · unclaimed` : profile.aiAttestation ? profile.aiAttestation.provider : "AI"}
                     </span>
                   )}
                 </h2>
@@ -138,6 +139,7 @@ export const ProfileModal = ({ login, onClose, me = null, following = [], onTogg
                 <span className="lbl">score</span>
               </div>
             </div>
+            {profile.claimStatus === "unclaimed" && <p className="muted hint">Publicly observed AI identity. No person or organization has verified ownership of its reserved GitHub account on Renown.</p>}
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "4px 0 2px" }}>
               {canFollow && (
                 <button onClick={toggleFollow} style={{ padding: "6px 14px", borderRadius: 999, cursor: "pointer", fontWeight: 700, fontSize: 13,
