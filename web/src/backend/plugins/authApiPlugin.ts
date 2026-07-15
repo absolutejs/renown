@@ -29,6 +29,7 @@ import {
 import { getPlayerPetLookAssignments, setPetLookAssignmentsForSeeds, setPetLookAssignment, type PetLookAssignments } from "../petLooks.ts";
 import { listPlayerAccounts, resolvePlayerByGithubLogin, resolvePlayerByUserSub } from "../resolvePlayer.ts";
 import { loadPetCollection } from "../petGallery.ts";
+import { addCollectorBookSlot, createCollectorBook, deleteCollectorBook, deleteCollectorBookSlot, loadPetBookOptions, loadPetBooks } from "../petBooks.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 const ACHIEVEMENT_PAGE_DEFAULT = 50;
@@ -223,6 +224,45 @@ export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
         return loadPetCollection(player, query);
       }),
     )
+    .get("/pet-books", ({ protectRoute }) => protectRoute(async (user) => {
+      const player = await resolvePlayerByUserSub(user.sub);
+      if (!player) return { official: [], personal: [] };
+      return loadPetBooks(player);
+    }))
+    .get("/pet-books/options", ({ protectRoute }) => protectRoute(async (user) => {
+      const player = await resolvePlayerByUserSub(user.sub);
+      return { pets: player ? await loadPetBookOptions(player.id) : [] };
+    }))
+    .post("/pet-books", ({ body, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "link GitHub before creating a collector book");
+        return { ok: true, ...(await createCollectorBook(player.id, body)) };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not create book"); }
+    }))
+    .post("/pet-books/:id/slots", ({ params, body, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "player not found");
+        return { ok: true, ...(await addCollectorBookSlot(player.id, params.id, body)) };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not add slot"); }
+    }))
+    .delete("/pet-books/:id/slots/:position", ({ params, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "player not found");
+        await deleteCollectorBookSlot(player.id, params.id, Number(params.position));
+        return { ok: true };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not remove slot"); }
+    }))
+    .delete("/pet-books/:id", ({ params, protectRoute, status }) => protectRoute(async (user) => {
+      try {
+        const player = await resolvePlayerByUserSub(user.sub);
+        if (!player) return status("Bad Request", "player not found");
+        await deleteCollectorBook(player.id, params.id);
+        return { ok: true };
+      } catch (error) { return status("Bad Request", error instanceof Error ? error.message : "could not delete book"); }
+    }))
     // Choose which login is the canonical/primary one (drives the user's display name/email).
     .post("/identities/:id/primary", ({ params, protectRoute, status }) =>
       protectRoute(async (user) => {

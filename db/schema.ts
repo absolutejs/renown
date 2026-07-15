@@ -141,15 +141,33 @@ export const playerAccounts = pgTable("player_accounts", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.githubLogin] }) }));
 
+// Immutable official binder manifests. Sets publish how many numbered subject slots exist,
+// but unrevealed subject identity stays server-side until a collector owns one.
+export const petSets = pgTable("pet_sets", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  subjectCount: integer("subject_count").notNull(),
+  releaseYear: integer("release_year").notNull(),
+  coverStyle: text("cover_style").notNull().default("midnight"),
+  spoilerMode: text("spoiler_mode").notNull().default("owned-only"),
+  ordinal: integer("ordinal").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Stable characters available in a card set. A subject is the recognizable pet (the
 // "player" on a baseball card); printings and owned copies live below it.
 export const petSubjects = pgTable("pet_subjects", {
   id: text("id").primaryKey(),
-  setId: text("set_id").notNull(),
+  setId: text("set_id").notNull().references(() => petSets.id),
+  slotNumber: integer("slot_number").notNull(),
   subjectSeed: text("subject_seed").notNull().unique(),
   name: text("name").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => ({ setIdx: index("pet_subjects_set_idx").on(t.setId, t.id) }));
+}, (t) => ({
+  setIdx: index("pet_subjects_set_idx").on(t.setId, t.id),
+  setSlotUniq: uniqueIndex("pet_subjects_set_slot_uniq").on(t.setId, t.slotNumber),
+}));
 
 // One supply-capped variant of a subject. `issued` is the authoritative mint ordinal;
 // it only advances inside issue_pet_copy(), in the same transaction that creates the copy.
@@ -200,6 +218,37 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   mutationRecentIdx: index("wild_seed_sources_mutation_recent_idx").on(t.mutation, t.earnedAt, t.petSeed),
   copySerialUniq: uniqueIndex("wild_seed_sources_printing_serial_uniq").on(t.printingId, t.serialNumber),
   provenanceUniq: uniqueIndex("wild_seed_sources_player_provenance_uniq").on(t.playerId, t.provenanceSeed),
+}));
+
+export type CollectorSlotTarget = {
+  kind: "freeform" | "tier" | "finish" | "mutation" | "species" | "serial" | "size";
+  value?: string;
+  label: string;
+};
+
+// Personal binders are ordered, user-defined chase lists. A slot can point at an owned
+// physical copy, remain empty with a target description, or do both (target fulfilled).
+export const collectorBooks = pgTable("collector_books", {
+  id: text("id").primaryKey(),
+  playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  visibility: text("visibility").notNull().default("private"),
+  coverStyle: text("cover_style").notNull().default("midnight"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({ ownerUpdatedIdx: index("collector_books_owner_updated_idx").on(t.playerId, t.updatedAt) }));
+
+export const collectorBookSlots = pgTable("collector_book_slots", {
+  bookId: text("book_id").notNull().references(() => collectorBooks.id, { onDelete: "cascade" }),
+  position: integer("position").notNull(),
+  target: jsonb("target").$type<CollectorSlotTarget>().notNull().default({ kind: "freeform", label: "Open slot" }),
+  petSeed: text("pet_seed"),
+  note: text("note").notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.bookId, t.position] }),
+  bookPetUniq: uniqueIndex("collector_book_slots_book_pet_uniq").on(t.bookId, t.petSeed),
 }));
 
 // Weekly quest progress. Per (player, ISO-week, quest): the baseline signal value captured on

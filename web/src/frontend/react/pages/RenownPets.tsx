@@ -4,6 +4,7 @@ import { Head } from "@absolutejs/absolute/react/components";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { CARD_VARIANTS, COPY_MUTATIONS, generate, TIER_RGB, type Tier } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { PetBooksWorkspace } from "../components/PetBooksWorkspace";
 import { SiteHeader } from "../components/SiteHeader";
 
 type RGB = readonly [number, number, number];
@@ -22,7 +23,7 @@ type GalleryPet = {
 };
 type PetPage = { pets: GalleryPet[]; nextCursor?: string | null; total?: number; sort?: PetSort };
 type PetSort = "newest" | "rarest" | "biggest" | "name";
-type Workspace = "collection" | "discover";
+type Workspace = "collection" | "books" | "discover";
 type RenownPetsProps = { cssPath?: string; pets?: GalleryPet[]; nextCursor?: string | null; total?: number; origin?: string };
 
 const TIER_OPTIONS = ["all", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic"];
@@ -114,19 +115,21 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
   // default workspace; logged-out visitors keep the server-rendered discovery page.
   useEffect(() => {
     const controller = new AbortController();
+    const opensBook = new URLSearchParams(window.location.search).has("book");
+    if (opensBook) setWorkspace("books");
     fetch("/oauth2/status", { signal: controller.signal }).then((response) => response.json()).then(async (status: { user?: unknown }) => {
       if (!status.user) { setSignedIn(false); return; }
       const response = await fetch("/api/account/pets?limit=24&sort=newest", { signal: controller.signal });
       if (!response.ok) return;
       const page = await response.json() as PetPage;
-      setSignedIn(true); setWorkspace("collection"); setPets(page.pets ?? []);
+      setSignedIn(true); setWorkspace(opensBook ? "books" : "collection"); setPets(page.pets ?? []);
       setNextCursor(page.nextCursor ?? null); setTotal(page.total ?? 0);
     }).catch(() => {});
     return () => controller.abort();
   }, []);
 
   useEffect(() => {
-    if (signedIn === null || (workspace === "collection" && !signedIn)) return;
+    if (workspace === "books" || signedIn === null || (workspace === "collection" && !signedIn)) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => { void load(false, controller.signal); }, 180);
     return () => { window.clearTimeout(timer); controller.abort(); };
@@ -140,7 +143,7 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
     setMessage("Avatar updated.");
   };
   const resetFilters = () => { setQ(""); setTier("all"); setSpecies("all"); setFinish("all"); setMutation("all"); setSort("newest"); };
-  const title = workspace === "collection" ? "My pet collection — Renown" : "Discover pets — Renown";
+  const title = workspace === "collection" ? "My pet collection — Renown" : workspace === "books" ? "Collector books — Renown" : "Discover pets — Renown";
   const desc = "Search, filter, sort, and manage unique pets earned through real development work.";
   const url = `${origin}/pets`;
 
@@ -154,9 +157,13 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
           <SiteHeader current="pets" />
           <nav className="collectionNav collectionWorkspaceNav" aria-label="Collection workspace">
               {signedIn && <button className={workspace === "collection" ? "on" : ""} onClick={() => setWorkspace("collection")}>My collection</button>}
+              <button className={workspace === "books" ? "on" : ""} onClick={() => setWorkspace("books")}>Books</button>
               <button className={workspace === "discover" ? "on" : ""} onClick={() => setWorkspace("discover")}>Discover</button>
               {signedIn ? <a href="/?view=account">Account settings</a> : <a href="/">Log in</a>}
           </nav>
+
+          {message && <div className="collectionNotice"><span>{message}</span><button onClick={() => setMessage(null)}>Dismiss</button></div>}
+          {workspace === "books" ? <PetBooksWorkspace signedIn={signedIn} onMessage={setMessage} /> : <>
 
           <section className="collectionHero">
             <div>
@@ -192,7 +199,6 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
             </tbody></table></div>
           </details>
 
-          {message && <div className="collectionNotice"><span>{message}</span><button onClick={() => setMessage(null)}>Dismiss</button></div>}
           <div className="collectionResultsHeader"><span>{loading && pets.length === 0 ? "Loading…" : `Showing ${pets.length.toLocaleString()} of ${total.toLocaleString()}`}</span>{workspace === "collection" && <span>Choose “Set avatar” to use a pet across Renown.</span>}</div>
 
           {pets.length > 0 ? <section className={`collectionGrid${loading ? " isLoading" : ""}`}>
@@ -200,6 +206,7 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
           </section> : !loading && <section className="collectionEmpty"><h2>No pets match</h2><p>Try clearing a filter or searching for something broader.</p><button className="btn ghost" onClick={resetFilters}>Clear filters</button></section>}
 
           {nextCursor && <div className="collectionMore"><button className="btn ghost" disabled={loading} onClick={() => void load(true)}>{loading ? "Loading…" : `Load more · ${Math.max(0, total - pets.length).toLocaleString()} remaining`}</button></div>}
+          </>}
         </main>
       </body>
     </html>

@@ -900,6 +900,86 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .collectionEmpty p { color: var(--muted); }
 .collectionMore { display: flex; justify-content: center; margin-top: var(--s-6); }
 
+/* ── collector books ────────────────────────────────────────────────────── */
+.petBooksHero { border-bottom: 0; }
+.bookShelfSection { margin: 8px 0 34px; padding: 22px; background: color-mix(in srgb, var(--surface-0) 88%, transparent); border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--shadow-1); }
+.bookShelfHeading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+.bookShelfHeading h2 { margin: 4px 0 0; font-size: 25px; }
+.bookShelfHeading > p { max-width: 520px; margin: 0; color: var(--muted); text-align: right; }
+.petBookShelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 24px; align-items: end; padding: 20px 18px 12px; border-bottom: 12px solid color-mix(in srgb, #6d4429 74%, var(--surface-2)); box-shadow: inset 0 -4px rgba(0,0,0,.18); perspective: 900px; }
+.petBookCover { position: relative; display: flex; min-height: 290px; flex-direction: column; align-items: stretch; justify-content: flex-end; overflow: hidden; padding: 24px 20px; color: #f7f9ff; background: linear-gradient(145deg, #101827, #243b64); border: 1px solid rgba(255,255,255,.22); border-radius: 5px 14px 14px 5px; box-shadow: -7px 6px 0 rgba(0,0,0,.17), inset 8px 0 rgba(255,255,255,.07), inset -2px 0 rgba(0,0,0,.2); text-align: left; cursor: pointer; transform: rotateY(-4deg); transition: transform .2s var(--ease), box-shadow .2s var(--ease); }
+.petBookCover::before { position: absolute; inset: 0; content: ""; pointer-events: none; background: radial-gradient(circle at 82% 8%, rgba(255,255,255,.24), transparent 34%), repeating-linear-gradient(105deg, transparent 0 12px, rgba(255,255,255,.025) 13px 14px); }
+.petBookCover:hover { transform: rotateY(0) translateY(-8px); box-shadow: -9px 13px 0 rgba(0,0,0,.15), 0 18px 32px rgba(0,0,0,.18); }
+.petBookCover strong { position: relative; font: 800 28px/1.05 var(--font-display); letter-spacing: -.025em; text-transform: uppercase; }
+.petBookCover small, .bookFoil { position: relative; margin-top: 9px; color: rgba(255,255,255,.72); font: 700 10px var(--font-display); letter-spacing: .09em; text-transform: uppercase; }
+.bookFoil { margin: 0 0 auto; color: #9fe2ff; }
+.bookProgress { position: relative; height: 26px; overflow: hidden; margin-top: 18px; background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.14); border-radius: var(--r-xs); }
+.bookProgress i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #35a9df, #8ce7ff); opacity: .42; }
+.bookProgress span { position: relative; display: block; overflow: hidden; padding: 6px 8px; color: #fff; font: 700 10px var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
+.cover-holo { background: linear-gradient(135deg, #13263f, #704c90 40%, #187c92 72%, #202b52); }
+.cover-holo::after { position: absolute; inset: -60%; content: ""; background: linear-gradient(100deg, transparent 42%, rgba(255,255,255,.24) 49%, transparent 56%); transform: rotate(18deg); }
+.cover-archive { color: #f6e4bc; background: linear-gradient(145deg, #352419, #6f4c2e); border-color: #ad8659; }
+.cover-neon { background: linear-gradient(145deg, #090912, #251347); border-color: #dd50ff; box-shadow: -7px 6px 0 rgba(0,0,0,.22), inset 8px 0 rgba(255,255,255,.05), 0 0 22px rgba(203,71,255,.18); }
+.cover-field { color: #f3f1dc; background: linear-gradient(145deg, #29382b, #526643); }
+.cover-rose { background: linear-gradient(145deg, #3c1729, #963e6f); }
+.personalBookWrap { position: relative; }
+.personalBookWrap .petBookCover { width: 100%; }
+.deleteBook { position: absolute; top: 10px; right: 9px; z-index: 2; padding: 4px 7px; color: rgba(255,255,255,.72); background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.16); border-radius: var(--r-xs); font-size: 10px; cursor: pointer; }
+.createBookPanel { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 12px; margin-bottom: 22px; padding: 16px; background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-md); }
+.createBookPanel label { display: flex; flex-direction: column; gap: 6px; }
+.createBookPanel label span { color: var(--muted); font: 700 10px var(--font-display); letter-spacing: .07em; text-transform: uppercase; }
+.createBookPanel input, .createBookPanel select, .binderBuilder input, .binderBuilder select { min-width: 0; height: 40px; box-sizing: border-box; padding: 0 10px; color: var(--text); background: var(--surface-0); border: 1px solid var(--line-strong); border-radius: var(--r-sm); }
+.createBookPanel .bookDescription { grid-column: 1 / -1; }
+.createBookPanel > button { justify-self: start; }
+.petBookOpen { padding: 22px; background: linear-gradient(90deg, var(--surface-0), var(--surface-1) 49.5%, var(--line-2) 49.8%, var(--surface-1) 50.2%, var(--surface-0)); border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--shadow-2); }
+.petBookOpenHead { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 20px; margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line-2); }
+.petBookOpenHead h2 { margin: 4px 0; font-size: 32px; }
+.petBookOpenHead p { max-width: 720px; margin: 0; color: var(--muted); }
+.shareBook { margin-top: 9px; padding: 5px 8px; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: var(--r-xs); font: 700 10px var(--font-display); cursor: pointer; }
+.petBookBack { align-self: start; padding: 7px 10px; color: var(--ink); background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-sm); cursor: pointer; }
+.petBookCompletion { min-width: 132px; padding: 13px; background: var(--surface-inset); border: 1px solid var(--line-2); border-radius: var(--r-md); text-align: right; }
+.petBookCompletion strong, .petBookCompletion span, .petBookCompletion small { display: block; }
+.petBookCompletion strong { color: var(--text); font: 800 24px var(--font-display); }
+.petBookCompletion span, .petBookCompletion small { color: var(--muted); font-size: 11px; }
+.petBookLegend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 16px; margin-bottom: 14px; color: var(--muted); font-size: 11px; }
+.petBookLegend span { display: inline-flex; align-items: center; gap: 6px; }
+.petBookLegend i, .parallelRow i { display: inline-block; width: 9px; height: 9px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 50%; }
+.petBookLegend i.isDiscovered, .parallelRow i.isDiscovered { background: transparent; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.petBookLegend i.isOwned, .parallelRow i.isOwned { background: var(--accent-bright); border-color: var(--accent-bright); box-shadow: 0 0 8px var(--accent); }
+.officialBinderGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 13px; }
+.officialBinderSlot, .personalBinderSlot { position: relative; min-width: 0; padding: 11px; background: color-mix(in srgb, var(--surface-0) 90%, transparent); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: inset 0 1px var(--edge-hi); }
+.binderPocket { position: relative; display: flex; height: 130px; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 9px; background: linear-gradient(145deg, rgba(130,165,200,.08), rgba(255,255,255,.025)); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: inset 0 0 18px rgba(80,130,170,.06); }
+.binderPocket::after { position: absolute; inset: 0; content: ""; pointer-events: none; border: 1px solid rgba(255,255,255,.13); border-radius: inherit; }
+.binderPocket a { color: inherit; }
+.binderSlotNumber { position: absolute; top: 7px; left: 8px; z-index: 2; color: var(--muted); font: 700 9px var(--font-mono); letter-spacing: .05em; text-transform: uppercase; }
+.hiddenPetSilhouette { display: flex; width: 72px; height: 88px; align-items: center; justify-content: center; color: rgba(120,155,185,.48); background: rgba(70,100,130,.12); clip-path: polygon(20% 15%, 34% 0, 45% 17%, 62% 16%, 76% 1%, 88% 22%, 82% 45%, 100% 66%, 84% 100%, 16% 100%, 0 66%, 18% 45%, 12% 22%); font: 800 28px var(--font-display); filter: blur(.2px); }
+.officialBinderSlot > strong, .personalBinderSlot > strong { display: block; overflow: hidden; color: var(--text); font: 700 12px var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
+.binderHint { display: block; overflow: hidden; margin-top: 3px; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.parallelRow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 10px; }
+.parallelRow i { width: auto; height: 6px; border-radius: 3px; }
+.personalBinderGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 13px; min-height: 170px; }
+.personalBinderSlot { padding-top: 27px; }
+.personalPetArt, .emptyBinderPocket { display: flex; height: 130px; align-items: center; justify-content: center; margin-bottom: 9px; color: inherit; background: var(--surface-inset); border: 1px solid var(--line); border-radius: var(--r-sm); text-decoration: none; }
+.emptyBinderPocket { color: var(--faint); font: 300 38px var(--font-display); border-style: dashed; }
+.binderRemove { position: absolute; top: 6px; right: 6px; border: 0; color: var(--muted); background: transparent; font-size: 9px; cursor: pointer; }
+.personalBinderEmpty { display: flex; min-height: 120px; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--muted); border: 1px dashed var(--line-strong); border-radius: var(--r-md); text-align: center; }
+.binderBuilder { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line-2); }
+.binderBuilder > div { padding: 16px; background: var(--surface-1); border: 1px solid var(--line-2); border-radius: var(--r-md); }
+.binderBuilder h3 { margin: 0 0 4px; }
+.binderBuilder p { min-height: 36px; margin: 0 0 10px; font-size: 12px; }
+.binderBuilder select { width: 100%; }
+.binderBuilder .btn { margin-top: 10px; }
+.binderBuilderRow { display: grid; grid-template-columns: 130px 1fr; gap: 8px; }
+
+@media (max-width: 760px) {
+  .bookShelfHeading, .petBookOpenHead { display: flex; flex-direction: column; align-items: stretch; }
+  .bookShelfHeading > p { text-align: left; }
+  .petBookCompletion { text-align: left; }
+  .createBookPanel, .binderBuilder { grid-template-columns: 1fr; }
+  .officialBinderGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .petBookOpen { padding: 12px; }
+}
+
 @media (max-width: 1180px) {
   .collectionTools { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .collectionSearch { grid-column: 1 / -1; }

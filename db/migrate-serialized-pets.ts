@@ -7,14 +7,38 @@ import {
 } from "../core/procgen.ts";
 import { sql } from "./index.ts";
 
+await sql`create table if not exists pet_sets (
+  id text primary key,
+  name text not null,
+  description text not null default '',
+  subject_count integer not null,
+  release_year integer not null,
+  cover_style text not null default 'midnight',
+  spoiler_mode text not null default 'owned-only',
+  ordinal integer not null default 0,
+  created_at timestamp not null default now()
+)`;
+await sql`insert into pet_sets (id, name, description, subject_count, release_year, cover_style, ordinal) values
+  ('genesis-2026', 'Genesis 2026', 'The first complete Renown set. Sixty-four hidden subjects and seven parallel finishes.', ${BUILTIN_CARD_SUBJECTS}, 2026, 'holo', 1),
+  ('legacy-genesis', 'Founders Originals', 'The original pets that existed before printings. Preserved forever as active Founders subjects.', 120, 2026, 'archive', 0)
+  on conflict (id) do update set name = excluded.name, description = excluded.description, release_year = excluded.release_year, cover_style = excluded.cover_style, ordinal = excluded.ordinal`;
+
 await sql`create table if not exists pet_subjects (
   id text primary key,
   set_id text not null,
+  slot_number integer not null,
   subject_seed text not null unique,
   name text not null,
   created_at timestamp not null default now()
 )`;
+await sql`alter table pet_subjects add column if not exists slot_number integer`;
+await sql`with ranked as (
+  select id, row_number() over (partition by set_id order by subject_seed, id)::int slot_number
+  from pet_subjects where slot_number is null
+) update pet_subjects s set slot_number = ranked.slot_number from ranked where s.id = ranked.id`;
+await sql`alter table pet_subjects alter column slot_number set not null`;
 await sql`create index if not exists pet_subjects_set_idx on pet_subjects (set_id, id)`;
+await sql`create unique index if not exists pet_subjects_set_slot_uniq on pet_subjects (set_id, slot_number)`;
 
 await sql`create table if not exists pet_printings (
   id text primary key,
@@ -44,6 +68,28 @@ await sql`create unique index if not exists wild_seed_sources_printing_serial_un
 await sql`create unique index if not exists wild_seed_sources_player_provenance_uniq on wild_seed_sources (player_id, provenance_seed)`;
 await sql`create index if not exists wild_seed_sources_finish_recent_idx on wild_seed_sources (finish, earned_at, pet_seed)`;
 await sql`create index if not exists wild_seed_sources_mutation_recent_idx on wild_seed_sources (mutation, earned_at, pet_seed)`;
+
+await sql`create table if not exists collector_books (
+  id text primary key,
+  player_id text not null references players(id) on delete cascade,
+  name text not null,
+  description text not null default '',
+  visibility text not null default 'private',
+  cover_style text not null default 'midnight',
+  created_at timestamp not null default now(),
+  updated_at timestamp not null default now()
+)`;
+await sql`create index if not exists collector_books_owner_updated_idx on collector_books (player_id, updated_at)`;
+await sql`create table if not exists collector_book_slots (
+  book_id text not null references collector_books(id) on delete cascade,
+  position integer not null check (position > 0),
+  target jsonb not null default '{"kind":"freeform","label":"Open slot"}'::jsonb,
+  pet_seed text,
+  note text not null default '',
+  created_at timestamp not null default now(),
+  primary key (book_id, position)
+)`;
+await sql`create unique index if not exists collector_book_slots_book_pet_uniq on collector_book_slots (book_id, pet_seed) where pet_seed is not null`;
 
 // One function call is one PostgreSQL transaction. The advisory lock makes retries for
 // the same player/provenance idempotent; the row UPDATE serializes different pulls from
@@ -123,8 +169,8 @@ for (let i = 0; i < BUILTIN_CARD_SUBJECTS; i++) {
   const subjectSeed = builtInCardSubjectSeed(i);
   const subjectId = `${CARD_SET}:${stableToken(subjectSeed)}`;
   const pet = generate(subjectSeed);
-  await sql`insert into pet_subjects (id, set_id, subject_seed, name)
-    values (${subjectId}, ${CARD_SET}, ${subjectSeed}, ${pet.name}) on conflict (id) do nothing`;
+  await sql`insert into pet_subjects (id, set_id, slot_number, subject_seed, name)
+    values (${subjectId}, ${CARD_SET}, ${i + 1}, ${subjectSeed}, ${pet.name}) on conflict (id) do nothing`;
 }
 
 type LegacyRow = { player_id: string; pet_seed: string; github_login: string; tier: string; one_of_one: boolean };
@@ -144,8 +190,9 @@ for (const row of legacyRows) {
   const printRun = CARD_VARIANTS[variant].printRun;
   const printingId = cardPrintingId(setId, subjectSeed, variant);
   const name = generate(subjectSeed).name;
-  await sql`insert into pet_subjects (id, set_id, subject_seed, name)
-    values (${subjectId}, ${setId}, ${subjectSeed}, ${name}) on conflict (id) do nothing`;
+  const [{ next_slot: nextSlot = 1 } = { next_slot: 1 }] = await sql`select coalesce(max(slot_number), 0)::int + 1 next_slot from pet_subjects where set_id = ${setId}` as { next_slot: number }[];
+  await sql`insert into pet_subjects (id, set_id, slot_number, subject_seed, name)
+    values (${subjectId}, ${setId}, ${nextSlot}, ${subjectSeed}, ${name}) on conflict (id) do nothing`;
   const permutation = serialPermutation(printingId, printRun);
   await sql`insert into pet_printings (id, subject_id, set_id, variant, print_run, serial_offset, serial_step)
     values (${printingId}, ${subjectId}, ${setId}, ${variant}, ${printRun}, ${permutation.offset}, ${permutation.step}) on conflict (id) do nothing`;
@@ -190,5 +237,9 @@ if (unnumbered.length > 0) {
       where player_id = ${copy.player_id} and pet_seed = ${copy.pet_seed}`;
   }
 }
+
+await sql`update pet_sets s set subject_count = counts.total from (
+  select set_id, count(*)::int total from pet_subjects group by set_id
+) counts where s.id = counts.set_id`;
 
 console.log(`✓ serialized pet engine ensured (${BUILTIN_CARD_SUBJECTS} Genesis subjects, ${legacyRows.length} legacy copies backfilled)`);
