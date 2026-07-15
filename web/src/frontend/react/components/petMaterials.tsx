@@ -13,6 +13,7 @@ import type { RGB } from "../../../shared/shiny.ts";
 import type { Creature } from "../../../shared/procgen";
 
 const PATTERN_MAP: Record<string, number> = { plain: 0, spots: 1, stripes: 2, scales: 3, runes: 4, cosmic: 5 };
+const COPY_PATTERN_MAP: Record<string, number> = { Speckled: 1, Pinstripe: 2, Constellation: 5, Circuit: 9, "Aurora Veil": 10, "Gilded Filigree": 4, "Impossible Fracture": 6 };
 const AURA_MAP: Record<string, number> = { none: 0, glow: 1, sparkle: 2, flame: 3, frost: 4, void: 5, rainbow: 6 };
 
 // Shared GLSL — uniforms swap per pet, source is one compiled program (three.js dedupes).
@@ -218,7 +219,9 @@ export const ProceduralMat = ({ creature, color, useVertexColor = false, warpMod
   // Trait → uniform mapping is deterministic. 1-of-1 hijacks to "chromatic"; a few species
   // claim signature shaders (Eldritch=voronoi cells, Construct=holographic foil, Sprite=neon
   // grid, Slime=oil-slick iridescence). Otherwise the creature's pattern trait wins.
+  const copyPattern = COPY_PATTERN_MAP[creature.copyTraits?.copyPattern ?? ""];
   const pattern = creature.oneOfOne ? 6
+    : copyPattern != null ? copyPattern
     : creature.traits.species === "Eldritch" ? 7
     : creature.traits.species === "Construct" ? 8
     : creature.traits.species === "Sprite" ? 9
@@ -231,11 +234,14 @@ export const ProceduralMat = ({ creature, color, useVertexColor = false, warpMod
     : creature.oneOfOne ? 1.2
     : creature.traits.species === "Eldritch" ? 0.7
     : 0;
-  const metal = creature.tier === "Legendary" ? 0.6
+  const material = creature.copyTraits?.material ?? "Standard";
+  const materialMetal = material === "Gold" || material === "Chrome" || material === "Relic" ? .95
+    : material === "Obsidian" ? .75 : material === "Pearl" || material === "Crystal" ? .45 : 0;
+  const metal = materialMetal || (creature.tier === "Legendary" ? 0.6
     : creature.tier === "Mythic" ? 0.8
     : creature.traits.species === "Construct" ? 0.5
-    : 0;
-  const emissive = creature.tier === "Mythic" ? 0.35
+    : 0);
+  const emissive = material === "Relic" ? .6 : material === "Crystal" ? .3 : creature.tier === "Mythic" ? 0.35
     : creature.tier === "Legendary" ? 0.18
     : creature.traits.aura === "glow" ? 0.25 : 0.05;
 

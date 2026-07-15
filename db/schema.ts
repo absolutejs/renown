@@ -196,8 +196,11 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   mintNumber: integer("mint_number"),
   variant: text("variant"),
   finish: text("finish"),
+  recipeVersion: text("recipe_version"),
   mutation: text("mutation"),
   colorway: text("colorway"),
+  material: text("material"),
+  copyPattern: text("copy_pattern"),
   earnedAt: timestamp("earned_at").notNull().defaultNow(),
   // Materialized deterministic procgen fields make collection search/filter/sort a
   // normal indexed database query instead of regenerating every pet on each request.
@@ -216,12 +219,14 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   ownerSizeIdx: index("wild_seed_sources_owner_size_idx").on(t.playerId, t.size, t.petSeed),
   finishRecentIdx: index("wild_seed_sources_finish_recent_idx").on(t.finish, t.earnedAt, t.petSeed),
   mutationRecentIdx: index("wild_seed_sources_mutation_recent_idx").on(t.mutation, t.earnedAt, t.petSeed),
+  materialRecentIdx: index("wild_seed_sources_material_recent_idx").on(t.material, t.earnedAt, t.petSeed),
+  copyPatternRecentIdx: index("wild_seed_sources_copy_pattern_recent_idx").on(t.copyPattern, t.earnedAt, t.petSeed),
   copySerialUniq: uniqueIndex("wild_seed_sources_printing_serial_uniq").on(t.printingId, t.serialNumber),
   provenanceUniq: uniqueIndex("wild_seed_sources_player_provenance_uniq").on(t.playerId, t.provenanceSeed),
 }));
 
 export type CollectorSlotTarget = {
-  kind: "freeform" | "tier" | "finish" | "mutation" | "species" | "serial" | "size";
+  kind: "freeform" | "tier" | "finish" | "mutation" | "material" | "colorway" | "pattern" | "species" | "serial" | "size";
   value?: string;
   label: string;
 };

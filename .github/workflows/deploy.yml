@@ -43,8 +43,10 @@ jobs:
           bun install --frozen-lockfile
           cd web && bun install --frozen-lockfile
 
-      - name: Typecheck (hard gate — blocks every deploy)
-        run: bun run typecheck
+      - name: Typecheck and test (hard gate — blocks every deploy)
+        run: |
+          bun run typecheck:all
+          bun test
 
       - name: Configure SSH key
         run: |

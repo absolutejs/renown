@@ -3,7 +3,7 @@
 // inside PostgreSQL's issue_pet_copy() function.
 import { and, eq, sql } from "drizzle-orm";
 import {
-  CARD_VARIANTS, cardCopyToken, cardPrintingId, cardSeedPrefix,
+  CARD_RECIPE_VERSION, CARD_SET, CARD_VARIANTS, cardCopyToken, cardPrintingId, cardSeedPrefix,
   cardSubjectIndex, chooseCardVariant, generate, serialPermutation, type CardVariant,
 } from "../../../core/procgen.ts";
 import { petSubjects, wildSeedSources } from "../../../db/schema.ts";
@@ -40,7 +40,7 @@ const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: s
     const result = await gameDb.execute(sql`select * from issue_pet_copy(
       ${playerId}, ${githubLogin}, ${provenanceSeed}, ${subject.id}, ${subject.subjectSeed}, ${subject.name},
       ${subject.setId}, ${variant}, ${printingId}, ${printRun}, ${permutation.offset}, ${permutation.step}, ${CARD_VARIANTS[variant].finish},
-      ${cardSeedPrefix(subject.setId, subject.subjectSeed, variant)}, ${copyToken}
+      ${CARD_RECIPE_VERSION}, ${cardSeedPrefix(subject.setId, subject.subjectSeed, variant)}, ${copyToken}
     )`);
     const row = (result.rows as unknown as IssueRow[])[0];
     if (!row) continue; // this printing sold out between selection and allocation
@@ -57,7 +57,9 @@ const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: s
       await gameDb.update(wildSeedSources).set({
         name: pet.name, tier: pet.tier, rarityScore: pet.score, size: pet.sizeN,
         species: pet.traits.species, aura: pet.traits.aura, oneOfOne: pet.oneOfOne,
+        recipeVersion: pet.card?.recipeVersion ?? CARD_RECIPE_VERSION,
         mutation: pet.copyTraits?.mutation ?? "Standard", colorway: pet.copyTraits?.colorway ?? "Original",
+        material: pet.copyTraits?.material ?? "Standard", copyPattern: pet.copyTraits?.copyPattern ?? "None",
       }).where(and(eq(wildSeedSources.playerId, playerId), eq(wildSeedSources.petSeed, issued.seed)));
     }
     return issued;
@@ -69,7 +71,7 @@ export const issuePetCopies = async ({ playerId, githubLogin, provenanceSeeds }:
   playerId: string; githubLogin: string; provenanceSeeds: string[];
 }): Promise<IssuedPet[]> => {
   const subjects = await gameDb.select({ id: petSubjects.id, setId: petSubjects.setId, subjectSeed: petSubjects.subjectSeed, name: petSubjects.name })
-    .from(petSubjects).orderBy(petSubjects.setId, petSubjects.id);
+    .from(petSubjects).where(eq(petSubjects.setId, CARD_SET)).orderBy(petSubjects.slotNumber);
   if (subjects.length === 0) throw new Error(`pet catalog has no subjects; run db/migrate-serialized-pets.ts`);
   const unique = [...new Set(provenanceSeeds.filter(Boolean))];
   const out: IssuedPet[] = [];

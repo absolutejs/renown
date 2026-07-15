@@ -1,7 +1,7 @@
 // Public /pet/:seed page — a complete collectible record for one pet copy.
 import { Head } from "@absolutejs/absolute/react/components";
 import type { ReactNode } from "react";
-import { CARD_VARIANTS, COPY_MUTATIONS, generate, TIER_RGB, type CardVariant, type CopyTraits, type RarityComponent, type Tier } from "../../../shared/procgen.ts";
+import { CARD_VARIANTS, COPY_COLORWAYS, COPY_MATERIALS, COPY_MUTATIONS, COPY_PATTERNS, generate, TIER_RGB, type CardVariant, type CopyTraits, type RarityComponent, type Tier, type WeightedCopyTrait } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
 import { SiteHeader } from "../components/SiteHeader";
 
@@ -20,18 +20,24 @@ type PetForUI = {
   seed: string; name: string; tier: string; sizeN: number; score: number;
   statRarity: number; rarestTrait: string; oneOfOne: boolean; mythicAura: boolean;
   traits: Record<string, string>; rarityBreakdown: RarityComponent[]; copyTraits?: CopyTraits;
-  card?: { serialNumber: number; printRun: number; pullOdds: number; variant: CardVariant; finish: string };
+  card?: { recipeVersion: "genesis-v1" | "genesis-v2"; serialNumber: number; printRun: number; pullOdds: number; variant: CardVariant; finish: string };
 };
 
 type PetOwner = { login: string | null; handle: string; tier: string; isAi: boolean; earnedVia: string | null;
   printingId: string | null; serialNumber: number | null; printRun: number | null; mintNumber: number | null;
-  variant: string | null; finish: string | null; mutation: string | null; colorway: string | null;
+  variant: string | null; finish: string | null; recipeVersion: string | null; mutation: string | null; colorway: string | null; material: string | null; copyPattern: string | null;
   population: number | null; setId: string | null; subjectName: string | null; earnedAt: string | null; sizeRank: number | null } | null;
 
 const Fact = ({ label, value }: { label: string; value: ReactNode }) => <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.07)" }}>
   <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>{label}</div>
   <div style={{ marginTop: 3, fontWeight: 750 }}>{value}</div>
 </div>;
+const OddsTable = ({ title, rows, current }: { title: string; rows: readonly WeightedCopyTrait[]; current: string }) => <>
+  <h3>{title}</h3>
+  <div style={{ overflowX: "auto" }}><table className="atable"><thead><tr><th>Treatment</th><th>Probability</th><th>Odds</th></tr></thead><tbody>
+    {rows.map((row) => <tr key={row.value} style={row.value === current ? { outline: "1px solid rgba(255,255,255,.35)", outlineOffset: -1 } : undefined}><td><strong>{row.value}{row.value === current ? " · this copy" : ""}</strong></td><td>{pct(row.probability)}</td><td>{odds(row.probability)}</td></tr>)}
+  </tbody></table></div>
+</>;
 
 const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origin: string }) => {
   const accent = hex(TIER_RGB[pet.tier as Tier] ?? [160, 160, 180]);
@@ -43,6 +49,9 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
   const finish = owner?.finish ?? pet.card?.finish ?? config?.finish ?? pet.tier;
   const mutation = owner?.mutation ?? pet.copyTraits?.mutation ?? "Standard";
   const colorway = owner?.colorway ?? pet.copyTraits?.colorway ?? "Original";
+  const material = owner?.material ?? pet.copyTraits?.material ?? "Standard";
+  const copyPattern = owner?.copyPattern ?? pet.copyTraits?.copyPattern ?? "None";
+  const masterpieceTitle = pet.copyTraits?.masterpieceTitle;
   const population = owner?.population ?? null;
   const finishBreakdown = pet.rarityBreakdown.some((row) => row.group === "Finish") || !config ? [] : [{ group: "Finish" as const, label: "finish", value: finish, probability: config.probability, score: +(-Math.log2(config.probability)).toFixed(2) }];
   const breakdown = [...pet.rarityBreakdown, ...finishBreakdown];
@@ -51,6 +60,8 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
     owner?.sizeRank === 1 ? "Largest known copy" : owner?.sizeRank ? `Size rank #${owner.sizeRank}` : null,
     serial != null && serial <= 10 ? `Low serial #${serial}` : null,
     mutation !== "Standard" ? `${mutation} mutation` : null,
+    material !== "Standard" ? `${material} material` : null,
+    copyPattern !== "None" ? `${copyPattern} pattern` : null,
     owner?.setId === "legacy-genesis" ? "Founders Original" : null,
   ].filter(Boolean) as string[];
 
@@ -62,9 +73,9 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
         <span dangerouslySetInnerHTML={{ __html: heroSvgHtml(pet.seed, 176) }} />
       </div>
       <div style={{ flex: 1, minWidth: 220 }}>
-        <div className="muted" style={{ fontWeight: 800, textTransform: "uppercase", letterSpacing: ".08em", fontSize: 12 }}>{finish} · {pet.tier}</div>
+        <div className="muted" style={{ fontWeight: 800, textTransform: "uppercase", letterSpacing: ".08em", fontSize: 12 }}>{finish}{masterpieceTitle ? ` · ${masterpieceTitle}` : ""} · {pet.tier}</div>
         <h1 style={{ margin: "5px 0 8px" }}>{pet.name}{serial != null && total != null && <span style={{ marginLeft: 10, fontSize: 14, color: accent, fontWeight: 800, verticalAlign: "middle" }}>#{serial.toLocaleString()} / {total.toLocaleString()}</span>}</h1>
-        <p className="muted" style={{ margin: 0 }}>Size {pet.sizeN} · {colorway} colorway · {mutation} mutation</p>
+        <p className="muted" style={{ margin: 0 }}>Size {pet.sizeN} · {colorway} colorway · {material} material · {copyPattern} surface · {mutation} mutation</p>
         {distinctions.length > 0 && <div className="petDistinctions" style={{ marginTop: 10 }}>{distinctions.map((item) => <span key={item}>{item}</span>)}</div>}
         {owner?.login
           ? <p style={{ margin: "13px 0 0" }}>Owned by <a href={`/profile/${encodeURIComponent(owner.login)}`} style={{ fontWeight: 700, color: accent, textDecoration: "none" }}>@{owner.login}</a>{owner.isAi && <span title="AI participant"> 🤖</span>}</p>
@@ -81,6 +92,8 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
         <Fact label="Published odds" value={config ? `${pct(config.probability)} · ${odds(config.probability)}` : "Legacy issue"} />
         <Fact label="Discovery order" value={owner?.mintNumber ? `Mint #${owner.mintNumber.toLocaleString()}` : "Original issue"} />
         <Fact label="Set" value={owner?.setId ?? (pet.card ? "Genesis 2026" : "Legacy")} />
+        <Fact label="Generation recipe" value={owner?.recipeVersion ?? pet.card?.recipeVersion ?? "Founders original"} />
+        {masterpieceTitle && <Fact label="Unique Masterpiece title" value={masterpieceTitle} />}
       </div>
       <p className="muted" style={{ marginBottom: 0, fontSize: 13 }}>Serials are deterministically shuffled inside the fixed print run. Mint number records when a copy was discovered; serial number does not, so the first pull is not automatically #1.</p>
       {owner?.earnedAt && <p className="muted" style={{ fontSize: 13 }}>Earned {new Date(owner.earnedAt).toLocaleString()}{owner.earnedVia ? ` via @${owner.earnedVia}` : ""}. Ownership and earning provenance are permanent.</p>}
@@ -89,6 +102,7 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
     <section className="card">
       <h2 style={{ marginTop: 0 }}>Why this copy is rare</h2>
       <p className="muted">Rarity score is transparent information content: each independently rolled component contributes −log₂(probability). Scores add; probabilities multiply.</p>
+      <p><strong>Exact generated combination:</strong> {odds(breakdown.reduce((product, row) => product * row.probability, 1))}</p>
       <div style={{ overflowX: "auto" }}><table className="atable">
         <thead><tr><th>Layer</th><th>Trait</th><th>Value</th><th>Probability</th><th>Odds</th><th>Score</th></tr></thead>
         <tbody>{breakdown.map((row, index) => <tr key={`${row.group}:${row.label}:${index}`}><td>{row.group}</td><td>{row.label}</td><td><strong>{row.value}</strong></td><td>{pct(row.probability)}</td><td>{odds(row.probability)}</td><td>+{row.score.toFixed(2)}</td></tr>)}</tbody>
@@ -99,6 +113,11 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
       <div style={{ overflowX: "auto" }}><table className="atable"><thead><tr><th>Mutation</th><th>Probability</th><th>Odds</th></tr></thead><tbody>
         {[...COPY_MUTATIONS].reverse().map((row) => <tr key={row.value} style={row.value === mutation ? { outline: `1px solid ${accent}88`, outlineOffset: -1 } : undefined}><td><strong>{row.value}{row.value === mutation ? " · this copy" : ""}</strong></td><td>{pct(row.probability)}</td><td>{odds(row.probability)}</td></tr>)}
       </tbody></table></div>
+      {pet.card?.recipeVersion === "genesis-v2" && <>
+        <OddsTable title="Material odds" rows={COPY_MATERIALS} current={material} />
+        <OddsTable title="Surface-pattern odds" rows={COPY_PATTERNS} current={copyPattern} />
+        <OddsTable title="Colorway odds" rows={COPY_COLORWAYS} current={colorway} />
+      </>}
     </section>
 
     <section className="card">
@@ -112,7 +131,7 @@ const PetBody = ({ pet, owner, origin }: { pet: PetForUI; owner: PetOwner; origi
 
     <section className="card">
       <h2 style={{ marginTop: 0 }}>Subject DNA & copy variation</h2>
-      <p className="muted">Copies in one line share a recognizable subject—species, face, pattern, name, and silhouette family. Finish sets the edition and supply. Each physical copy then receives bounded scale and color variation, plus a separately published mutation roll.</p>
+      <p className="muted">Copies in one line share recognizable subject DNA—species, face, body pattern, name, and silhouette family. Finish sets the edition and fixed supply. Each physical copy independently rolls scale, colorway, material, surface pattern, and mutation, creating disclosed combination chases without changing its subject identity.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
         {Object.entries(pet.traits).map(([k, v]) => <Fact key={k} label={k} value={v} />)}
       </div>

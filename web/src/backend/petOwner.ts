@@ -8,14 +8,15 @@ import { normalizeTier } from "./billing/tiers";
 import { gameDb } from "./sync.ts";
 
 export type PetOwner = { login: string | null; handle: string; tier: string; isAi: boolean; earnedVia: string | null; printingId: string | null; serialNumber: number | null; printRun: number | null;
-  mintNumber: number | null; variant: string | null; finish: string | null; mutation: string | null; colorway: string | null; population: number | null; setId: string | null; subjectName: string | null; earnedAt: string | null; sizeRank: number | null } | null;
+  mintNumber: number | null; variant: string | null; finish: string | null; recipeVersion: string | null; mutation: string | null; colorway: string | null; material: string | null; copyPattern: string | null; population: number | null; setId: string | null; subjectName: string | null; earnedAt: string | null; sizeRank: number | null } | null;
 
 export const findPetOwner = async (seed: string): Promise<PetOwner> => {
   if (!seed) return null;
   const src = (await gameDb.select({ playerId: wildSeedSources.playerId, githubLogin: wildSeedSources.githubLogin,
     printingId: wildSeedSources.printingId, serialNumber: wildSeedSources.serialNumber, printRun: wildSeedSources.printRun,
     mintNumber: wildSeedSources.mintNumber, variant: wildSeedSources.variant, finish: wildSeedSources.finish,
-    mutation: wildSeedSources.mutation, colorway: wildSeedSources.colorway, population: petPrintings.issued,
+    recipeVersion: wildSeedSources.recipeVersion, mutation: wildSeedSources.mutation, colorway: wildSeedSources.colorway,
+    material: wildSeedSources.material, copyPattern: wildSeedSources.copyPattern, population: petPrintings.issued,
     setId: petPrintings.setId, subjectName: petSubjects.name, earnedAt: wildSeedSources.earnedAt,
     sizeRank: sql<number>`(select 1 + count(*) from wild_seed_sources other where other.printing_id = ${wildSeedSources.printingId} and other.size > ${wildSeedSources.size})::int`,
   }).from(wildSeedSources)
@@ -38,8 +39,11 @@ export const findPetOwner = async (seed: string): Promise<PetOwner> => {
     mintNumber: src?.mintNumber ?? null,
     variant: src?.variant ?? null,
     finish: src?.finish ?? null,
+    recipeVersion: src?.recipeVersion ?? null,
     mutation: src?.mutation ?? null,
     colorway: src?.colorway ?? null,
+    material: src?.material ?? null,
+    copyPattern: src?.copyPattern ?? null,
     population: src?.population ?? null,
     setId: src?.setId ?? null,
     subjectName: src?.subjectName ?? null,

@@ -26,6 +26,9 @@ export type GalleryPet = {
   printRun: number | null;
   finish: string | null;
   mutation: string | null;
+  material: string | null;
+  colorway: string | null;
+  copyPattern: string | null;
   population: number | null;
   sizeRank: number | null;
   isAvatar?: boolean;
@@ -71,7 +74,7 @@ const orderFor = (sort: PetSort) => sort === "rarest"
 const cursorValue = (row: { earnedAt: Date; rarityScore: number; size: number; name: string }, sort: PetSort) =>
   sort === "rarest" ? row.rarityScore : sort === "biggest" ? row.size : sort === "name" ? row.name : row.earnedAt.toISOString();
 
-type PetQuery = { limit?: number; cursor?: unknown; mode?: unknown; sort?: unknown; q?: unknown; tier?: unknown; species?: unknown; finish?: unknown; mutation?: unknown };
+type PetQuery = { limit?: number; cursor?: unknown; mode?: unknown; sort?: unknown; q?: unknown; tier?: unknown; species?: unknown; finish?: unknown; mutation?: unknown; material?: unknown; colorway?: unknown; pattern?: unknown };
 
 const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string | null): Promise<GalleryPage> => {
   const limit = Math.max(1, Math.min(60, Number(query.limit) || 24));
@@ -83,6 +86,9 @@ const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string 
   const species = cleanFilter(query.species);
   const finish = cleanFilter(query.finish);
   const mutation = cleanFilter(query.mutation);
+  const material = cleanFilter(query.material);
+  const colorway = cleanFilter(query.colorway);
+  const pattern = cleanFilter(query.pattern);
   const filters: (SQL | undefined)[] = [
     eq(players.githubVerified, true),
     playerId ? eq(wildSeedSources.playerId, playerId) : undefined,
@@ -91,6 +97,9 @@ const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string 
     species && species !== "all" ? eq(wildSeedSources.species, species) : undefined,
     finish && finish !== "all" ? eq(wildSeedSources.finish, finish) : undefined,
     mutation === "mutated" ? sql`${wildSeedSources.mutation} <> 'Standard'` : mutation && mutation !== "all" ? eq(wildSeedSources.mutation, mutation) : undefined,
+    material && material !== "all" ? eq(wildSeedSources.material, material) : undefined,
+    colorway && colorway !== "all" ? eq(wildSeedSources.colorway, colorway) : undefined,
+    pattern && pattern !== "all" ? eq(wildSeedSources.copyPattern, pattern) : undefined,
   ];
   const baseWhere = and(...filters);
   const [{ total = 0 } = { total: 0 }] = await gameDb
@@ -105,7 +114,8 @@ const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string 
       name: wildSeedSources.name, petTier: wildSeedSources.tier, rarityScore: wildSeedSources.rarityScore,
       size: wildSeedSources.size, species: wildSeedSources.species, aura: wildSeedSources.aura, oneOfOne: wildSeedSources.oneOfOne,
       printingId: wildSeedSources.printingId, serialNumber: wildSeedSources.serialNumber, printRun: wildSeedSources.printRun,
-      finish: wildSeedSources.finish, mutation: wildSeedSources.mutation, population: petPrintings.issued,
+      finish: wildSeedSources.finish, mutation: wildSeedSources.mutation, material: wildSeedSources.material,
+      colorway: wildSeedSources.colorway, copyPattern: wildSeedSources.copyPattern, population: petPrintings.issued,
       sizeRank: sql<number>`(select 1 + count(*) from wild_seed_sources other where other.printing_id = ${wildSeedSources.printingId} and other.size > ${wildSeedSources.size})::int`,
     })
     .from(wildSeedSources)
@@ -123,7 +133,8 @@ const loadPets = async (query: PetQuery, playerId?: string, avatarSeed?: string 
     rarityScore: row.rarityScore, size: row.size, species: row.species, aura: row.aura,
     oneOfOne: row.oneOfOne, isAvatar: row.seed === avatarSeed, lookId: assignments[row.seed],
     printingId: row.printingId, serialNumber: row.serialNumber, printRun: row.printRun,
-    finish: row.finish, mutation: row.mutation, population: row.population, sizeRank: row.sizeRank,
+    finish: row.finish, mutation: row.mutation, material: row.material, colorway: row.colorway,
+    copyPattern: row.copyPattern, population: row.population, sizeRank: row.sizeRank,
   }));
   const last = pageRows.at(-1);
   return {
@@ -152,7 +163,7 @@ export const loadRecentPets = async (query: PetQuery = {}): Promise<GalleryPage>
     if (!seed) return [];
     return [{ seed, login: row.login, handle: row.handle, tier: normalizeTier(row.accountTier), isAi: row.isAi,
       earnedAt: row.verifiedAt?.toISOString() ?? null, name: "", rarityScore: 0, size: 0, species: "", aura: "none", oneOfOne: false,
-      printingId: null, serialNumber: null, printRun: null, finish: null, mutation: null, population: null, sizeRank: null }];
+      printingId: null, serialNumber: null, printRun: null, finish: null, mutation: null, material: null, colorway: null, copyPattern: null, population: null, sizeRank: null }];
   });
   return { mode, sort: "newest", total: pets.length, pets, nextCursor: null };
 };

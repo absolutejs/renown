@@ -111,13 +111,15 @@ export const CARD_VARIANTS: Record<CardVariant, CardVariantConfig> = {
   epic:         { tier: "Epic",      finish: "Glitch",      printRun: 10_000,     weight: 20_000,  probability: .02,   pullOdds: 50 },
   legendary:    { tier: "Legendary", finish: "Prismatic",   printRun: 500,        weight: 8_000,   probability: .008,  pullOdds: 125 },
   mythic:       { tier: "Mythic",    finish: "Spectral",    printRun: 25,         weight: 1_900,   probability: .0019, pullOdds: 1 / .0019 },
-  "one-of-one": { tier: "Mythic",    finish: "Black Label", printRun: 1,          weight: 100,     probability: .0001, pullOdds: 10_000 },
+  "one-of-one": { tier: "Mythic",    finish: "Masterpiece", printRun: 1,          weight: 100,     probability: .0001, pullOdds: 10_000 },
 };
 const CARD_VARIANT_ORDER = Object.keys(CARD_VARIANTS) as CardVariant[];
 export const CARD_SET = "genesis-2026";
-export const BUILTIN_CARD_SUBJECTS = 64;
+export const BUILTIN_CARD_SUBJECTS = 256;
+export const CARD_RECIPE_VERSION = "genesis-v2";
 
 export type CardCopyIdentity = {
+  recipeVersion: "genesis-v1" | "genesis-v2";
   setId: string;
   subjectSeed: string;
   variant: CardVariant;
@@ -129,7 +131,8 @@ export type CardCopyIdentity = {
 };
 
 export type RarityComponent = { group: "Subject" | "Finish" | "Copy"; label: string; value: string; probability: number; score: number };
-export type CopyTraits = { scale: string; colorway: string; mutation: string; shiny: boolean };
+export type WeightedCopyTrait = { max: number; value: string; probability: number };
+export type CopyTraits = { scale: string; colorway: string; material: string; copyPattern: string; mutation: string; shiny: boolean; masterpieceTitle?: string };
 const rarityComponent = (group: RarityComponent["group"], label: string, value: string, probability: number): RarityComponent =>
   ({ group, label, value, probability, score: +(-Math.log2(probability)).toFixed(2) });
 
@@ -168,14 +171,14 @@ export const chooseCardVariant = (pullSeed: string, attempt = 0): CardVariant =>
 };
 export const cardCopyToken = (ownerKey: string, provenanceSeed: string) => stableToken(`${ownerKey}:${provenanceSeed}`);
 export const cardSeedPrefix = (setId: string, subjectSeed: string, variant: CardVariant) =>
-  `card:v1:${encodeURIComponent(setId)}:${encodeURIComponent(subjectSeed)}:${variant}`;
+  `card:v2:${encodeURIComponent(setId)}:${encodeURIComponent(subjectSeed)}:${variant}`;
 export const serializedCardSeed = ({ setId, subjectSeed, variant, serialNumber, printRun, copyToken }: {
   setId: string; subjectSeed: string; variant: CardVariant; serialNumber: number; printRun: number; copyToken: string;
 }) => `${cardSeedPrefix(setId, subjectSeed, variant)}:${serialNumber}:${printRun}:${copyToken}`;
 
 export const parseCardSeed = (seed: string): CardCopyIdentity | null => {
   const parts = seed.split(":");
-  if (parts.length !== 8 || parts[0] !== "card" || parts[1] !== "v1") return null;
+  if (parts.length !== 8 || parts[0] !== "card" || (parts[1] !== "v1" && parts[1] !== "v2")) return null;
   const variant = parts[4] as CardVariant;
   const cfg = CARD_VARIANTS[variant];
   const serialNumber = Number(parts[5]), printRun = Number(parts[6]);
@@ -183,7 +186,7 @@ export const parseCardSeed = (seed: string): CardCopyIdentity | null => {
   try {
     const setId = decodeURIComponent(parts[2]), subjectSeed = decodeURIComponent(parts[3]);
     if (!setId || !subjectSeed) return null;
-    return { setId, subjectSeed, variant, printingId: cardPrintingId(setId, subjectSeed, variant), serialNumber, printRun, pullOdds: cfg.pullOdds, finish: cfg.finish };
+    return { recipeVersion: parts[1] === "v2" ? "genesis-v2" : "genesis-v1", setId, subjectSeed, variant, printingId: cardPrintingId(setId, subjectSeed, variant), serialNumber, printRun, pullOdds: cfg.pullOdds, finish: cfg.finish };
   } catch { return null; }
 };
 
@@ -193,12 +196,12 @@ export const parseCardSeed = (seed: string): CardCopyIdentity | null => {
 export const canonicalPetSeed = (raw: string) => {
   if (parseCardSeed(raw)) return raw;
   const parts = raw.split(":");
-  if (parts.length < 8 || parts[0] !== "card" || parts[1] !== "v1") return raw;
+  if (parts.length < 8 || parts[0] !== "card" || (parts[1] !== "v1" && parts[1] !== "v2")) return raw;
   const variantAt = parts.length - 4;
   const variant = parts[variantAt] as CardVariant;
   if (!CARD_VARIANTS[variant]) return raw;
   const subjectSeed = parts.slice(3, variantAt).join(":");
-  return `card:v1:${encodeURIComponent(parts[2])}:${encodeURIComponent(subjectSeed)}:${parts.slice(variantAt).join(":")}`;
+  return `card:${parts[1]}:${encodeURIComponent(parts[2])}:${encodeURIComponent(subjectSeed)}:${parts.slice(variantAt).join(":")}`;
 };
 
 // ---- ASCII sprite: symmetric silhouette (CA + mirror) + parts + palette ----
@@ -541,7 +544,59 @@ export const COPY_MUTATIONS = [
   { max: .02, value: "Iridescent", probability: .015 },
   { max: 1, value: "Standard", probability: .98 },
 ] as const;
-const COLORWAYS = ["Rose", "Azure", "Verdant", "Golden", "Violet"] as const;
+// Genesis v2 publishes every independent copy roll. Extremely rare combinations emerge
+// from multiplying these disclosed odds; no copy receives an invented post-hoc rarity.
+export const COPY_COLORWAYS: readonly WeightedCopyTrait[] = [
+  { max: .30, value: "Original", probability: .30 },
+  { max: .42, value: "Rose", probability: .12 },
+  { max: .54, value: "Azure", probability: .12 },
+  { max: .66, value: "Verdant", probability: .12 },
+  { max: .76, value: "Violet", probability: .10 },
+  { max: .84, value: "Ember", probability: .08 },
+  { max: .90, value: "Arctic", probability: .06 },
+  { max: .94, value: "Golden", probability: .04 },
+  { max: .97, value: "Midnight", probability: .03 },
+  { max: .99, value: "Monochrome", probability: .02 },
+  { max: .999, value: "Ultraviolet", probability: .009 },
+  { max: 1, value: "Aurora", probability: .001 },
+] as const;
+export const COPY_MATERIALS: readonly WeightedCopyTrait[] = [
+  { max: .894999, value: "Standard", probability: .894999 },
+  { max: .954999, value: "Satin", probability: .06 },
+  { max: .979999, value: "Pearl", probability: .025 },
+  { max: .991999, value: "Chrome", probability: .012 },
+  { max: .996999, value: "Gold", probability: .005 },
+  { max: .998999, value: "Crystal", probability: .002 },
+  { max: .999999, value: "Obsidian", probability: .001 },
+  { max: 1, value: "Relic", probability: .000001 },
+] as const;
+export const COPY_PATTERNS: readonly WeightedCopyTrait[] = [
+  { max: .941999, value: "None", probability: .941999 },
+  { max: .971999, value: "Speckled", probability: .03 },
+  { max: .986999, value: "Pinstripe", probability: .015 },
+  { max: .994999, value: "Constellation", probability: .008 },
+  { max: .998499, value: "Circuit", probability: .0035 },
+  { max: .999699, value: "Aurora Veil", probability: .0012 },
+  { max: .999999, value: "Gilded Filigree", probability: .0003 },
+  { max: 1, value: "Impossible Fracture", probability: .000001 },
+] as const;
+const LEGACY_COLORWAYS = ["Rose", "Azure", "Verdant", "Golden", "Violet"] as const;
+const pickCopyTrait = (rng: Rng, table: readonly WeightedCopyTrait[]) => {
+  const roll = rng();
+  return table.find((entry) => roll < entry.max) ?? table.at(-1)!;
+};
+const blend = (rgb: RGB, target: RGB, amount: number): RGB => [
+  clampChannel(rgb[0] * (1 - amount) + target[0] * amount),
+  clampChannel(rgb[1] * (1 - amount) + target[1] * amount),
+  clampChannel(rgb[2] * (1 - amount) + target[2] * amount),
+];
+const COLORWAY_TARGETS: Record<string, RGB> = {
+  Rose: [255, 80, 145], Azure: [50, 145, 255], Verdant: [45, 205, 105], Violet: [155, 70, 255],
+  Ember: [255, 75, 20], Arctic: [190, 240, 255], Golden: [255, 190, 35], Midnight: [16, 22, 55],
+  Monochrome: [175, 175, 185], Ultraviolet: [110, 0, 255], Aurora: [40, 255, 205],
+};
+const MASTERPIECE_PREFIX = ["Solar", "Astral", "Eternal", "Sovereign", "Impossible", "Crowned", "First Light", "Event Horizon"];
+const MASTERPIECE_RELIC = ["Relic", "Monument", "Artifact", "Dream", "Singularity", "Crown", "Miracle", "Masterwork"];
 
 // Serialized copies share their subject's name, traits and line silhouette. The copy
 // token introduces bounded size/palette variation, so two cards in the same printing
@@ -559,7 +614,11 @@ export const generate = (seed: string): Creature => {
   let palette: [RGB, RGB] = [copyTint(base.palette[0], factor, bias), copyTint(base.palette[1], factor, -bias)];
   let eyeColor = copyTint(base.eyeColor, 0.96 + copyRng() * 0.08, -bias / 2);
   const traitRng = makeRng(`card-copy-traits:${seed}`);
-  const colorway = COLORWAYS[rint(traitRng, COLORWAYS.length)];
+  const legacyRecipe = card.recipeVersion === "genesis-v1";
+  const legacyColorway = LEGACY_COLORWAYS[rint(traitRng, LEGACY_COLORWAYS.length)];
+  const colorway = legacyRecipe ? { value: legacyColorway, probability: 1 / LEGACY_COLORWAYS.length } : pickCopyTrait(traitRng, COPY_COLORWAYS);
+  const material = legacyRecipe ? { value: "Standard", probability: 1 } : pickCopyTrait(traitRng, COPY_MATERIALS);
+  const copyPattern = legacyRecipe ? { value: "None", probability: 1 } : pickCopyTrait(traitRng, COPY_PATTERNS);
   const mutationRoll = traitRng();
   const mutation = COPY_MUTATIONS.find((entry) => mutationRoll < entry.max) ?? COPY_MUTATIONS.at(-1)!;
   const scale = COPY_SCALE(sizeDelta);
@@ -567,15 +626,36 @@ export const generate = (seed: string): Creature => {
   const [finishFactor, finishBias] = finishBoost[card.variant];
   palette = [copyTint(palette[0], finishFactor, finishBias), copyTint(palette[1], finishFactor, -finishBias / 2)];
   eyeColor = copyTint(eyeColor, finishFactor, finishBias);
+  const target = COLORWAY_TARGETS[colorway.value];
+  if (target) {
+    const strength = colorway.value === "Midnight" ? .55 : colorway.value === "Monochrome" ? .7 : .38;
+    palette = [blend(palette[0], target, strength), blend(palette[1], target, strength * .62)];
+    eyeColor = blend(eyeColor, target, .18);
+  }
+  if (material.value === "Gold") palette = [blend(palette[0], [255, 190, 35], .72), blend(palette[1], [125, 62, 4], .48)];
+  if (material.value === "Chrome") palette = [blend(palette[0], [225, 235, 250], .68), blend(palette[1], [75, 90, 115], .55)];
+  if (material.value === "Pearl") palette = [blend(palette[0], [255, 245, 250], .48), blend(palette[1], [175, 215, 255], .3)];
+  if (material.value === "Crystal") palette = [blend(palette[0], [190, 245, 255], .62), blend(palette[1], [110, 160, 255], .4)];
+  if (material.value === "Obsidian") palette = [blend(palette[0], [8, 8, 14], .82), blend(palette[1], [70, 15, 100], .62)];
+  if (material.value === "Relic") palette = [[255, 207, 72], [45, 4, 80]];
   if (mutation.value === "Iridescent") palette = [copyTint(palette[0], 1.12, 20), copyTint(palette[1], 1.12, 12)];
   if (mutation.value === "Chromatic") palette = [eyeColor, [255 - eyeColor[0], 255 - eyeColor[1], 255 - eyeColor[2]]];
   if (mutation.value === "Negative") palette = [[255 - palette[0][0], 255 - palette[0][1], 255 - palette[0][2]], [255 - palette[1][0], 255 - palette[1][1], 255 - palette[1][2]]];
   if (mutation.value === "Singularity") { palette = [[8, 8, 14], [112, 0, 255]]; eyeColor = [255, 255, 255]; }
+  const masterpieceTitle = card.variant === "one-of-one"
+    ? `${MASTERPIECE_PREFIX[rint(makeRng(`masterpiece-title:${seed}`), MASTERPIECE_PREFIX.length)]} ${MASTERPIECE_RELIC[rint(makeRng(`masterpiece-relic:${seed}`), MASTERPIECE_RELIC.length)]}`
+    : undefined;
+  if (masterpieceTitle) {
+    palette = [blend(palette[0], [255, 215, 80], .38), blend(palette[1], [155, 45, 255], .38)];
+    eyeColor = [255, 255, 255];
+  }
   const rarityBreakdown = [
     ...base.rarityBreakdown,
     rarityComponent("Finish", "finish", cfg.finish, cfg.probability),
     rarityComponent("Copy", "scale", scale.value, scale.probability),
-    rarityComponent("Copy", "colorway", colorway, 1 / COLORWAYS.length),
+    rarityComponent("Copy", "colorway", colorway.value, colorway.probability),
+    rarityComponent("Copy", "material", material.value, material.probability),
+    rarityComponent("Copy", "surface pattern", copyPattern.value, copyPattern.probability),
     rarityComponent("Copy", "mutation", mutation.value, mutation.probability),
   ];
   const totalProbability = rarityBreakdown.reduce((product, part) => product * part.probability, 1);
@@ -595,7 +675,7 @@ export const generate = (seed: string): Creature => {
     eyeColor,
     sizeN,
     rarityBreakdown,
-    copyTraits: { scale: scale.value, colorway, mutation: mutation.value, shiny: mutation.value !== "Standard" },
+    copyTraits: { scale: scale.value, colorway: colorway.value, material: material.value, copyPattern: copyPattern.value, mutation: mutation.value, shiny: mutation.value !== "Standard" || material.value !== "Standard" || copyPattern.value !== "None", ...(masterpieceTitle ? { masterpieceTitle } : {}) },
     sprite: () => "",
   };
   creature.sprite = () => renderCreature(creature, 0);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CARD_SET, CARD_VARIANTS, COPY_MUTATIONS, builtInCardSubjectSeed, canonicalPetSeed, cardCopyToken, generate, makeRng, parseCardSeed, rollWild, serializedCardSeed, shuffledSerial, type Tier } from "../core/procgen.ts";
+import { BUILTIN_CARD_SUBJECTS, CARD_SET, CARD_VARIANTS, COPY_COLORWAYS, COPY_MATERIALS, COPY_MUTATIONS, COPY_PATTERNS, builtInCardSubjectSeed, canonicalPetSeed, cardCopyToken, generate, makeRng, parseCardSeed, rollWild, serializedCardSeed, shuffledSerial, type Tier } from "../core/procgen.ts";
 
 describe("procgen determinism (the seed is the asset)", () => {
   test("the same seed always reproduces the exact same creature", () => {
@@ -76,10 +76,32 @@ describe("serialized card printings", () => {
   test("published finish probabilities are exhaustive and rarity math is additive", () => {
     expect(Object.values(CARD_VARIANTS).reduce((sum, row) => sum + row.probability, 0)).toBeCloseTo(1, 10);
     expect(COPY_MUTATIONS.reduce((sum, row) => sum + row.probability, 0)).toBeCloseTo(1, 10);
+    expect(COPY_COLORWAYS.reduce((sum, row) => sum + row.probability, 0)).toBeCloseTo(1, 10);
+    expect(COPY_MATERIALS.reduce((sum, row) => sum + row.probability, 0)).toBeCloseTo(1, 10);
+    expect(COPY_PATTERNS.reduce((sum, row) => sum + row.probability, 0)).toBeCloseTo(1, 10);
     const pet = generate(copy(34, "math"));
     expect(pet.score).toBeCloseTo(pet.rarityBreakdown.reduce((sum, row) => sum + row.score, 0), 1);
     expect(pet.rarityBreakdown.map((row) => row.group)).toContain("Finish");
     expect(pet.rarityBreakdown.map((row) => row.label)).toContain("mutation");
+    expect(pet.rarityBreakdown.map((row) => row.label)).toContain("material");
+    expect(pet.rarityBreakdown.map((row) => row.label)).toContain("surface pattern");
+  });
+
+  test("Genesis is a 256-subject public manifest with a versioned copy recipe", () => {
+    expect(BUILTIN_CARD_SUBJECTS).toBe(256);
+    const pet = generate(copy(34, "recipe"));
+    expect(pet.card?.recipeVersion).toBe("genesis-v2");
+    expect(pet.copyTraits?.material).toBeTruthy();
+    expect(pet.copyTraits?.copyPattern).toBeTruthy();
+  });
+
+  test("historical card:v1 links retain the original three copy rolls", () => {
+    const v2 = copy(34, "legacy-link");
+    const v1 = v2.replace("card:v2:", "card:v1:");
+    const pet = generate(v1);
+    expect(pet.card?.recipeVersion).toBe("genesis-v1");
+    expect(pet.copyTraits?.material).toBe("Standard");
+    expect(pet.copyTraits?.copyPattern).toBe("None");
   });
 });
 

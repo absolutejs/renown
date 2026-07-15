@@ -13,7 +13,7 @@ const variantEntries = Object.entries(CARD_VARIANTS) as [CardVariant, (typeof CA
 const safeText = (value: unknown, max: number) => String(value ?? "").trim().slice(0, max);
 const COVER_STYLES = new Set(["midnight", "holo", "archive", "neon", "field", "rose"]);
 const VISIBILITIES = new Set(["private", "unlisted", "public"]);
-const TARGET_KINDS = new Set<CollectorSlotTarget["kind"]>(["freeform", "tier", "finish", "mutation", "species", "serial", "size"]);
+const TARGET_KINDS = new Set<CollectorSlotTarget["kind"]>(["freeform", "tier", "finish", "mutation", "material", "colorway", "pattern", "species", "serial", "size"]);
 
 const cleanTarget = (raw: unknown): CollectorSlotTarget => {
   const value = (raw && typeof raw === "object" ? raw : {}) as Partial<CollectorSlotTarget>;
@@ -64,7 +64,7 @@ export const loadOfficialPetBooks = async (playerId?: string | null) => {
       coverStyle: set.coverStyle, spoilerMode: set.spoilerMode, subjectCount: set.subjectCount,
       subjectsOwned, parallelsOwned, totalParallels: set.subjectCount * variantEntries.length, slots,
     };
-  });
+  }).filter((set) => set.id !== "legacy-genesis" || set.subjectsOwned > 0);
 };
 
 const loadPersonalBooks = async (playerId: string) => {
@@ -75,7 +75,8 @@ const loadPersonalBooks = async (playerId: string) => {
   const petSeeds = slots.map((slot) => slot.petSeed).filter((seed): seed is string => Boolean(seed));
   const pets = petSeeds.length ? await gameDb.select({
     seed: wildSeedSources.petSeed, name: wildSeedSources.name, tier: wildSeedSources.tier,
-    finish: wildSeedSources.finish, mutation: wildSeedSources.mutation, serialNumber: wildSeedSources.serialNumber,
+    finish: wildSeedSources.finish, mutation: wildSeedSources.mutation, material: wildSeedSources.material,
+    colorway: wildSeedSources.colorway, copyPattern: wildSeedSources.copyPattern, serialNumber: wildSeedSources.serialNumber,
     printRun: wildSeedSources.printRun, size: wildSeedSources.size,
   }).from(wildSeedSources).where(and(eq(wildSeedSources.playerId, playerId), inArray(wildSeedSources.petSeed, petSeeds))) : [];
   const petMap = new Map(pets.map((pet) => [pet.seed, pet]));
@@ -105,7 +106,8 @@ export const loadSharedCollectorBook = async (bookId: string) => {
 
 export const loadPetBookOptions = async (playerId: string) => gameDb.select({
   seed: wildSeedSources.petSeed, name: wildSeedSources.name, tier: wildSeedSources.tier,
-  finish: wildSeedSources.finish, mutation: wildSeedSources.mutation, serialNumber: wildSeedSources.serialNumber,
+  finish: wildSeedSources.finish, mutation: wildSeedSources.mutation, material: wildSeedSources.material,
+  colorway: wildSeedSources.colorway, copyPattern: wildSeedSources.copyPattern, serialNumber: wildSeedSources.serialNumber,
   printRun: wildSeedSources.printRun,
 }).from(wildSeedSources).where(eq(wildSeedSources.playerId, playerId)).orderBy(desc(wildSeedSources.rarityScore), asc(wildSeedSources.name)).limit(500);
 
@@ -113,6 +115,8 @@ const starterTargets = (starter: string): CollectorSlotTarget[] => starter === "
   ? ["Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic"].map((value) => ({ kind: "tier", value, label: `${value} tier` }))
   : starter === "finishes" ? variantEntries.map(([, cfg]) => ({ kind: "finish", value: cfg.finish, label: `${cfg.finish} parallel` }))
     : starter === "mutations" ? ["Iridescent", "Chromatic", "Negative", "Singularity"].map((value) => ({ kind: "mutation", value, label: `${value} mutation` }))
+      : starter === "materials" ? ["Satin", "Pearl", "Chrome", "Gold", "Crystal", "Obsidian", "Relic"].map((value) => ({ kind: "material", value, label: `${value} material` }))
+        : starter === "patterns" ? ["Speckled", "Pinstripe", "Constellation", "Circuit", "Aurora Veil", "Gilded Filigree", "Impossible Fracture"].map((value) => ({ kind: "pattern", value, label: `${value} pattern` }))
       : starter === "species" ? ["Slime", "Critter", "Beast", "Construct", "Drake", "Sprite", "Wyrm", "Eldritch", "Celestial"].map((value) => ({ kind: "species", value, label: value }))
         : [];
 

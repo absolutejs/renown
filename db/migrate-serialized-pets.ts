@@ -1,8 +1,8 @@
 // Serialized pet-card engine: subjects → supply-capped printings → owned copies.
 // Additive and idempotent. Existing pets keep their ownership/provenance and become
-// active Founders subjects; serials are a deterministic shuffle of each fixed run.
+// closed Founders records; serials are a deterministic shuffle of each fixed run.
 import {
-  BUILTIN_CARD_SUBJECTS, CARD_SET, CARD_VARIANTS, builtInCardSubjectSeed,
+  BUILTIN_CARD_SUBJECTS, CARD_RECIPE_VERSION, CARD_SET, CARD_VARIANTS, builtInCardSubjectSeed,
   cardPrintingId, generate, serialPermutation, shuffledSerial, stableToken, type CardVariant,
 } from "../core/procgen.ts";
 import { sql } from "./index.ts";
@@ -19,8 +19,8 @@ await sql`create table if not exists pet_sets (
   created_at timestamp not null default now()
 )`;
 await sql`insert into pet_sets (id, name, description, subject_count, release_year, cover_style, ordinal) values
-  ('genesis-2026', 'Genesis 2026', 'The first complete Renown set. Sixty-four hidden subjects and seven parallel finishes.', ${BUILTIN_CARD_SUBJECTS}, 2026, 'holo', 1),
-  ('legacy-genesis', 'Founders Originals', 'The original pets that existed before printings. Preserved forever as active Founders subjects.', 120, 2026, 'archive', 0)
+  ('genesis-2026', 'Genesis 2026', 'Renown’s first public release: 256 hidden subjects, seven parallel finishes, and independently rolled colorways, materials, surface patterns, and mutations.', ${BUILTIN_CARD_SUBJECTS}, 2026, 'holo', 1),
+  ('legacy-genesis', 'Founders Archive', 'Closed pre-public originals earned by Renown’s first two collectors. Preserved for provenance and never available in public pulls.', 120, 2026, 'archive', 0)
   on conflict (id) do update set name = excluded.name, description = excluded.description, release_year = excluded.release_year, cover_style = excluded.cover_style, ordinal = excluded.ordinal`;
 
 await sql`create table if not exists pet_subjects (
@@ -62,12 +62,17 @@ await sql`alter table wild_seed_sources add column if not exists print_run integ
 await sql`alter table wild_seed_sources add column if not exists mint_number integer`;
 await sql`alter table wild_seed_sources add column if not exists variant text`;
 await sql`alter table wild_seed_sources add column if not exists finish text`;
+await sql`alter table wild_seed_sources add column if not exists recipe_version text`;
 await sql`alter table wild_seed_sources add column if not exists mutation text`;
 await sql`alter table wild_seed_sources add column if not exists colorway text`;
+await sql`alter table wild_seed_sources add column if not exists material text`;
+await sql`alter table wild_seed_sources add column if not exists copy_pattern text`;
 await sql`create unique index if not exists wild_seed_sources_printing_serial_uniq on wild_seed_sources (printing_id, serial_number)`;
 await sql`create unique index if not exists wild_seed_sources_player_provenance_uniq on wild_seed_sources (player_id, provenance_seed)`;
 await sql`create index if not exists wild_seed_sources_finish_recent_idx on wild_seed_sources (finish, earned_at, pet_seed)`;
 await sql`create index if not exists wild_seed_sources_mutation_recent_idx on wild_seed_sources (mutation, earned_at, pet_seed)`;
+await sql`create index if not exists wild_seed_sources_material_recent_idx on wild_seed_sources (material, earned_at, pet_seed)`;
+await sql`create index if not exists wild_seed_sources_copy_pattern_recent_idx on wild_seed_sources (copy_pattern, earned_at, pet_seed)`;
 
 await sql`create table if not exists collector_books (
   id text primary key,
@@ -95,6 +100,7 @@ await sql`create unique index if not exists collector_book_slots_book_pet_uniq o
 // the same player/provenance idempotent; the row UPDATE serializes different pulls from
 // the same printing. If copy insertion fails, the serial increment rolls back with it.
 await sql`drop function if exists issue_pet_copy(text, text, text, text, text, text, text, text, text, integer, text, text)`;
+await sql`drop function if exists issue_pet_copy(text, text, text, text, text, text, text, text, text, integer, integer, integer, text, text, text)`;
 await sql`create or replace function issue_pet_copy(
   p_player_id text,
   p_github_login text,
@@ -109,6 +115,7 @@ await sql`create or replace function issue_pet_copy(
   p_serial_offset integer,
   p_serial_step integer,
   p_finish text,
+  p_recipe_version text,
   p_seed_prefix text,
   p_copy_token text
 ) returns table (out_pet_seed text, out_serial_number integer, out_print_run integer, out_printing_id text, out_created boolean)
@@ -135,10 +142,8 @@ begin
     return;
   end if;
 
-  insert into pet_subjects (id, set_id, subject_seed, name)
-  values (p_subject_id, p_set_id, p_subject_seed, p_subject_name)
-  on conflict (id) do nothing;
   select s.subject_seed into v_subject_seed from pet_subjects s where s.id = p_subject_id;
+  if not found then raise exception 'pet subject % is not in the frozen manifest', p_subject_id; end if;
   if v_subject_seed is distinct from p_subject_seed then raise exception 'pet subject identity mismatch for %', p_subject_id; end if;
 
   insert into pet_printings (id, subject_id, set_id, variant, print_run, serial_offset, serial_step)
@@ -156,15 +161,35 @@ begin
   v_serial := (mod(p_serial_offset::bigint + (v_mint::bigint - 1) * p_serial_step::bigint, v_total::bigint) + 1)::integer;
   v_pet_seed := p_seed_prefix || ':' || v_serial || ':' || v_total || ':' || p_copy_token;
   insert into wild_seed_sources (
-    player_id, pet_seed, github_login, provenance_seed, printing_id, serial_number, print_run, mint_number, variant, finish
+    player_id, pet_seed, github_login, provenance_seed, printing_id, serial_number, print_run, mint_number, variant, finish, recipe_version
   ) values (
-    p_player_id, v_pet_seed, p_github_login, p_provenance_seed, p_printing_id, v_serial, v_total, v_mint, p_variant, p_finish
+    p_player_id, v_pet_seed, p_github_login, p_provenance_seed, p_printing_id, v_serial, v_total, v_mint, p_variant, p_finish, p_recipe_version
   );
   return query select v_pet_seed, v_serial, v_total, p_printing_id, true;
 end $$`;
 
-// The first real set has a stable pool of recognizable subjects. Future sets can add
-// subjects without changing Genesis or any already-issued copy.
+// The deploy migrates before the binary swap. Keep the previous 15-argument contract
+// alive so the currently running server can still issue v1 copies if compile or smoke
+// fails after migration; the new binary calls the versioned overload above.
+await sql`create or replace function issue_pet_copy(
+  p_player_id text, p_github_login text, p_provenance_seed text,
+  p_subject_id text, p_subject_seed text, p_subject_name text,
+  p_set_id text, p_variant text, p_printing_id text,
+  p_print_run integer, p_serial_offset integer, p_serial_step integer,
+  p_finish text, p_seed_prefix text, p_copy_token text
+) returns table (out_pet_seed text, out_serial_number integer, out_print_run integer, out_printing_id text, out_created boolean)
+language sql as $$
+  select * from issue_pet_copy(
+    p_player_id, p_github_login, p_provenance_seed,
+    p_subject_id, p_subject_seed, p_subject_name,
+    p_set_id, p_variant, p_printing_id,
+    p_print_run, p_serial_offset, p_serial_step,
+    p_finish, 'genesis-v1', p_seed_prefix, p_copy_token
+  )
+$$`;
+
+// Genesis remains editable until its first public release. This migration expands its
+// deterministic manifest without renumbering any of the original 64 subject slots.
 for (let i = 0; i < BUILTIN_CARD_SUBJECTS; i++) {
   const subjectSeed = builtInCardSubjectSeed(i);
   const subjectId = `${CARD_SET}:${stableToken(subjectSeed)}`;
@@ -238,8 +263,22 @@ if (unnumbered.length > 0) {
   }
 }
 
+// Materialize the versioned copy recipe after Founders conversion. Existing card:v1
+// links retain their exact v1 generation; new card:v2 copies use Genesis v2.
+const recipeRows = await sql`select player_id, pet_seed, variant from wild_seed_sources where printing_id is not null` as { player_id: string; pet_seed: string; variant: CardVariant }[];
+for (const row of recipeRows) {
+  const pet = generate(row.pet_seed);
+  await sql`update wild_seed_sources set
+    recipe_version = ${pet.card?.recipeVersion ?? "founders-v1"},
+    finish = ${CARD_VARIANTS[row.variant]?.finish ?? "Base"},
+    mutation = ${pet.copyTraits?.mutation ?? "Standard"}, colorway = ${pet.copyTraits?.colorway ?? "Original"},
+    material = ${pet.copyTraits?.material ?? "Standard"}, copy_pattern = ${pet.copyTraits?.copyPattern ?? "None"},
+    rarity_score = ${pet.score}
+    where player_id = ${row.player_id} and pet_seed = ${row.pet_seed}`;
+}
+
 await sql`update pet_sets s set subject_count = counts.total from (
   select set_id, count(*)::int total from pet_subjects group by set_id
 ) counts where s.id = counts.set_id`;
 
-console.log(`✓ serialized pet engine ensured (${BUILTIN_CARD_SUBJECTS} Genesis subjects, ${legacyRows.length} legacy copies backfilled)`);
+console.log(`✓ serialized pet engine ensured (${BUILTIN_CARD_SUBJECTS} Genesis subjects, Founders closed to public pulls, recipe ${CARD_RECIPE_VERSION})`);

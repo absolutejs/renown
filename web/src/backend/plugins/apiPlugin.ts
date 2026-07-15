@@ -99,6 +99,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
     .get("/pets", ({ query }) => loadRecentPets({
       limit: Number(query.limit ?? 24), cursor: query.cursor, mode: query.mode,
       sort: query.sort, q: query.q, tier: query.tier, species: query.species, finish: query.finish, mutation: query.mutation,
+      material: query.material, colorway: query.colorway, pattern: query.pattern,
     }))
     .get("/top", async ({ query }) => {
       const n = Math.min(TOP_MAX, Number(query.n ?? 20));

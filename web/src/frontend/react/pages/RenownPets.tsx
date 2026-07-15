@@ -2,7 +2,7 @@
 // can switch to database-backed discovery with the same search/filter/sort controls.
 import { Head } from "@absolutejs/absolute/react/components";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { CARD_VARIANTS, COPY_MUTATIONS, generate, TIER_RGB, type Tier } from "../../../shared/procgen.ts";
+import { CARD_VARIANTS, COPY_COLORWAYS, COPY_MATERIALS, COPY_MUTATIONS, COPY_PATTERNS, generate, TIER_RGB, type Tier } from "../../../shared/procgen.ts";
 import { spriteToSvg } from "../../../shared/petSvg.ts";
 import { PetBooksWorkspace } from "../components/PetBooksWorkspace";
 import { SiteHeader } from "../components/SiteHeader";
@@ -19,7 +19,7 @@ type GalleryPet = {
   earnedAt: string | null; name: string; rarityScore: number; size: number;
   species: string; aura: string; oneOfOne: boolean; isAvatar?: boolean; lookId?: string;
   printingId?: string | null; serialNumber?: number | null; printRun?: number | null;
-  finish?: string | null; mutation?: string | null; population?: number | null; sizeRank?: number | null;
+  finish?: string | null; mutation?: string | null; material?: string | null; colorway?: string | null; copyPattern?: string | null; population?: number | null; sizeRank?: number | null;
 };
 type PetPage = { pets: GalleryPet[]; nextCursor?: string | null; total?: number; sort?: PetSort };
 type PetSort = "newest" | "rarest" | "biggest" | "name";
@@ -30,6 +30,9 @@ const TIER_OPTIONS = ["all", "Common", "Uncommon", "Rare", "Epic", "Legendary", 
 const SPECIES_OPTIONS = ["all", "Slime", "Critter", "Beast", "Construct", "Drake", "Sprite", "Wyrm", "Eldritch", "Celestial"];
 const FINISH_OPTIONS = ["all", ...Object.values(CARD_VARIANTS).map((row) => row.finish)];
 const MUTATION_OPTIONS = ["all", "mutated", "Iridescent", "Chromatic", "Negative", "Singularity", "Standard"];
+const MATERIAL_OPTIONS = ["all", ...COPY_MATERIALS.map((row) => row.value)];
+const COLORWAY_OPTIONS = ["all", ...COPY_COLORWAYS.map((row) => row.value)];
+const PATTERN_OPTIONS = ["all", ...COPY_PATTERNS.map((row) => row.value)];
 
 const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; onAvatar: (seed: string) => void }) => {
   const generated = useMemo(() => generate(pet.seed), [pet.seed]);
@@ -41,6 +44,8 @@ const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; on
   const total = pet.printRun ?? generated.card?.printRun ?? null;
   const finish = pet.finish ?? generated.card?.finish ?? tier;
   const mutation = pet.mutation ?? generated.copyTraits?.mutation;
+  const material = pet.material ?? generated.copyTraits?.material;
+  const copyPattern = pet.copyPattern ?? generated.copyTraits?.copyPattern;
   const accent = hex(TIER_RGB[tier as Tier] ?? [160, 160, 180]);
   return (
     <article className={`collectionPet tier-${tier.toLowerCase()}${pet.isAvatar ? " isAvatar" : ""}`} style={{ "--pet-accent": accent } as CSSProperties}>
@@ -54,10 +59,12 @@ const PetTile = ({ pet, owned, onAvatar }: { pet: GalleryPet; owned: boolean; on
           <span className="petTierBadge">{tier}</span>
         </div>
         <div className="collectionPetMeta"><strong>{finish}</strong><span>{species}</span><span>size {size}</span></div>
-        {(pet.sizeRank === 1 || (serial != null && serial <= 10) || (mutation && mutation !== "Standard")) && <div className="petDistinctions">
+        {(pet.sizeRank === 1 || (serial != null && serial <= 10) || (mutation && mutation !== "Standard") || (material && material !== "Standard") || (copyPattern && copyPattern !== "None")) && <div className="petDistinctions">
           {pet.sizeRank === 1 && <span>Largest known</span>}
           {serial != null && serial <= 10 && <span>Low serial</span>}
           {mutation && mutation !== "Standard" && <span>{mutation} mutation</span>}
+          {material && material !== "Standard" && <span>{material}</span>}
+          {copyPattern && copyPattern !== "None" && <span>{copyPattern}</span>}
         </div>}
         {!owned && pet.login && <a className="collectionPetOwner" href={`/profile/${encodeURIComponent(pet.login)}`}>@{pet.login}{pet.isAi ? " 🤖" : ""}</a>}
         <div className="collectionPetActions">
@@ -80,6 +87,9 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
   const [species, setSpecies] = useState("all");
   const [finish, setFinish] = useState("all");
   const [mutation, setMutation] = useState("all");
+  const [material, setMaterial] = useState("all");
+  const [colorway, setColorway] = useState("all");
+  const [pattern, setPattern] = useState("all");
   const [sort, setSort] = useState<PetSort>("newest");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -94,6 +104,9 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
     if (species !== "all") params.set("species", species);
     if (finish !== "all") params.set("finish", finish);
     if (mutation !== "all") params.set("mutation", mutation);
+    if (material !== "all") params.set("material", material);
+    if (colorway !== "all") params.set("colorway", colorway);
+    if (pattern !== "all") params.set("pattern", pattern);
     if (append && nextCursor) params.set("cursor", nextCursor);
     try {
       const response = await fetch(`${endpoint}?${params}`, { signal });
@@ -134,7 +147,7 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
     const timer = window.setTimeout(() => { void load(false, controller.signal); }, 180);
     return () => { window.clearTimeout(timer); controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace, q, tier, species, finish, mutation, sort, signedIn]);
+  }, [workspace, q, tier, species, finish, mutation, material, colorway, pattern, sort, signedIn]);
 
   const setAvatar = async (seed: string) => {
     const response = await fetch("/api/account/avatar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seed }) });
@@ -142,7 +155,7 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
     setPets((current) => current.map((pet) => ({ ...pet, isAvatar: pet.seed === seed })));
     setMessage("Avatar updated.");
   };
-  const resetFilters = () => { setQ(""); setTier("all"); setSpecies("all"); setFinish("all"); setMutation("all"); setSort("newest"); };
+  const resetFilters = () => { setQ(""); setTier("all"); setSpecies("all"); setFinish("all"); setMutation("all"); setMaterial("all"); setColorway("all"); setPattern("all"); setSort("newest"); };
   const title = workspace === "collection" ? "My pet collection — Renown" : workspace === "books" ? "Collector books — Renown" : "Discover pets — Renown";
   const desc = "Search, filter, sort, and manage unique pets earned through real development work.";
   const url = `${origin}/pets`;
@@ -182,8 +195,11 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
             <label><span>Species</span><select value={species} onChange={(e) => setSpecies(e.target.value)}>{SPECIES_OPTIONS.map((value) => <option value={value} key={value}>{value === "all" ? "All species" : value}</option>)}</select></label>
             <label><span>Finish</span><select value={finish} onChange={(e) => setFinish(e.target.value)}>{FINISH_OPTIONS.map((value) => <option value={value} key={value}>{value === "all" ? "All finishes" : value}</option>)}</select></label>
             <label><span>Mutation</span><select value={mutation} onChange={(e) => setMutation(e.target.value)}>{MUTATION_OPTIONS.map((value) => <option value={value} key={value}>{value === "all" ? "All mutations" : value === "mutated" ? "Any special mutation" : value}</option>)}</select></label>
+            <label><span>Material</span><select value={material} onChange={(e) => setMaterial(e.target.value)}>{MATERIAL_OPTIONS.map((value) => <option value={value} key={value}>{value === "all" ? "All materials" : value}</option>)}</select></label>
+            <label><span>Colorway</span><select value={colorway} onChange={(e) => setColorway(e.target.value)}>{COLORWAY_OPTIONS.map((value) => <option value={value} key={value}>{value === "all" ? "All colorways" : value}</option>)}</select></label>
+            <label><span>Surface</span><select value={pattern} onChange={(e) => setPattern(e.target.value)}>{PATTERN_OPTIONS.map((value) => <option value={value} key={value}>{value === "all" ? "All patterns" : value}</option>)}</select></label>
             <label><span>Sort by</span><select value={sort} onChange={(e) => setSort(e.target.value as PetSort)}><option value="newest">Newest</option><option value="rarest">Rarest</option><option value="biggest">Biggest</option><option value="name">Name</option></select></label>
-            {(q || tier !== "all" || species !== "all" || finish !== "all" || mutation !== "all" || sort !== "newest") && <button className="clearFilters" onClick={resetFilters}>Clear filters</button>}
+            {(q || tier !== "all" || species !== "all" || finish !== "all" || mutation !== "all" || material !== "all" || colorway !== "all" || pattern !== "all" || sort !== "newest") && <button className="clearFilters" onClick={resetFilters}>Clear filters</button>}
           </section>
 
           <details className="card" id="chase" style={{ marginBottom: 18 }}>
@@ -197,6 +213,9 @@ export const RenownPets = ({ cssPath, pets: initialPets = [], nextCursor: initia
             <div style={{ overflowX: "auto" }}><table className="atable"><thead><tr><th>Mutation</th><th>Probability</th><th>Odds</th></tr></thead><tbody>
               {[...COPY_MUTATIONS].reverse().map((row) => <tr key={row.value}><td><strong>{row.value}</strong></td><td>{row.probability >= .01 ? `${(row.probability * 100).toFixed(row.probability >= .1 ? 0 : 2)}%` : `${(row.probability * 100).toFixed(4)}%`}</td><td>{row.probability >= 1 ? "Every copy" : `1 in ${(1 / row.probability).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}</td></tr>)}
             </tbody></table></div>
+            <h3>Materials, surface patterns, and colorways</h3>
+            <p className="muted">These are independent disclosed rolls. Their probabilities multiply, so an exact favorite combination can be dramatically rarer than any one trait.</p>
+            {[{ title: "Material", rows: COPY_MATERIALS }, { title: "Surface pattern", rows: COPY_PATTERNS }, { title: "Colorway", rows: COPY_COLORWAYS }].map((group) => <div key={group.title} style={{ overflowX: "auto", marginTop: 14 }}><h4>{group.title}</h4><table className="atable"><thead><tr><th>{group.title}</th><th>Probability</th><th>Odds</th></tr></thead><tbody>{group.rows.map((row) => <tr key={row.value}><td><strong>{row.value}</strong></td><td>{row.probability >= .01 ? `${(row.probability * 100).toFixed(row.probability >= .1 ? 0 : 2)}%` : `${(row.probability * 100).toFixed(4)}%`}</td><td>1 in {(1 / row.probability).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td></tr>)}</tbody></table></div>)}
           </details>
 
           <div className="collectionResultsHeader"><span>{loading && pets.length === 0 ? "Loading…" : `Showing ${pets.length.toLocaleString()} of ${total.toLocaleString()}`}</span>{workspace === "collection" && <span>Choose “Set avatar” to use a pet across Renown.</span>}</div>
