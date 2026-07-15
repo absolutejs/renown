@@ -6,7 +6,6 @@ import { and, eq, sql } from "drizzle-orm";
 import { playerAccounts, players } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers.ts";
 import { GITHUB_PRIVATE_REPO_SCOPE, GITHUB_REPOS_CONNECTOR } from "./auth/githubRepoGrants.ts";
-import { gameDb } from "./sync.ts";
 import type { ProjectSort } from "./project.ts";
 
 const GH = "https://api.github.com";
@@ -41,6 +40,9 @@ export const privateActivityXp = (commits: number, additions: number) =>
 
 const loadRenownAccounts = async (logins: string[]): Promise<RenownAccount[]> => {
   if (logins.length === 0) return [];
+  // Keep the production database lazy: permission helpers and their no-env unit tests must not
+  // initialize Neon unless GitHub actually returned contributor identities to enrich.
+  const { gameDb } = await import("./sync.ts");
   const wanted = new Set(logins.map((login) => login.toLowerCase()));
   const rows = await gameDb.select({
     login: playerAccounts.githubLogin,
