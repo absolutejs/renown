@@ -37,6 +37,13 @@ process.on("SIGTERM", flushOnExit);
 // identical because Elysia augments and returns the same instance in place.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let builtApp: any = new Elysia();
+builtApp = builtApp.onAfterHandle(({ set }: { set: { headers: Record<string, string> } }) => {
+  // Privacy/security defaults for every HTML/API response. no-referrer also protects any
+  // already-issued legacy auth links that carried a token in the query string.
+  set.headers["referrer-policy"] = "no-referrer";
+  set.headers["x-content-type-options"] = "nosniff";
+  set.headers["permissions-policy"] = "camera=(), geolocation=(), microphone=()";
+});
 builtApp = builtApp.use(absolutejs);
 builtApp = builtApp.use(rateLimiting());   // anon/authed buckets + tight limits & bot guard on costly paths (must be early)
 builtApp = builtApp.use(await auth<User>({ ...authConfig(authDb), authSessionStore }));   // /oauth2/<provider>/authorization, /oauth2/callback, /oauth2/status…

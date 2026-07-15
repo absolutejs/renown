@@ -195,6 +195,7 @@ const accountPayload = async (db: NeonHttpDatabase<SchemaType>, userSub: string)
 export const authApiPlugin = ({ authSessionStore, db }: Deps) =>
   new Elysia({ prefix: "/api/account" })
     .use(protectRoutePlugin<User>({ authSessionStore }))
+    .onAfterHandle(({ set }) => { set.headers["cache-control"] = "private, no-store"; set.headers.pragma = "no-cache"; })
     // Everything attached to my account.
     .get("/", ({ protectRoute }) => protectRoute((user) => accountPayload(db, user.sub)))
     // Keyset-paginated achievement details. The account bootstrap carries only the

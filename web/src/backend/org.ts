@@ -17,7 +17,7 @@ const ownerOf = (o: string) => sql`lower(split_part(${playerProjects.projectKey}
 
 export const loadOrg = async (owner: string) => {
   const o = owner.toLowerCase();
-  const base = and(ownerOf(o), eq(players.githubVerified, true));
+  const base = and(ownerOf(o), eq(players.githubVerified, true), eq(projects.visibility, "public"));
 
   // Top repos under this owner, ranked by verified-preferred XP.
   const repoRows = await gameDb.select({
@@ -41,6 +41,7 @@ export const loadOrg = async (owner: string) => {
     verified: sql<boolean>`bool_or(${playerProjects.verifiedXp} > 0)`,
   }).from(playerProjects)
     .innerJoin(players, eq(players.id, playerProjects.playerId))
+    .innerJoin(projects, eq(projects.key, playerProjects.projectKey))
     .where(and(base, sql`${players.githubLogin} is not null`))
     .groupBy(players.id, players.githubLogin, players.avatarSeed, players.isAi, players.tier)
     .orderBy(desc(effXpSum)).limit(50);

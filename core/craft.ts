@@ -7,11 +7,12 @@ import type { State } from "./state.ts";
 import { type Config, RDIR } from "./runtime.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { scoreCommitData } from "./craftScore.ts";
+import type { RepoVisibility } from "./state.ts";
 
 const META = `${RDIR}/repometa.json`;
 const DAY = 86400000;
 
-interface RepoMeta { owner: string; name: string; stars: number; oss: boolean; private: boolean; fork: boolean; fetchedAt: number }
+interface RepoMeta { owner: string; name: string; stars: number; oss: boolean; private: boolean; fork: boolean; fetchedAt: number; visibilityVerified: true }
 const loadMeta = (): Record<string, RepoMeta> => { try { return JSON.parse(readFileSync(META, "utf8")); } catch { return {}; } };
 const saveMeta = (m: Record<string, RepoMeta>) => { try { writeFileSync(META, JSON.stringify(m)); } catch {} };
 
@@ -23,16 +24,22 @@ async function parseRemote(repo: string): Promise<{ owner: string; name: string 
 export async function repoMeta(repo: string): Promise<RepoMeta | null> {
   const r = await parseRemote(repo); if (!r) return null;
   const key = `${r.owner}/${r.name}`, cache = loadMeta();
-  if (cache[key] && Date.now() - cache[key].fetchedAt < DAY) return cache[key];
+  // `visibilityVerified` intentionally invalidates older cache entries: the old lookup path
+  // represented a failed `gh api` call as private=false, which is not safe evidence of public.
+  if (cache[key]?.visibilityVerified === true && Date.now() - cache[key].fetchedAt < DAY) return cache[key];
   let stars = 0, priv = false, fork = false, oss = false;
   const jq = "{stars:.stargazers_count,private:.private,fork:.fork,license:(.license.key//null)}";
   const out = await $`gh api repos/${r.owner}/${r.name} --jq ${jq}`.text().catch(() => "");
-  try { const j = JSON.parse(out); stars = j.stars || 0; priv = !!j.private; fork = !!j.fork; oss = !priv && !!j.license; } catch {}
-  const meta: RepoMeta = { owner: r.owner, name: r.name, stars, oss, private: priv, fork, fetchedAt: Date.now() };
+  try {
+    const j = JSON.parse(out) as { stars?: number; private?: boolean; fork?: boolean; license?: string | null };
+    if (typeof j.private !== "boolean") return null;
+    stars = j.stars || 0; priv = j.private; fork = !!j.fork; oss = !priv && !!j.license;
+  } catch { return null; }
+  const meta: RepoMeta = { owner: r.owner, name: r.name, stars, oss, private: priv, fork, fetchedAt: Date.now(), visibilityVerified: true };
   cache[key] = meta; saveMeta(cache); return meta;
 }
 
-export interface CraftResult { xp: number; lines: number; oss: boolean; ext: boolean; stars: number; langs: string[]; paths: string[]; hasTests: boolean; subject: string; committedAt: number; breakdown: string[]; repoPublic?: boolean }
+export interface CraftResult { xp: number; lines: number; oss: boolean; ext: boolean; stars: number; langs: string[]; paths: string[]; hasTests: boolean; subject: string; committedAt: number; breakdown: string[]; repoPublic?: boolean; repoVisibility: RepoVisibility }
 
 export async function scoreCommit(s: State, cfg: Config, repo: string, sha: string): Promise<CraftResult | null> {
   const raw = await $`git -C ${repo} show --no-color --no-renames --format=%ae%x00%P%x00%ct%x00%s --numstat ${sha}`.text().catch(() => "");
@@ -64,5 +71,6 @@ export async function scoreCommit(s: State, cfg: Config, repo: string, sha: stri
     xp: scored.xp, lines: scored.lines, oss: scored.oss, ext: scored.ext, stars: scored.stars,
     langs: scored.langs, paths: scored.paths, hasTests: scored.hasTests, subject: scored.subject,
     committedAt, breakdown: scored.breakdown, repoPublic: !!meta && !meta.private && !meta.fork,
+    repoVisibility: meta ? (meta.private ? "private" : "public") : "unknown",
   };
 }

@@ -1,7 +1,7 @@
 // Leaderboard client — global + per-project. Carries per-project stats so the server
 // ranks "best contributors to <repo>", not just global XP. Set config.leaderboardEndpoint
 // to go live (POST /submit, GET /top, GET /top?project=owner/name); solo fallback else.
-import type { State } from "./state.ts";
+import type { RepoVisibility, State } from "./state.ts";
 import { type Config, RDIR } from "./runtime.ts";
 import { levelInfo } from "./state.ts";
 import { totalLevel } from "./skills.ts";
@@ -25,13 +25,18 @@ export async function fetchRarity(cfg: Config): Promise<Rarity> {
   }
   return { map: {}, players: 0, live: false };
 }
-export interface ProjEntry { key: string; name: string; xp: number; commits: number; lines: number; stars: number; oss: boolean; you?: boolean }
+export interface ProjEntry { key: string; name: string; xp: number; commits: number; lines: number; stars: number; oss: boolean; visibility?: RepoVisibility; you?: boolean }
 export interface Entry { id?: string; name: string; level: number; xp: number; streak: number; oss: number; ach: number; active?: number; totalLevel?: number; skillXp?: Record<string, number>; projects?: ProjEntry[]; unlocked?: string[]; commits?: number; lines?: number; you?: boolean }
 export const selfEntry = (s: State): Entry => ({
   id: s.playerId, name: s.name, level: levelInfo(s.xp).level, xp: s.lifetimeXp, streak: s.best.streak,
   oss: s.ossCommits, ach: Object.keys(s.achievements).length, active: s.stats.activeSec | 0,
   totalLevel: totalLevel(s.skillXp ?? {}), skillXp: s.skillXp ?? {},
-  projects: topProjects(s, 5).map(p => ({ key: p.k, name: p.name, xp: p.xp, commits: p.commits, lines: p.lines, stars: p.stars, oss: p.oss })),
+  // Repository names are sensitive metadata. Only GitHub-confirmed public repos leave the
+  // machine; private and unknown work still contributes to local/personal aggregate progress.
+  projects: topProjects(s, Number.MAX_SAFE_INTEGER)
+    .filter(p => p.visibility === "public" || (p.visibility === undefined && p.oss))
+    .slice(0, 5)
+    .map(p => ({ key: p.k, name: p.name, xp: p.xp, commits: p.commits, lines: p.lines, stars: p.stars, oss: p.oss, visibility: "public" as const })),
   unlocked: Object.keys(s.achievements),   // for global rarity % on the server
 });
 const base = (cfg: Config) => cfg.leaderboardEndpoint.replace(/\/$/, "");
@@ -48,6 +53,12 @@ export async function fetchBoard(s: State, cfg: Config): Promise<{ entries: Entr
   return { entries: [selfEntry(s)], live: false };
 }
 export async function fetchProjectBoard(s: State, cfg: Config, key: string): Promise<{ entries: ProjEntry[]; live: boolean }> {
+  const local = s.projects[key];
+  // Do not even place a private/unknown repository name in an HTTP URL. The local user can
+  // still inspect their own stats; shared boards exist only for confirmed-public projects.
+  if (local?.visibility !== "public" && !(local?.visibility === undefined && local?.oss)) {
+    return { entries: local ? [{ key, name: s.name, xp: local.xp, commits: local.commits, lines: local.lines, stars: local.stars, oss: local.oss, visibility: local.visibility ?? "unknown", you: true }] : [], live: false };
+  }
   if (cfg.leaderboardEndpoint) {
     try { const r = await fetch(`${base(cfg)}/top?project=${encodeURIComponent(key)}&n=20`, { signal: AbortSignal.timeout(4000) }); const j = (await r.json()) as ProjEntry[]; return { entries: j.map(e => ({ ...e, you: e.name === s.name })).sort((a, b) => b.xp - a.xp), live: true }; } catch {}
   }

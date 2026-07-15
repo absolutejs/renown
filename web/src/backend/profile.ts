@@ -40,7 +40,7 @@ export const loadProfile = async (login: string) => {
   const topProjectRows = await gameDb
     .select({ key: playerProjects.projectKey, xp: playerProjects.xp, commits: playerProjects.commits, vXp: playerProjects.verifiedXp, vCommits: playerProjects.verifiedCommits, stars: projects.stars, oss: projects.oss })
     .from(playerProjects).innerJoin(projects, eq(projects.key, playerProjects.projectKey))
-    .where(eq(playerProjects.playerId, p.id)).orderBy(desc(playerProjects.verifiedXp), desc(playerProjects.xp)).limit(6);
+    .where(and(eq(playerProjects.playerId, p.id), eq(projects.visibility, "public"))).orderBy(desc(playerProjects.verifiedXp), desc(playerProjects.xp)).limit(6);
   const topProjects = topProjectRows.map((r) => {
     const verified = Number(r.vXp) > 0;
     return { key: r.key, stars: r.stars, oss: r.oss, verified, xp: verified ? Number(r.vXp) : Number(r.xp), commits: verified ? r.vCommits : r.commits };

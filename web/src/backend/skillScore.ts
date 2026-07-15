@@ -57,6 +57,7 @@ export const computeVerifiedSkillXp = async (login: string, token = process.env.
             xp: scored.xp, lines: scored.lines, oss: scored.oss, ext: scored.ext, stars: scored.stars,
             langs: scored.langs, paths: scored.paths, hasTests: scored.hasTests, subject: scored.subject,
             committedAt: new Date(j.commit?.author?.date ?? it.commit?.author?.date ?? 0).getTime(), breakdown: scored.breakdown,
+            repoVisibility: meta ? (meta.private ? "private" : "public") : "unknown",
           };
           for (const [id, x] of Object.entries(awardCraft(cr))) {
             if (id.startsWith("agent-")) continue;   // not GitHub-verifiable

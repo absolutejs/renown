@@ -60,6 +60,19 @@ jobs:
             "cat ${APP_DIR}/.env" > web/.env
           test -s web/.env || { echo "::error::could not read ${HOST}:${APP_DIR}/.env"; exit 1; }
 
+      - name: Add fail-closed repository visibility (privacy migration)
+        run: bun --env-file=web/.env db/migrate-add-project-visibility.ts
+
+      # Cleanup is intentionally non-blocking: the migration defaults every legacy row to
+      # unknown, and the application exposes only confirmed-public rows. If GitHub rate-limits
+      # classification, deploying the new binary is still the privacy-safe outcome; rerunning a
+      # later deployment resumes cleanup from the remaining unknown rows.
+      - name: Classify public repositories and purge non-public legacy rows
+        continue-on-error: true
+        run: bun --env-file=web/.env db/purge-nonpublic-projects.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Seed achievement catalog (idempotent)
         run: bun --env-file=web/.env db/seed.ts
 

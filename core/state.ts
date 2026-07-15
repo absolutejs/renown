@@ -3,7 +3,8 @@
 
 export interface Boss { name: string; emoji: string; gb: number; count: number; legend?: boolean; lastSeen?: number }
 export interface Quest { id: string; desc: string; goal: number; prog: number; xp: number; done: boolean }
-export interface ProjStat { name: string; commits: number; lines: number; xp: number; first: number; last: number; stars: number; oss: boolean; ext: boolean; activeSec: number; langs: Record<string, number> }
+export type RepoVisibility = "public" | "private" | "unknown";
+export interface ProjStat { name: string; commits: number; lines: number; xp: number; first: number; last: number; stars: number; oss: boolean; ext: boolean; visibility?: RepoVisibility; activeSec: number; langs: Record<string, number> }
 export interface LangStat { commits: number; lines: number; xp: number }
 export interface DayStat { a: number; xp: number; c: number; l: number }
 export interface Stats {

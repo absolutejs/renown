@@ -17,7 +17,7 @@ import {
 const craft = (over: Partial<CraftResult>): CraftResult => ({
   xp: 100, lines: 10, oss: false, ext: false, stars: 0,
   langs: ["TypeScript"], paths: [], hasTests: false, subject: "ship widget",
-  committedAt: 0, breakdown: [], ...over
+  committedAt: 0, breakdown: [], repoVisibility: "unknown", ...over
 });
 
 describe("skills xp curve (OSRS-style)", () => {

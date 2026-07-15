@@ -2080,8 +2080,8 @@ const AuthView = ({ initial, onAuthed, onBanner }: { initial: "login" | "registe
       const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       if (r.ok) {
         if (mode === "login") { onAuthed(); }
-        else if (mode === "register") { onBanner({ kind: "info", text: "✉ Account created — check the server console for your verify link." }); setMode("login"); }
-        else { onBanner({ kind: "info", text: "Reset link generated — check the server console." }); setMode("login"); }
+        else if (mode === "register") { onBanner({ kind: "info", text: "✉ Account created — check your email for the verification link." }); setMode("login"); }
+        else { onBanner({ kind: "info", text: "If the account exists, a reset link has been sent." }); setMode("login"); }
       } else {
         const j = await r.json().catch(() => null) as { error?: string; message?: string } | null;
         setErr(j?.error ?? j?.message ?? `Failed (${r.status}). ${r.status === 403 ? "Verify your email first." : ""}`);
@@ -2244,7 +2244,10 @@ const App = ({ initialView = "landing" }: { initialView?: "landing" | "board" })
     api("/stripe/config").then((r) => r.ok && setCfg(r.data as StripeConfig));
     const q = new URLSearchParams(window.location.search);
     const billing = q.get("billing"), linked = q.get("linked"), merge = q.get("merge");
-    const verify = q.get("verify"), reset = q.get("reset");
+    // Secrets use the URL fragment so browsers never send them in requests, access logs,
+    // Referer headers, or intermediary caches. Query parsing remains for already-issued links.
+    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const verify = fragment.get("verify") ?? q.get("verify"), reset = fragment.get("reset") ?? q.get("reset");
     if (q.get("view") === "account") setView("account");
     // ?attest-webauthn=<provider>[&evidence=<url>] — the CLI's `renown ai-attest
     // --webauthn` lands users here. Jump to Account, store the prefill so

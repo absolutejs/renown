@@ -459,6 +459,9 @@ export const projects = pgTable("projects", {
   name: text("name").notNull(),
   stars: integer("stars").notNull().default(0),
   oss: boolean("oss").notNull().default(false),
+  // Fail closed: only `public` may appear on anonymous/public surfaces. `unknown` covers
+  // legacy rows and GitHub lookup failures; it must never be treated as public.
+  visibility: text("visibility").$type<"public" | "private" | "unknown">().notNull().default("unknown"),
 });
 
 // per-project competitive standing

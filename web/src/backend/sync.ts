@@ -15,11 +15,12 @@ import { achievements, playerAchievements, playerProjects, players, projects } f
 // Celebration push notifiers. push.ts imports gameDb from here too; the cycle is safe because
 // both sides only touch the other's exports at call time (ESM live bindings), never at init.
 import { notifyAchievementUnlock, notifyLevelUp } from "./push.ts";
+import { fetchRepoImportance } from "./repoScore.ts";
 
 export const gameDb = drizzle(neon(process.env.DATABASE_URL!));
 export const hub = createReactiveHub();
 
-export type ProjectSnapshot = { key: string; name?: string; xp?: number; commits?: number; lines?: number; stars?: number; oss?: boolean };
+export type ProjectSnapshot = { key: string; name?: string; xp?: number; commits?: number; lines?: number; stars?: number; oss?: boolean; visibility?: "public" | "private" | "unknown" };
 export type PlayerSnapshot = {
   id: string; name?: string; level?: number; xp?: number; streak?: number; oss?: number; ach?: number;
   active?: number; totalLevel?: number; skillXp?: Record<string, number>; projects?: ProjectSnapshot[]; unlocked?: string[];
@@ -62,8 +63,29 @@ const persistPlayer = async (id: string, e: PlayerSnapshot) => {
     const lines = clampInt(p.lines, 100_000_000);
     // Bound submitted xp to what the craft engine could ever award for the claimed commits.
     const xp = Math.min(clampInt(p.xp, 2_000_000_000), commits * PER_COMMIT_XP_CAP);
-    await gameDb.insert(projects).values({ key: p.key, name: p.name || p.key, stars: clampInt(p.stars, 5_000_000), oss: !!p.oss })
-      .onConflictDoUpdate({ target: projects.key, set: { name: sql`excluded.name`, stars: sql`greatest(${projects.stars}, excluded.stars)`, oss: sql`${projects.oss} or excluded.oss` } });
+    // Never trust a client saying a repository is public: /submit is intentionally anonymous.
+    // Confirm it with GitHub server-side. Failure stays unknown (hidden); an explicit private
+    // client signal may only make data less visible, never publish it.
+    const [owner, ...repoParts] = String(p.key).split("/");
+    const repo = repoParts.join("/");
+    const meta = owner && repo ? await fetchRepoImportance(owner, repo) : null;
+    const visibility = meta ? (meta.private ? "private" : "public") : p.visibility === "private" ? "private" : "unknown";
+    // Private/unknown repository identity and per-repo metrics do not belong in the shared
+    // database at all. They remain useful in the local state, but there is no cloud row to leak.
+    if (visibility === "private") {
+      // If a formerly-public repository was made private, remove the shared board and every
+      // contributor row immediately when GitHub reports the transition (FK cascade).
+      await gameDb.delete(projects).where(sql`lower(${projects.key}) = ${String(p.key).toLowerCase()}`);
+      continue;
+    }
+    if (visibility === "unknown") {
+      // A lookup failure must fail closed for an existing row too. A later confirmed-public
+      // submission restores it; until then every public loader rejects it.
+      await gameDb.update(projects).set({ visibility: "unknown" }).where(sql`lower(${projects.key}) = ${String(p.key).toLowerCase()}`);
+      continue;
+    }
+    await gameDb.insert(projects).values({ key: p.key, name: p.name || p.key, stars: meta!.stars, oss: meta!.oss, visibility })
+      .onConflictDoUpdate({ target: projects.key, set: { name: sql`excluded.name`, stars: sql`greatest(${projects.stars}, excluded.stars)`, oss: sql`${projects.oss} or excluded.oss`, visibility: "public" } });
     // Monotonic on all three (matches /api/ci/repo-sync) — a submit can raise a board stat but
     // never lower it, so neither a buggy resubmit nor a malicious one can regress real numbers.
     await gameDb.insert(playerProjects).values({ playerId: id, projectKey: p.key, xp, commits, lines, updatedAt: new Date() })

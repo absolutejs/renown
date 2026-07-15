@@ -36,6 +36,7 @@ const requireAdmin = async (db: NeonHttpDatabase<SchemaType>, request: Request) 
 
 export const adminAuthPlugin = ({ db }: Deps) =>
   new Elysia({ name: "renown-admin-auth" })
+    .onAfterHandle(({ set }) => { set.headers["cache-control"] = "private, no-store"; set.headers.pragma = "no-cache"; })
     // Credentials login for admins. Argon2id via Bun.password (built-in). Issues the signed cookie.
     .post("/admin/login", async ({ body, set }) => {
       const email = body.email.trim().toLowerCase();
@@ -99,7 +100,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       // Mirror onto the user's canonical player so the leaderboard badge follows.
       const pl = await resolvePlayerByUserSub(target.sub);
       if (pl) await gameDb.update(players).set({ tier }).where(eq(players.id, pl.id));
-      console.log(`[renown:admin] ${admin.email} → set tier=${tier} for user ${target.email ?? target.sub}`);
+      console.log(`[renown:admin] ${admin.sub} → set tier=${tier} for user ${target.sub}`);
       return { ok: true, sub: target.sub, tier };
     }, { body: t.Object({ tier: t.String() }) })
     // Replay a failed webhook delivery. Reads the original event_kind + payload from
@@ -191,7 +192,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       if (!admin) { set.status = 401; return { error: "not admin" }; }
       const result = await applyAttestation(params.login, { kind: "clear" }, { kind: "admin", sub: admin.sub });
       if (!result.ok) { set.status = 400; return { error: result.error }; }
-      console.log(`[renown:admin] ${admin.email} → force-cleared attestation for @${params.login}`);
+      console.log(`[renown:admin] ${admin.sub} → force-cleared attestation for @${params.login}`);
       return { ok: true };
     })
     // Read the recent attempt rows from webhook_deliveries for the dead-letter UI.
@@ -226,7 +227,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       for (const row of rows) {
         void deliverWebhook(url, row.eventKind, row.payload as Record<string, unknown>);
       }
-      console.log(`[renown:admin] ${admin.email} → bulk replay of ${rows.length} delivery row(s)`);
+      console.log(`[renown:admin] ${admin.sub} → bulk replay of ${rows.length} delivery row(s)`);
       return { ok: true, replaying: rows.length };
     })
     .post("/api/admin/webhook-deliveries/:id/replay", async ({ params, request, set }) => {
@@ -238,7 +239,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       if (!row) { set.status = 404; return { error: "delivery not found" }; }
       // Detach — replay can take ~20s of backoff; return immediately, log results.
       void deliverWebhook(url, row.eventKind, row.payload as Record<string, unknown>);
-      console.log(`[renown:admin] ${admin.email} → replay delivery ${row.id} (${row.eventKind})`);
+      console.log(`[renown:admin] ${admin.sub} → replay delivery ${row.id} (${row.eventKind})`);
       return { ok: true, replaying: row.id, eventKind: row.eventKind };
     })
     .get("/api/admin/marketplace/health", async ({ request, set }) => {
@@ -259,7 +260,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       const status = (body as { status?: unknown } | null)?.status; if (status !== "active" && status !== "frozen") { set.status = 400; return { error: "status must be active or frozen" }; }
       const rows = await gameDb.update(walletAccounts).set({ status }).where(eq(walletAccounts.playerId, params.playerId)).returning({ id: walletAccounts.id });
       if (!rows.length) { set.status = 404; return { error: "wallet not found" }; }
-      console.log(`[renown:admin] ${admin.email} → wallet ${rows[0].id} status=${status}`); return { ok: true, status };
+      console.log(`[renown:admin] ${admin.sub} → wallet ${rows[0].id} status=${status}`); return { ok: true, status };
     });
 
 export { requireAdmin };

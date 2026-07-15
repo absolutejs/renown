@@ -4,7 +4,7 @@ import { genuineness, isOwnable, rewardValue } from "../core/trust.ts";
 
 const craft = (over: Partial<CraftResult>): CraftResult => ({
   xp: 100, lines: 10, oss: false, ext: false, stars: 0, langs: [], paths: [],
-  hasTests: false, subject: "x", committedAt: 0, breakdown: [], ...over
+  hasTests: false, subject: "x", committedAt: 0, breakdown: [], repoVisibility: "unknown", ...over
 });
 
 describe("anti-gaming / genuineness", () => {

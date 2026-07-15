@@ -3,9 +3,9 @@
 // Locked behind email verification (`requireEmailVerification: true`): registration creates
 // the account but NO session, and login is rejected until the email is verified.
 //
-// No email provider is wired yet — `onSendEmail` LOGS the verification/reset link to the
-// server console for dev. The link points back at the SPA (`/?verify=<token>` / `/?reset=<token>`)
-// which POSTs the token to the verify/reset endpoint. Plug in Brevo/Resend/SES here when ready.
+// No production email provider is wired yet. Console token delivery requires an explicit
+// non-production opt-in; production fails closed instead of writing account-takeover tokens to
+// centralized logs. Links use URL fragments so tokens never enter HTTP access logs or Referers.
 import { type AuthSessionStore, credentialRoutes, createNeonCredentialStore } from "@absolutejs/auth";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
@@ -16,6 +16,7 @@ import type { SchemaType, User } from "../../../db/schema";
 type Deps = { authSessionStore: AuthSessionStore<User>; db: NeonHttpDatabase<SchemaType> };
 
 const APP_URL = process.env.APP_URL ?? "http://localhost:7777";
+const DEV_LOG_AUTH_TOKENS = process.env.NODE_ENV !== "production" && process.env.RENOWN_DEV_LOG_AUTH_TOKENS === "1";
 
 export const credentialsPlugin = ({ authSessionStore, db }: Deps) => {
   const credentialStore = createNeonCredentialStore(process.env.DATABASE_URL!);
@@ -24,11 +25,12 @@ export const credentialsPlugin = ({ authSessionStore, db }: Deps) => {
     credentialStore,
     authSessionStore,
     requireEmailVerification: true,
-    // Sent to the user's email (we log it for dev; in prod, plug in your provider here).
+    // Replace this with transactional email before enabling credentials in production.
     onSendEmail: async (msg) => {
+      if (!DEV_LOG_AUTH_TOKENS) throw new Error("credential email delivery is not configured");
       const path = msg.type === "verify_email" ? "verify" : "reset";
-      const link = `${APP_URL}/?${path}=${msg.token}`;
-      console.log(`\n[renown:auth] → ${msg.type} for ${msg.email}\n  link: ${link}\n  token: ${msg.token}\n  expires: ${new Date(msg.expiresAt).toISOString()}\n`);
+      const link = `${APP_URL}/#${path}=${encodeURIComponent(msg.token)}`;
+      console.log(`\n[renown:auth:dev] ${msg.type}\n  link: ${link}\n  expires: ${new Date(msg.expiresAt).toISOString()}\n`);
     },
     getUserByEmail: async (email) => {
       const rows = await db.select().from(schema.users).where(eq(schema.users.email, email.toLowerCase()));
@@ -51,8 +53,8 @@ export const credentialsPlugin = ({ authSessionStore, db }: Deps) => {
       return { ...user, primary_auth_identity_id: ident.id };
     },
     passwordPolicy: { minLength: 8, requireUppercase: false, requireLowercase: false, requireDigit: true, requireSymbol: false },
-    onRegistrationSuccess: ({ email }) => console.log(`[renown:auth] registered ${email} (awaiting email verification)`),
-    onEmailVerified: ({ email }) => console.log(`[renown:auth] email verified: ${email}`),
-    onCredentialsLoginSuccess: ({ user }) => console.log(`[renown:auth] login: ${user.email}`),
-  });
+    onRegistrationSuccess: () => console.log("[renown:auth] credentials registration created (awaiting verification)"),
+    onEmailVerified: () => console.log("[renown:auth] credentials email verified"),
+    onCredentialsLoginSuccess: () => console.log("[renown:auth] credentials login succeeded"),
+  }).onAfterHandle(({ set }) => { set.headers["cache-control"] = "private, no-store"; set.headers.pragma = "no-cache"; });
 };

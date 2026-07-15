@@ -20,13 +20,26 @@ const headers = (token?: string): Record<string, string> => ({
 export type RepoImportance = { stars: number; oss: boolean; owner: string; private: boolean; fork: boolean };
 export type RepoScore = { commits: number; lines: number; xp: number; stars: number; oss: boolean };
 
+// /submit may arrive every few seconds. Visibility must be server-confirmed, but doing five
+// GitHub calls per heartbeat would exhaust the API budget. Keep the privacy-sensitive answer
+// briefly cached; a public→private transition is rechecked within this window (and the next
+// sync then deletes the shared board). Failures are never cached as public.
+const REPO_META_TTL_MS = 5 * 60 * 1000;
+const repoMetaCache = new Map<string, { value: RepoImportance; expiresAt: number }>();
+
 export const fetchRepoImportance = async (owner: string, repo: string, token = process.env.GITHUB_TOKEN): Promise<RepoImportance | null> => {
+  const key = `${owner}/${repo}`.toLowerCase();
+  const cached = repoMetaCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
   try {
     const r = await fetch(`${GH}/repos/${owner}/${repo}`, { headers: headers(token), signal: AbortSignal.timeout(15_000) });
     if (!r.ok) return null;
     const j = (await r.json()) as { stargazers_count?: number; private?: boolean; fork?: boolean; license?: { key?: string } | null; owner?: { login?: string } };
-    const priv = !!j.private;
-    return { stars: j.stargazers_count ?? 0, oss: !priv && !!j.license?.key, owner: j.owner?.login ?? owner, private: priv, fork: !!j.fork };
+    if (typeof j.private !== "boolean") return null;
+    const priv = j.private;
+    const value = { stars: j.stargazers_count ?? 0, oss: !priv && !!j.license?.key, owner: j.owner?.login ?? owner, private: priv, fork: !!j.fork };
+    repoMetaCache.set(key, { value, expiresAt: Date.now() + REPO_META_TTL_MS });
+    return value;
   } catch { return null; }
 };
 

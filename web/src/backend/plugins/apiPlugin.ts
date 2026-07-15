@@ -127,8 +127,8 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         // Verified-first: rank by GitHub-scored verified_xp, then self-reported as fallback, and
         // surface the verified numbers when present so a forged /submit can't top the board.
         const rows = await gameDb.select({ name: players.handle, xp: playerProjects.xp, commits: playerProjects.commits, lines: playerProjects.lines, vXp: playerProjects.verifiedXp, vCommits: playerProjects.verifiedCommits, vLines: playerProjects.verifiedLines })
-          .from(playerProjects).innerJoin(players, eq(players.id, playerProjects.playerId))
-          .where(eq(playerProjects.projectKey, String(query.project))).orderBy(desc(playerProjects.verifiedXp), desc(playerProjects.xp)).limit(n);
+          .from(playerProjects).innerJoin(players, eq(players.id, playerProjects.playerId)).innerJoin(projects, eq(projects.key, playerProjects.projectKey))
+          .where(and(eq(playerProjects.projectKey, String(query.project)), eq(projects.visibility, "public"))).orderBy(desc(playerProjects.verifiedXp), desc(playerProjects.xp)).limit(n);
         return rows.map((r) => {
           const verified = Number(r.vXp) > 0;
           return { key: query.project, name: r.name, verified, xp: verified ? Number(r.vXp) : Number(r.xp), commits: verified ? r.vCommits : r.commits, lines: verified ? Number(r.vLines) : Number(r.lines) };
@@ -264,6 +264,9 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         : [];
       if (logins.length === 0) return { error: "logins required" };
       const importance = await fetchRepoImportance(owner, repo);   // fetched once for the whole repo
+      // Public CI endpoint must never persist or disclose private repository metadata. Private
+      // collaboration needs an authenticated GitHub App installation, not a guessed ACL.
+      if (!importance || importance.private) return { error: "public repository not found" };
       const results: Array<{ login: string; status: string; xp?: number; commits?: number; lines?: number }> = [];
       for (const login of logins) {
         const player = await resolvePlayerByGithubLogin(login);
@@ -275,8 +278,8 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         }
         const sc = await scoreRepoForLogin(owner, repo, login, { importance });
         if (!sc || sc.commits === 0) { results.push({ login, status: "no-commits" }); continue; }
-        await gameDb.insert(projects).values({ key, name: repo, stars: sc.stars, oss: sc.oss })
-          .onConflictDoUpdate({ target: projects.key, set: { stars: sql`greatest(${projects.stars}, excluded.stars)`, oss: sql`${projects.oss} or excluded.oss` } });
+        await gameDb.insert(projects).values({ key, name: repo, stars: sc.stars, oss: sc.oss, visibility: "public" })
+          .onConflictDoUpdate({ target: projects.key, set: { stars: sql`greatest(${projects.stars}, excluded.stars)`, oss: sql`${projects.oss} or excluded.oss`, visibility: "public" } });
         // Writes the VERIFIED columns (GitHub-scored, the rank source) monotonically. Also seeds
         // the self-reported columns on first insert so a CI-only contributor still has xp/commits/
         // lines, but never lowers a self-reported value a player already submitted.
@@ -1148,14 +1151,13 @@ ${items}
       // Mile High Code Club — server-observed signal (NOT a client field): does this
       // submit's egress IP belong to an in-flight Wi-Fi carrier? If so, you're coding from
       // a plane. Granted off the request's own source IP, so it can't be forged from the
-      // payload. The log line captures the exact matched IP/CIDR so we can later tighten
-      // the seed (Viasat's full range → just the Fly-Fi egress block) from a real flight.
+      // payload. The raw IP is used in-memory for matching only and is never persisted.
       if (!mileHighGranted.has(e.id)) {
         const ip = clientIp(request, server ?? null);
         const hit = matchInflightCarrier(ip);
         if (hit) {
           mileHighGranted.add(e.id);
-          console.log(`renown: mile-high match player=${e.id} carrier=${hit.carrier.id} ip=${ip} cidr=${hit.cidr}`);
+          console.log(`renown: mile-high match player=${e.id} carrier=${hit.carrier.id} cidr=${hit.cidr}`);
           void grantAchievements(e.id, ["mile-high"]);
         }
       }

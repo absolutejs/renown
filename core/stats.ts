@@ -29,9 +29,12 @@ function finalize(s: State, xpNow: number, commitsNow: number) {
   st.sessions = st.sessions.slice(0, 100); st.longestSec = Math.max(st.longestSec, st.curSec);
 }
 export function recordCommit(s: State, key: string, name: string, r: CraftResult) {
-  const p = (s.projects[key] ??= { name, commits: 0, lines: 0, xp: 0, first: r.committedAt || Date.now(), last: 0, stars: 0, oss: false, ext: false, activeSec: 0, langs: {} });
+  const p = (s.projects[key] ??= { name, commits: 0, lines: 0, xp: 0, first: r.committedAt || Date.now(), last: 0, stars: 0, oss: false, ext: false, visibility: "unknown", activeSec: 0, langs: {} });
   p.commits++; p.lines += r.lines; p.xp += r.xp; p.last = r.committedAt || Date.now();
   p.stars = Math.max(p.stars, r.stars); p.oss ||= r.oss; p.ext = r.ext;
+  // Refresh from GitHub metadata on every scored commit. Unknown is deliberately sticky only
+  // until GitHub answers; once it does, public/private is authoritative for cloud submission.
+  p.visibility = r.repoVisibility;
   for (const l of r.langs) { p.langs[l] = (p.langs[l] ?? 0) + 1; const ld = (s.langsDeep[l] ??= { commits: 0, lines: 0, xp: 0 }); ld.commits++; ld.lines += r.lines; ld.xp += r.xp; }
   const ct = r.committedAt || Date.now(), d = new Date(ct);
   s.stats.commitHour[d.getHours()]++; s.stats.commitDow[d.getDay()]++;

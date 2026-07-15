@@ -16,7 +16,7 @@ export const normalizeProjectSort = (v: unknown): ProjectSort => (v === "commits
 export const loadProject = async (key: string, sort: ProjectSort = "xp") => {
   const k = key.toLowerCase();
   const proj = (await gameDb.select().from(projects).where(sql`lower(${projects.key}) = ${k}`).limit(1))[0];
-  if (!proj) return null;
+  if (!proj || proj.visibility !== "public") return null;
 
   // Contributors to THIS repo. Ranked VERIFIED-FIRST: by the chosen metric's GitHub-scored
   // (verified_*) column, then self-reported as a fallback — so a CI-verified contributor always
@@ -80,8 +80,8 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export const loadTopProjects = async (limit = 12, window: ProjectWindow = "all") => {
   const recent = window === "week";
   const where = recent
-    ? and(eq(players.githubVerified, true), gte(playerProjects.updatedAt, new Date(Date.now() - WEEK_MS)))
-    : eq(players.githubVerified, true);
+    ? and(eq(players.githubVerified, true), eq(projects.visibility, "public"), gte(playerProjects.updatedAt, new Date(Date.now() - WEEK_MS)))
+    : and(eq(players.githubVerified, true), eq(projects.visibility, "public"));
   // Effective XP = the verified (GitHub-scored) value when present, else self-reported — the same
   // verified-preferred rule the /project board uses, so trending reflects trustworthy renown.
   const effXpSum = sql<number>`coalesce(sum(case when ${playerProjects.verifiedXp} > 0 then ${playerProjects.verifiedXp} else ${playerProjects.xp} end), 0)`;
