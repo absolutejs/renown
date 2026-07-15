@@ -5,6 +5,7 @@
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { players, playerProjects, projects } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
+import { fetchRepoImportance } from "./repoScore.ts";
 import { gameDb } from "./sync.ts";
 
 export type ProjectData = Awaited<ReturnType<typeof loadProject>>;
@@ -13,10 +14,32 @@ const SORT_COL = { xp: playerProjects.xp, commits: playerProjects.commits, lines
 const VERIFIED_COL = { xp: playerProjects.verifiedXp, commits: playerProjects.verifiedCommits, lines: playerProjects.verifiedLines } as const;
 export const normalizeProjectSort = (v: unknown): ProjectSort => (v === "commits" || v === "lines" ? v : "xp");
 
+// Revalidate on read as well as ingest. Otherwise a once-public repository that is later made
+// private could remain discoverable forever if its contributors stop syncing. The GitHub lookup
+// is shared/cached briefly in repoScore.ts; private deletes the board, lookup failure fails closed.
+export const confirmProjectPublic = async (key: string): Promise<boolean> => {
+  const stored = (await gameDb.select({ visibility: projects.visibility }).from(projects).where(sql`lower(${projects.key}) = ${key.toLowerCase()}`).limit(1))[0];
+  if (stored?.visibility !== "public") return false;
+  const [owner, ...rest] = key.split("/");
+  const repo = rest.join("/");
+  const meta = owner && repo ? await fetchRepoImportance(owner, repo) : null;
+  if (!meta) {
+    await gameDb.update(projects).set({ visibility: "unknown" }).where(sql`lower(${projects.key}) = ${key.toLowerCase()}`);
+    return false;
+  }
+  if (meta.private) {
+    await gameDb.delete(projects).where(sql`lower(${projects.key}) = ${key.toLowerCase()}`);
+    return false;
+  }
+  await gameDb.update(projects).set({ visibility: "public", stars: meta.stars, oss: meta.oss }).where(sql`lower(${projects.key}) = ${key.toLowerCase()}`);
+  return true;
+};
+
 export const loadProject = async (key: string, sort: ProjectSort = "xp") => {
   const k = key.toLowerCase();
   const proj = (await gameDb.select().from(projects).where(sql`lower(${projects.key}) = ${k}`).limit(1))[0];
   if (!proj || proj.visibility !== "public") return null;
+  if (!(await confirmProjectPublic(proj.key))) return null;
 
   // Contributors to THIS repo. Ranked VERIFIED-FIRST: by the chosen metric's GitHub-scored
   // (verified_*) column, then self-reported as a fallback — so a CI-verified contributor always
@@ -86,7 +109,7 @@ export const loadTopProjects = async (limit = 12, window: ProjectWindow = "all")
   // verified-preferred rule the /project board uses, so trending reflects trustworthy renown.
   const effXpSum = sql<number>`coalesce(sum(case when ${playerProjects.verifiedXp} > 0 then ${playerProjects.verifiedXp} else ${playerProjects.xp} end), 0)`;
   const devCount = sql`count(distinct ${playerProjects.playerId})`;
-  const agg = await gameDb.select({
+  const candidates = await gameDb.select({
     key: playerProjects.projectKey, name: projects.name, stars: projects.stars, oss: projects.oss,
     devs: sql<number>`count(distinct ${playerProjects.playerId})::int`,
     xp: effXpSum,
@@ -98,6 +121,8 @@ export const loadTopProjects = async (limit = 12, window: ProjectWindow = "all")
     .groupBy(playerProjects.projectKey, projects.name, projects.stars, projects.oss)
     .orderBy(...(recent ? [desc(devCount), desc(effXpSum)] : [desc(effXpSum)]))
     .limit(limit);
+  const checks = await Promise.all(candidates.map((r) => confirmProjectPublic(r.key)));
+  const agg = candidates.filter((_, i) => checks[i]);
   if (agg.length === 0) return [];
 
   // Top contributor (login + pet seed) per repo, for the card's pet + "top @x" caption.

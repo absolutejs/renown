@@ -17,7 +17,7 @@ import { applyAttestation, buildStaleAttestationDigest } from "../attestation.ts
 import { fetchAttributionShas, searchAttributions } from "../attribution.ts";
 import { fetchCrossRepoPrsCount, fetchPackageDownloads, fetchPrCounts, fetchPrReviewsCount, MERIT, meritAchievementsToGrant } from "../merit.ts";
 import { loadProfile } from "../profile.ts";
-import { loadProject, loadTopProjects, normalizeProjectSort, normalizeProjectWindow } from "../project.ts";
+import { confirmProjectPublic, loadProject, loadTopProjects, normalizeProjectSort, normalizeProjectWindow } from "../project.ts";
 import { loadOrg } from "../org.ts";
 import { loadAchievement } from "../achievement.ts";
 import { loadRivals } from "../rivals.ts";
@@ -124,6 +124,7 @@ export const apiPlugin = ({ accessTokenStore }: ApiDeps) => {
         });
       }
       if (query.project) {
+        if (!(await confirmProjectPublic(String(query.project)))) return [];
         // Verified-first: rank by GitHub-scored verified_xp, then self-reported as fallback, and
         // surface the verified numbers when present so a forged /submit can't top the board.
         const rows = await gameDb.select({ name: players.handle, xp: playerProjects.xp, commits: playerProjects.commits, lines: playerProjects.lines, vXp: playerProjects.verifiedXp, vCommits: playerProjects.verifiedCommits, vLines: playerProjects.verifiedLines })

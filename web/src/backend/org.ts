@@ -7,6 +7,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { players, playerProjects, projects } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
+import { confirmProjectPublic } from "./project.ts";
 import { gameDb } from "./sync.ts";
 
 export type OrgData = Awaited<ReturnType<typeof loadOrg>>;
@@ -20,7 +21,7 @@ export const loadOrg = async (owner: string) => {
   const base = and(ownerOf(o), eq(players.githubVerified, true), eq(projects.visibility, "public"));
 
   // Top repos under this owner, ranked by verified-preferred XP.
-  const repoRows = await gameDb.select({
+  const repoCandidates = await gameDb.select({
     key: playerProjects.projectKey, name: projects.name, stars: projects.stars, oss: projects.oss,
     xp: effXpSum,
     devs: sql<number>`count(distinct ${playerProjects.playerId})::int`,
@@ -31,6 +32,8 @@ export const loadOrg = async (owner: string) => {
     .where(base)
     .groupBy(playerProjects.projectKey, projects.name, projects.stars, projects.oss)
     .orderBy(desc(effXpSum)).limit(50);
+  const repoChecks = await Promise.all(repoCandidates.map((r) => confirmProjectPublic(r.key)));
+  const repoRows = repoCandidates.filter((_, i) => repoChecks[i]);
   if (repoRows.length === 0) return null;
 
   // Top contributors ACROSS the org's repos (sum effective XP per player over all owner/* repos).

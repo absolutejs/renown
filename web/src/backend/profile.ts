@@ -9,6 +9,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { achievements, aiAttestationEvents, follows, playerAchievements, playerProjects, players, projects } from "../../../db/schema.ts";
 import { normalizeTier } from "./billing/tiers";
 import { getPlayerPetLookAssignments, type PetLookAssignments } from "./petLooks.ts";
+import { confirmProjectPublic } from "./project.ts";
 import { resolvePlayerByGithubLogin } from "./resolvePlayer.ts";
 import { gameDb } from "./sync.ts";
 
@@ -37,10 +38,12 @@ export const loadProfile = async (login: string) => {
   // discovery flows both ways (badge → board → profile → their other repos → …).
   // Verified-preferred (consistent with the /project board + trending): rank + show the
   // GitHub-scored verified_xp when present, else self-reported, with a `verified` flag.
-  const topProjectRows = await gameDb
+  const topProjectCandidates = await gameDb
     .select({ key: playerProjects.projectKey, xp: playerProjects.xp, commits: playerProjects.commits, vXp: playerProjects.verifiedXp, vCommits: playerProjects.verifiedCommits, stars: projects.stars, oss: projects.oss })
     .from(playerProjects).innerJoin(projects, eq(projects.key, playerProjects.projectKey))
     .where(and(eq(playerProjects.playerId, p.id), eq(projects.visibility, "public"))).orderBy(desc(playerProjects.verifiedXp), desc(playerProjects.xp)).limit(6);
+  const projectChecks = await Promise.all(topProjectCandidates.map((r) => confirmProjectPublic(r.key)));
+  const topProjectRows = topProjectCandidates.filter((_, i) => projectChecks[i]);
   const topProjects = topProjectRows.map((r) => {
     const verified = Number(r.vXp) > 0;
     return { key: r.key, stars: r.stars, oss: r.oss, verified, xp: verified ? Number(r.vXp) : Number(r.xp), commits: verified ? r.vCommits : r.commits };

@@ -15,7 +15,8 @@ Renown therefore uses these invariants:
    `unknown`, so legacy data and lookup failures fail closed.
 4. A confirmed public-to-private transition deletes the shared project row and cascades its
    contributor rows. A transient verification failure changes an existing project to `unknown`,
-   hiding it until public status is confirmed again.
+   hiding it until public status is confirmed again. Public loaders revalidate on read through a
+   short shared cache, so privacy transitions do not depend on another client sync occurring.
 5. The legacy migration marks every row `unknown`, including historical `oss=true` rows because
    a formerly public repository may since have become private. The cleanup script checks every
    row and purges private, deleted, or inaccessible repositories.
