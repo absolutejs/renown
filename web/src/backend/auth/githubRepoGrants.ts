@@ -132,12 +132,14 @@ export const loadPrivateReposFromGithubGrants = async ({ allowedLogins, credenti
   const bindings = (await credentialResolver.listBindings({ ownerRef, connectorProvider: GITHUB_REPOS_CONNECTOR, status: "active" }))
     .filter((binding) => binding.username && allowed.has(binding.username.toLowerCase()));
   if (bindings.length === 0) {
-    return { repos: [], needsGithubAuth: true, reason: "Reconnect GitHub once to grant private repository access.", page, hasMore: false, query };
+    return { repos: [], needsGithubAuth: true, reason: "Reconnect GitHub once to grant private repository access.", page, total: 0, totalPages: 0, hasMore: false, query };
   }
 
   const repos = new Map<string, Awaited<ReturnType<typeof loadAccessiblePrivateRepos>>["repos"][number]>();
   let successfulBindings = 0;
   let hasMore = false;
+  let total = 0;
+  let totalPages = 0;
   // Divide one bounded UI page across linked identities. This keeps the response at roughly 24
   // repositories even when a Renown account has several GitHub identities.
   const perBinding = Math.max(1, Math.floor(24 / bindings.length));
@@ -156,6 +158,8 @@ export const loadPrivateReposFromGithubGrants = async ({ allowedLogins, credenti
       if (result.needsGithubAuth) continue;
       successfulBindings += 1;
       hasMore ||= result.hasMore;
+      total += result.total;
+      totalPages = Math.max(totalPages, result.totalPages);
       for (const repo of result.repos) repos.set(repo.key.toLowerCase(), repo);
     } catch {
       // A disconnected/revoked grant remains isolated to this binding. Other linked GitHub
@@ -168,6 +172,8 @@ export const loadPrivateReposFromGithubGrants = async ({ allowedLogins, credenti
     needsGithubAuth,
     reason: needsGithubAuth ? "Reconnect GitHub to refresh private repository access for every linked account." : null,
     page,
+    total,
+    totalPages,
     hasMore,
     query,
     repos: [...repos.values()].sort((a, b) => Date.parse(b.pushedAt ?? b.updatedAt ?? "0") - Date.parse(a.pushedAt ?? a.updatedAt ?? "0")),

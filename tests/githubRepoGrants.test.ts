@@ -34,6 +34,7 @@ describe("GitHub repository grants", () => {
     });
     const result = await loadPrivateReposFromGithubGrants({ allowedLogins: ["alex"], credentialResolver: resolver, ownerRef: "user-1" });
     expect(result.needsGithubAuth).toBe(false);
+    expect(result).toEqual(expect.objectContaining({ total: 1, totalPages: 1, page: 1 }));
     expect(result.repos).toEqual([expect.objectContaining({ key: "org/secret" })]);
   });
 

@@ -9,11 +9,11 @@ type Repo = { key: string; owner: string; repo: string; name: string; stars: num
 type Sort = "xp" | "devs" | "stars" | "commits";
 type Directory = {
   repos: Repo[]; query: string; contributor: string; contributorFound: boolean;
-  sort: Sort; page: number; hasMore: boolean;
+  sort: Sort; page: number; limit: number; total: number; totalPages: number; hasMore: boolean;
 };
 type Props = { cssPath?: string; directory?: Directory; origin?: string };
 type PrivateRepo = { key: string; owner: string; repo: string; name: string; stars: number; pushedAt: string | null; updatedAt: string | null; role: string; private: true };
-type PrivateDirectory = { repos: PrivateRepo[]; needsGithubAuth: boolean; reason?: string | null; login?: string; page: number; hasMore: boolean; query: string };
+type PrivateDirectory = { repos: PrivateRepo[]; needsGithubAuth: boolean; reason?: string | null; login?: string; page: number; total: number; totalPages: number; hasMore: boolean; query: string };
 
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 10_000 ? `${Math.round(n / 1_000)}k` : n.toLocaleString("en-US");
 const hrefFor = (d: Directory, page: number) => {
@@ -26,8 +26,39 @@ const hrefFor = (d: Directory, page: number) => {
   return `/repos${query ? `?${query}` : ""}`;
 };
 
-const EMPTY: Directory = { repos: [], query: "", contributor: "", contributorFound: true, sort: "xp", page: 1, hasMore: false };
+const EMPTY: Directory = { repos: [], query: "", contributor: "", contributorFound: true, sort: "xp", page: 1, limit: 24, total: 0, totalPages: 0, hasMore: false };
 const privateProjectHref = (key: string) => `/private-project#${new URLSearchParams({ repo: key }).toString()}`;
+
+export const paginationWindow = (current: number, total: number): Array<number | "gap"> => {
+  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
+  const pages = new Set([1, total, current - 1, current, current + 1].filter((page) => page >= 1 && page <= total));
+  if (current <= 4) [2, 3, 4, 5].forEach((page) => pages.add(page));
+  if (current >= total - 3) [total - 4, total - 3, total - 2, total - 1].forEach((page) => pages.add(page));
+  const sorted = [...pages].sort((a, b) => a - b);
+  const result: Array<number | "gap"> = [];
+  sorted.forEach((page, index) => {
+    if (index > 0 && page - sorted[index - 1]! > 1) result.push("gap");
+    result.push(page);
+  });
+  return result;
+};
+
+const NumberedPagination = ({ current, total, label, href, onPage }: { current: number; total: number; label: string; href?: (page: number) => string; onPage?: (page: number) => void }) => {
+  if (total <= 0) return null;
+  if (total === 1) return <p className="muted" style={{ marginTop: 16, textAlign: "center", fontSize: 13 }}>Page 1 of 1</p>;
+  const itemStyle = { minWidth: 34, height: 34, padding: "0 9px", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 7, border: "1px solid rgba(255,255,255,.12)", color: "inherit", background: "rgba(255,255,255,.035)", textDecoration: "none", font: "inherit", fontSize: 13, cursor: "pointer" };
+  const control = (page: number, content: string | number, active = false) => href
+    ? <a href={href(page)} aria-current={active ? "page" : undefined} style={{ ...itemStyle, background: active ? "rgba(196,181,253,.18)" : itemStyle.background, borderColor: active ? "rgba(196,181,253,.5)" : "rgba(255,255,255,.12)", fontWeight: active ? 800 : 600 }}>{content}</a>
+    : <button type="button" onClick={() => onPage?.(page)} aria-current={active ? "page" : undefined} style={{ ...itemStyle, background: active ? "rgba(196,181,253,.18)" : itemStyle.background, borderColor: active ? "rgba(196,181,253,.5)" : "rgba(255,255,255,.12)", fontWeight: active ? 800 : 600 }}>{content}</button>;
+  let gap = 0;
+  return <><p className="muted" style={{ marginTop: 16, textAlign: "center", fontSize: 13 }}>Page {current} of {total}</p><nav aria-label={label} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 7, flexWrap: "wrap" }}>
+    {current > 1 && control(current - 1, "‹ Previous")}
+    {paginationWindow(current, total).map((item) => item === "gap"
+      ? <span key={`gap-${gap++}`} className="muted" aria-hidden style={{ padding: "0 3px" }}>…</span>
+      : <span key={item}>{control(item, item, item === current)}</span>)}
+    {current < total && control(current + 1, "Next ›")}
+  </nav></>;
+};
 
 export const RenownRepos = ({ cssPath, directory = EMPTY, origin = "" }: Props) => {
   const [privateDirectory, setPrivateDirectory] = useState<PrivateDirectory | null>(null);
@@ -88,7 +119,7 @@ export const RenownRepos = ({ cssPath, directory = EMPTY, origin = "" }: Props) 
 
           {(privateLoading || privateDirectory) && (
             <section className="card">
-              <h2 style={{ marginTop: 0 }}>Your private repos <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· visible only to you</span></h2>
+              <h2 style={{ marginTop: 0 }}>Your private repos <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {privateDirectory ? `${fmt(privateDirectory.total)} accessible` : "visible only to you"}</span></h2>
               <p className="muted hint">Fetched one page at a time from GitHub. Open a repository for its full private leaderboard; names and boards are never stored or published.</p>
               <form onSubmit={(event) => {
                 event.preventDefault();
@@ -113,16 +144,12 @@ export const RenownRepos = ({ cssPath, directory = EMPTY, origin = "" }: Props) 
                   </a>
                 ))}
               </div>}
-              {!privateLoading && privateDirectory && (privateDirectory.page > 1 || privateDirectory.hasMore) && <nav aria-label="Private repository pages" style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 18 }}>
-                {privateDirectory.page > 1 ? <button type="button" onClick={() => setPrivatePage((page) => Math.max(1, page - 1))} style={{ border: 0, color: "#c4b5fd", background: "transparent", cursor: "pointer", font: "inherit", fontWeight: 700 }}>← Previous</button> : <span />}
-                <span className="muted" style={{ fontSize: 13 }}>Private page {privateDirectory.page}</span>
-                {privateDirectory.hasMore ? <button type="button" onClick={() => setPrivatePage((page) => page + 1)} style={{ border: 0, color: "#c4b5fd", background: "transparent", cursor: "pointer", font: "inherit", fontWeight: 700 }}>Next →</button> : <span />}
-              </nav>}
+              {!privateLoading && privateDirectory && <NumberedPagination current={privateDirectory.page} total={privateDirectory.totalPages} label="Private repository pages" onPage={setPrivatePage} />}
             </section>
           )}
 
           <section className="card">
-            <h2 style={{ marginTop: 0 }}>Repositories <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>{directory.query ? `· matching “${directory.query}”` : "· ranked by real work"}</span></h2>
+            <h2 style={{ marginTop: 0 }}>Repositories <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>{directory.query ? `· ${fmt(directory.total)} matching “${directory.query}”` : `· ${fmt(directory.total)} ranked by real work`}</span></h2>
             {!directory.contributorFound ? <p className="muted">That contributor isn't a verified Renown player yet.</p>
               : directory.repos.length === 0 ? <p className="muted">No public repositories match this search.</p>
               : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(285px, 1fr))", gap: 8, marginTop: 10 }}>
@@ -136,11 +163,7 @@ export const RenownRepos = ({ cssPath, directory = EMPTY, origin = "" }: Props) 
                 ))}
               </div>}
 
-            {(directory.page > 1 || directory.hasMore) && <nav aria-label="Repository pages" style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 18 }}>
-              {directory.page > 1 ? <a href={hrefFor(directory, directory.page - 1)} style={{ color: "#c4b5fd", fontWeight: 700, textDecoration: "none" }}>← Previous</a> : <span />}
-              <span className="muted" style={{ fontSize: 13 }}>Page {directory.page}</span>
-              {directory.hasMore ? <a href={hrefFor(directory, directory.page + 1)} style={{ color: "#c4b5fd", fontWeight: 700, textDecoration: "none" }}>Next →</a> : <span />}
-            </nav>}
+            <NumberedPagination current={directory.page} total={directory.totalPages} label="Public repository pages" href={(page) => hrefFor(directory, page)} />
           </section>
         </main>
       </body>

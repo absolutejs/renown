@@ -170,14 +170,14 @@ export const loadProjectDirectory = async ({
 
   // A named contributor who is not a verified Renown player has no public repo list.
   if (login && (!contributorPlayer || !isPublicParticipant(contributorPlayer))) {
-    return { repos: [], query: q, contributor: login, contributorFound: false, sort, page: safePage, hasMore: false };
+    return { repos: [], query: q, contributor: login, contributorFound: false, sort, page: safePage, limit: safeLimit, total: 0, totalPages: 0, hasMore: false };
   }
 
   const contributorKeys = contributorPlayer
     ? (await gameDb.select({ key: playerProjects.projectKey }).from(playerProjects).where(eq(playerProjects.playerId, contributorPlayer.id))).map((r) => r.key)
     : null;
   if (contributorKeys?.length === 0) {
-    return { repos: [], query: q, contributor: login, contributorFound: true, sort, page: safePage, hasMore: false };
+    return { repos: [], query: q, contributor: login, contributorFound: true, sort, page: safePage, limit: safeLimit, total: 0, totalPages: 0, hasMore: false };
   }
 
   const escapedQuery = q.replace(/[\\%_]/g, "\\$&");
@@ -193,9 +193,16 @@ export const loadProjectDirectory = async ({
   const devCount = sql<number>`count(distinct ${playerProjects.playerId})`;
   const order = sort === "devs" ? desc(devCount) : sort === "stars" ? desc(projects.stars) : sort === "commits" ? desc(commitSum) : desc(effXpSum);
 
-  // Fetch one extra row to derive pagination without a separate count query that could leak
-  // stale repository identity through search-result counts. Every returned identity is then
-  // revalidated against GitHub, matching the privacy boundary used by project/profile pages.
+  const countRows = await gameDb.select({ total: sql<number>`count(distinct ${playerProjects.projectKey})::int` })
+    .from(playerProjects)
+    .innerJoin(projects, eq(projects.key, playerProjects.projectKey))
+    .innerJoin(players, eq(players.id, playerProjects.playerId))
+    .where(where);
+  const total = Number(countRows[0]?.total ?? 0);
+  const totalPages = Math.ceil(total / safeLimit);
+
+  // Counts expose no repository identity; every rendered row is still independently revalidated
+  // against GitHub, matching the privacy boundary used by project/profile pages.
   const candidates = await gameDb.select({
     key: playerProjects.projectKey, name: projects.name, stars: projects.stars, oss: projects.oss,
     devs: sql<number>`count(distinct ${playerProjects.playerId})::int`, xp: effXpSum,
@@ -206,17 +213,17 @@ export const loadProjectDirectory = async ({
     .where(where)
     .groupBy(playerProjects.projectKey, projects.name, projects.stars, projects.oss)
     .orderBy(order, desc(effXpSum), playerProjects.projectKey)
-    .limit(safeLimit + 1)
+    .limit(safeLimit)
     .offset((safePage - 1) * safeLimit);
 
   const checks = await Promise.all(candidates.map((r) => confirmProjectPublic(r.key)));
   const publicRows = candidates.filter((_, i) => checks[i]);
-  const hasMore = candidates.length > safeLimit;
-  const repos = publicRows.slice(0, safeLimit).map((r) => {
+  const hasMore = safePage < totalPages;
+  const repos = publicRows.map((r) => {
     const [owner, ...rest] = r.key.split("/");
     return { ...r, owner, repo: rest.join("/") || r.key, devs: Number(r.devs), xp: Number(r.xp), commits: Number(r.commits) };
   });
-  return { repos, query: q, contributor: login, contributorFound: true, sort, page: safePage, hasMore };
+  return { repos, query: q, contributor: login, contributorFound: true, sort, page: safePage, limit: safeLimit, total, totalPages, hasMore };
 };
 
 // Populate public repository associations for identities represented by a GitHub commit-search
