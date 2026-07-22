@@ -874,6 +874,20 @@ h1, h2, h3 { font-family: var(--font-display); color: var(--text); font-weight: 
 .summonName.tier-mythic    { color: #ffd166; text-shadow: 0 0 22px rgba(255,180,80,.55); }
 .summonName.tier-legendary { color: #d6b8ff; text-shadow: 0 0 18px rgba(180,140,255,.45); }
 .summonName.tier-epic      { color: #b3e5ff; }
+.summonControls { display: grid; grid-template-columns: minmax(112px, 1fr) auto minmax(112px, 1fr); align-items: center; gap: var(--s-4); width: min(520px, 90vw); }
+.summonControls > button:last-child { justify-self: end; }
+.summonControls button:disabled { opacity: .38; cursor: not-allowed; }
+.summonDots { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.summonDots span { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); transition: width .18s var(--ease), background .18s var(--ease); }
+.summonDots span.active { width: 20px; border-radius: var(--r-pill); background: var(--accent-bright); box-shadow: 0 0 12px rgba(95,190,235,.55); }
+@media (max-width: 560px) {
+  .summonScrim { gap: var(--s-3); padding: var(--s-3); }
+  .summonHead { width: 100%; justify-content: space-between; gap: var(--s-2); }
+  .summonLabel { font-size: 11px; letter-spacing: .08em; }
+  .summonStage { width: min(100%, 56vh); }
+  .summonMeta .muted { font-size: 12px; }
+  .summonControls { width: 100%; gap: var(--s-2); }
+}
 
 /* ── shared menagerie WebGL viewport ───────────────────────────────────────*/
 .viewportCanvas { position: fixed; inset: 0; pointer-events: none; z-index: 1; }

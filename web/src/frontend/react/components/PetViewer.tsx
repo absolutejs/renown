@@ -9,7 +9,7 @@ import { Bloom, ChromaticAberration, EffectComposer, Noise, Vignette } from "@re
 import { animated, useSpring } from "@react-spring/three";
 import { BlendFunction, KernelSize } from "postprocessing";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BoxGeometry, BufferAttribute, type BufferGeometry, ExtrudeGeometry, Float32BufferAttribute, type Group, type PerspectiveCamera as ThreePerspectiveCamera, Shape, Vector2 } from "three";
+import { BoxGeometry, BufferAttribute, type BufferGeometry, ExtrudeGeometry, Float32BufferAttribute, type Group, type Mesh, type MeshBasicMaterial, type PerspectiveCamera as ThreePerspectiveCamera, Shape, Vector2 } from "three";
 import * as CANNON from "cannon-es";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { clampVoxelDepth, type Creature, generate, voxelize } from "../../../shared/procgen";
@@ -566,11 +566,74 @@ export const HeroCanvas = ({ seed, creature, lookId = DEFAULT_PET_LOOK_ID }: { s
   );
 };
 
+// A short, canvas-native arrival beat for each newly unlocked pet. The pet rises and
+// settles while a luminous ring expands through it; Drei Sparkles supply the particles.
+// Keeping this in the R3F scene means Previous / Next remounts replay the reveal without
+// relying on DOM timers or moving the page itself.
+const SummonReveal = ({ seed, creature, lookId }: { seed: string; creature: Creature; lookId: PetLookId }) => {
+  const groupRef = useRef<Group>(null);
+  const ringRef = useRef<Mesh>(null);
+  const ringMaterialRef = useRef<MeshBasicMaterial>(null);
+  const startedAt = useRef<number | null>(null);
+
+  useFrame((state) => {
+    if (startedAt.current === null) startedAt.current = state.clock.getElapsedTime();
+    const elapsed = state.clock.getElapsedTime() - startedAt.current;
+    const progress = Math.min(1, elapsed / 1.15);
+    const settled = 1 - Math.pow(1 - progress, 3);
+    const overshoot = Math.sin(progress * Math.PI) * (1 - progress) * 0.22;
+
+    if (groupRef.current) {
+      const scale = settled + overshoot;
+      groupRef.current.scale.setScalar(Math.max(0.001, scale));
+      groupRef.current.position.y = (1 - settled) * -2.4;
+      groupRef.current.rotation.y = (1 - settled) * -0.65;
+    }
+    if (ringRef.current) ringRef.current.scale.setScalar(0.35 + settled * 2.8);
+    if (ringMaterialRef.current) ringMaterialRef.current.opacity = Math.sin(progress * Math.PI) * 0.72;
+  });
+
+  const revealColor = creature.oneOfOne || creature.tier === "Mythic" ? "#ffd166" : creature.tier === "Legendary" ? "#c9a7ff" : "#7dd3fc";
+  const sparkleScale: [number, number, number] = [creature.sizeN * 0.18 + 7, creature.sizeN * 0.18 + 7, 5];
+  return (
+    <>
+      <group ref={groupRef} scale={0.001} position={[0, -2.4, 0]} rotation={[0, -0.65, 0]}>
+        <Pet seed={seed} lookId={lookId} entranceBurst autoRotate={0.18} />
+      </group>
+      <mesh ref={ringRef} position={[0, 0, -1.2]} scale={0.35}>
+        <ringGeometry args={[1.35, 1.52, 64]} />
+        <meshBasicMaterial ref={ringMaterialRef} color={revealColor} transparent opacity={0} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <Sparkles count={creature.oneOfOne ? 120 : 72} scale={sparkleScale} size={creature.oneOfOne ? 6 : 4} speed={1.25} color={revealColor} opacity={0.85} />
+    </>
+  );
+};
+
+const SummonCanvas = ({ seed, creature, lookId }: { seed: string; creature: Creature; lookId: PetLookId }) => {
+  const z = Math.max(8, 6 + creature.sizeN * 0.10) + lookDepthPush(creature, lookId);
+  const wild = creature.oneOfOne || creature.mythicAura;
+  return (
+    <Canvas camera={{ fov: 32, position: [0, 0, z] }} dpr={[1, 1.8]} gl={{ antialias: true, alpha: false }}>
+      <color attach="background" args={[wild ? "#06060a" : "#0a0a0a"]} />
+      <ambientLight intensity={0.7} />
+      <directionalLight position={[3, 4, 5]} intensity={1.2} />
+      <directionalLight position={[-3, -2, 4]} intensity={0.6} color="#5fbeeb" />
+      <Environment preset={wild ? "night" : "city"} background={false} environmentIntensity={wild ? 0.7 : 0.45} />
+      <Stars radius={45} depth={28} count={wild ? 1000 : 620} factor={wild ? 3 : 2.2} fade speed={0.65} />
+      <SummonReveal seed={seed} creature={creature} lookId={lookId} />
+      <EffectComposer>
+        <Bloom intensity={wild ? 1.8 : 1.25} luminanceThreshold={0.42} luminanceSmoothing={0.5} kernelSize={KernelSize.HUGE} mipmapBlur />
+        <Vignette offset={0.14} darkness={0.58} />
+      </EffectComposer>
+      {showStats() && <Stats />}
+    </Canvas>
+  );
+};
+
 // Fullscreen "summon" cinematic — takes over the viewport when /api/verify yields new pets.
-// Cycles through each new seed for a tier-scaled dwell (Common 2.0s → 1/1 3.2s), uses the
-// HeroCanvas presentation pipeline for each, and auto-closes when done. Esc / Skip / scrim
-// click all close early; the seeds are already saved to `wild` server-side so closing
-// doesn't forfeit anything — it's pure UX.
+// Navigation is deliberately manual: syncing never moves past a pet before the player is
+// ready. Previous / Next, arrow keys, and Skip control the sequence. The seeds are already
+// saved to `wild` server-side, so closing doesn't forfeit anything — it's pure UX.
 //
 // Per-pet remount via `key={seed}` is intentional: each cinematic beat is short enough that
 // the WebGL/post-FX warm-up is hidden by the next pet's entrance burst. Keeping one Canvas
@@ -581,42 +644,36 @@ export const SummonCinematic = ({ summons, onClose }: { summons: SummonPet[]; on
   const seed = summon?.seed ?? null;
   const c = useMemo(() => seed ? generate(seed) : null, [seed]);
 
-  // Tier-scaled dwell so rare pets get a longer beat (they have more visual going on:
-  // chromatic aberration, orbiting trails, ghost copies, transmission spheres).
-  const dwell = c
-    ? (c.oneOfOne ? 3200 : c.tier === "Mythic" ? 2800 : c.tier === "Legendary" ? 2400 : 2000)
-    : 0;
-
   useEffect(() => {
     if (!seed || !c) return undefined;
     // Tier-voiced chime: Common pets get a quiet major third, 1/1 gets a detuned upper
     // cluster. Same trigger point, different acoustic information per pet.
     playChime(chimeVoiceFor(c.tier, c.oneOfOne, c.mythicAura));
-    const id = window.setTimeout(() => {
-      if (index < summons.length - 1) setIndex(index + 1);
-      else window.setTimeout(onClose, 700);     // brief hold on the last pet before closing
-    }, dwell);
-    return () => window.clearTimeout(id);
-  }, [seed, c, index, summons.length, dwell, onClose]);
+    return undefined;
+  }, [seed, c]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") setIndex((current) => Math.max(0, current - 1));
+      if (e.key === "ArrowRight") setIndex((current) => Math.min(summons.length - 1, current + 1));
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, summons.length]);
 
   if (!seed || !c) return null;
   const serial = summon.serialNumber ?? c.card?.serialNumber;
   const total = summon.printRun ?? c.card?.printRun;
   return (
-    <div className="summonScrim" role="dialog" aria-modal onClick={onClose}>
+    <div className="summonScrim" role="dialog" aria-modal="true" aria-labelledby="summon-title" onClick={onClose}>
       <header className="summonHead" onClick={(e) => e.stopPropagation()}>
-        <span className="summonLabel">✦ {summons.length === 1 ? "A new pet was summoned" : `${summons.length} new pets summoned`} ✦</span>
+        <span className="summonLabel" id="summon-title">✦ {summons.length === 1 ? "A new pet was summoned" : `${summons.length} new pets summoned`} ✦</span>
         <span className="summonProgress">{index + 1} / {summons.length}</span>
         <button className="btn ghost summonSkip" onClick={onClose}>Skip ›</button>
       </header>
       <div className="summonStage" onClick={(e) => e.stopPropagation()}>
-        <HeroCanvas key={seed} seed={seed} creature={c} lookId={summon?.lookId} />
+        <SummonCanvas key={seed} seed={seed} creature={c} lookId={summon.lookId} />
       </div>
       <div className="summonMeta" onClick={(e) => e.stopPropagation()}>
         <h2 className={`summonName tier-${c.tier.toLowerCase()}`}>{c.name}</h2>
@@ -625,6 +682,13 @@ export const SummonCinematic = ({ summons, onClose }: { summons: SummonPet[]; on
           {c.card && <> · pull odds ≈ 1 in {c.card.pullOdds.toLocaleString()}</>}
         </p>
       </div>
+      <nav className="summonControls" aria-label="Unlocked pet navigation" onClick={(e) => e.stopPropagation()}>
+        <button className="btn ghost" disabled={index === 0} onClick={() => setIndex((current) => Math.max(0, current - 1))}>‹ Previous</button>
+        <div className="summonDots" aria-hidden="true">
+          {summons.map((pet, dotIndex) => <span key={pet.seed} className={dotIndex === index ? "active" : ""} />)}
+        </div>
+        <button className="btn" onClick={() => index < summons.length - 1 ? setIndex(index + 1) : onClose()}>{index < summons.length - 1 ? "Next ›" : "Finish"}</button>
+      </nav>
     </div>
   );
 };
