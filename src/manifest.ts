@@ -8,7 +8,7 @@ const tool = toolFactory<never>();
  * lifecycle commands and exec-capability workspace tools. The CLI talks to
  * the hosted leaderboard out of the box — no settings, no env required. */
 export const manifest = defineManifest<Record<never, never>>()({
-  contract: 1,
+  contract: 2,
   identity: {
     accent: "#eab308",
     category: "growth",
@@ -52,16 +52,22 @@ export const manifest = defineManifest<Record<never, never>>()({
   settings: Type.Object({}),
   tools: {
     dev_stats: tool.workspace({
-      annotations: { readOnlyHint: true },
+      annotations: { idempotentHint: true, openWorldHint: true },
+      authorization: {
+        approval: "policy",
+        audience: "admin",
+        destinations: ["configured-renown-service"],
+        effects: ["read", "external-network", "arbitrary-code"],
+        idempotency: { mode: "host" },
+        requiredScopes: ["renown:read"],
+        reversible: false,
+      },
       capabilities: ["exec"],
       description:
         "Show this workspace's dev-work dashboard: AI attestation status, 7-day recap, rate limits, and earned achievements.",
       handler: async (_input, workspace) => {
         if (!workspace.exec) return "host did not grant exec";
-        const result = await workspace.exec("bunx", [
-          "@absolutejs/renown",
-          "ai-stats",
-        ]);
+        const result = await workspace.exec("renown", ["ai-stats"]);
 
         return result.code === 0
           ? result.stdout
@@ -71,15 +77,22 @@ export const manifest = defineManifest<Record<never, never>>()({
     }),
     sync_score: tool.workspace({
       annotations: { idempotentHint: true, openWorldHint: true },
+      authorization: {
+        approval: "policy",
+        audience: "admin",
+        destinations: ["configured-renown-service"],
+        effects: ["write", "external-network", "arbitrary-code"],
+        idempotency: { mode: "host" },
+        requiredScopes: ["renown:sync"],
+        resource: { type: "renown-profile" },
+        reversible: false,
+      },
       capabilities: ["exec"],
       description:
         "Push this machine's local renown state to the hosted leaderboard now, instead of waiting for the periodic sync.",
       handler: async (_input, workspace) => {
         if (!workspace.exec) return "host did not grant exec";
-        const result = await workspace.exec("bunx", [
-          "@absolutejs/renown",
-          "sync",
-        ]);
+        const result = await workspace.exec("renown", ["sync"]);
 
         return result.code === 0
           ? result.stdout

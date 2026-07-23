@@ -5,10 +5,10 @@
     "": {
       "name": "@absolutejs/renown",
       "dependencies": {
-        "@absolutejs/collectibles": "0.1.1",
-        "@absolutejs/manifest": "^0.1.0",
-        "@absolutejs/marketplace": "0.1.3",
-        "@absolutejs/onchain": "0.1.1",
+        "@absolutejs/collectibles": "0.1.2",
+        "@absolutejs/manifest": "^0.4.0",
+        "@absolutejs/marketplace": "0.1.4",
+        "@absolutejs/onchain": "0.1.2",
         "@absolutejs/wallet": "0.8.6",
         "@neondatabase/serverless": "^1.1.0",
         "@sinclair/typebox": "^0.34.0",
@@ -27,11 +27,11 @@
 
     "@absolutejs/agency": ["@absolutejs/agency@0.6.3", "", { "dependencies": { "@absolutejs/manifest": "^0.3.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "drizzle-orm": ">=1.0.0-rc.4 <2" } }, "sha512-4bGPtlKLzVyUpHXSFXyQTEnBmScKXfEaMAknQD9ifjWeJuAIBrjSFaMg4nN7qNSldfEOKmtNxaQ0ADNeRtiIZg=="],
 
-    "@absolutejs/collectibles": ["@absolutejs/collectibles@0.1.1", "", { "dependencies": { "@absolutejs/manifest": "^0.1.0", "@sinclair/typebox": "^0.34.0" } }, "sha512-LQkxNB8xL6rqIH6qGZld72CS1NlvlRpRbypytRIUNJAtU7eQa3k8UxhaDeiwhVJ9BfvoIhnIJjo06fZG5GbTgg=="],
+    "@absolutejs/collectibles": ["@absolutejs/collectibles@0.1.2", "", { "dependencies": { "@absolutejs/manifest": "^0.4.0", "@sinclair/typebox": "^0.34.0" } }, "sha512-doDiQxpJjvhReHg8rQR9L3CIpSpXl0HUS6Wf2W0IhCDuBhgVJ1s68OmvsylQBpmW/sOZux8tqMFBzomWdLLvEg=="],
 
-    "@absolutejs/manifest": ["@absolutejs/manifest@0.1.0", "", { "peerDependencies": { "@sinclair/typebox": "^0.34.0" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-Hf9mGkT42kwRCcEfXAG2sHzZwqlNpZH/Clsta/LJCxi1X/70tRp8n8O4EPlRvmM27VAiotDxpDbcx2IrG18XiQ=="],
+    "@absolutejs/manifest": ["@absolutejs/manifest@0.4.0", "", { "peerDependencies": { "@sinclair/typebox": "^0.34.0" }, "bin": { "absolute-manifest": "dist/cli.js" } }, "sha512-hhgUMB2Q9+m2BxL7D9fITQfCtYJTwA1IC1jZIFFvz6ESUz4FV2OlvR8q95Dk3xn+TVrSihTitia9VIXD2hD5QA=="],
 
-    "@absolutejs/marketplace": ["@absolutejs/marketplace@0.1.3", "", { "dependencies": { "@absolutejs/manifest": "^0.1.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@absolutejs/wallet": ">=0.8.6 <0.9" } }, "sha512-nQNx5Wn+fW8t+FbnP66j/fUqhtJTZeZoWURXM2HpFFoCAhojafcoS6C3boz65viB3msjVAuaHIhZ809ZUYkkvQ=="],
+    "@absolutejs/marketplace": ["@absolutejs/marketplace@0.1.4", "", { "dependencies": { "@absolutejs/manifest": "^0.4.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "@absolutejs/wallet": ">=0.8.6 <0.9" } }, "sha512-UIBlHDjUKtCMK5C96KmamvdhFgdonu/LG/b7hS31aUU2sKOWiY4Dsm6Pvr2M9WXDmbW1zDxGJea0QOC8HJKMIg=="],
 
     "@absolutejs/native-darwin-arm64": ["@absolutejs/native-darwin-arm64@0.19.0-beta.1008", "", { "os": "darwin", "cpu": "arm64" }, "sha512-bztRSnYXrD2O5UL9IUTP/Bc2Pd36sxmEd8elxjBPkgcB4iW9RmGUhCBGOMvGTKuEzHjWaJVVa1na6L9q12AxdA=="],
 
@@ -45,7 +45,7 @@
 
     "@absolutejs/native-windows-x64": ["@absolutejs/native-windows-x64@0.19.0-beta.1008", "", { "os": "win32", "cpu": "x64" }, "sha512-mXIL6AzV0gznwXz6gF+dtT4DIwxKMriF+WYxcjAPlf4xWD0S3ZS8jafHwQXi0RJn0pIX4TIIOhRz0JnVlka3zA=="],
 
-    "@absolutejs/onchain": ["@absolutejs/onchain@0.1.1", "", { "dependencies": { "@absolutejs/manifest": "^0.1.0", "@sinclair/typebox": "^0.34.0" } }, "sha512-/kY9mJCOTp/aA2lv1VMjPnqzveN7wJCgxCJguXooY5wb8DxQjktHX5pY0lhKPXGTII3xH/4y9K1/4AY+hleISQ=="],
+    "@absolutejs/onchain": ["@absolutejs/onchain@0.1.2", "", { "dependencies": { "@absolutejs/manifest": "^0.4.0", "@sinclair/typebox": "^0.34.0" } }, "sha512-uJyJIEm0GW4HGLarzMjbiQYAu/DPTnS6pblCjUErnqiQys08Y0OTiMRFIFlpMqAA6LOEi0NsloAOnhxi+miigg=="],
 
     "@absolutejs/wallet": ["@absolutejs/wallet@0.8.6", "", { "dependencies": { "@absolutejs/agency": "^0.6.3", "@absolutejs/manifest": "^0.3.0", "@sinclair/typebox": "^0.34.0" }, "peerDependencies": { "drizzle-orm": ">=1.0.0-rc.4 <2" } }, "sha512-q1jk6NH4BR49kdSRJDYQlnS+lSgLoxHJ/sid+8auMfeu+vIrbnX2fIIPt7L9ZkP4/t5uTIpaRCw7Lb9r3hD+bw=="],
 
