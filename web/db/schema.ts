@@ -2,6 +2,7 @@ import type {
   LinkedProviderBinding,
   LinkedProviderGrant,
 } from "@absolutejs/linked-providers";
+import { defineRelations } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import {
   type AnyPgTable,
@@ -165,7 +166,8 @@ export const schema = {
   users,
 } satisfies Record<string, AnyPgTable>;
 
-export type SchemaType = typeof schema;
+export const relations = defineRelations(schema);
+export type SchemaType = typeof relations;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

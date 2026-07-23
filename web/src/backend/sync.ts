@@ -8,16 +8,18 @@
 // multiple server instances later, add a Redis cluster bus (engine.connectCluster);
 // the rest of this file is unchanged.
 import { neon } from "@neondatabase/serverless";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, defineRelations, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { createReactiveHub, createWriteBehindCache } from "@absolutejs/sync";
+import * as gameSchema from "../../../db/schema.ts";
 import { achievements, playerAchievements, playerProjects, players, projects } from "../../../db/schema.ts";
 // Celebration push notifiers. push.ts imports gameDb from here too; the cycle is safe because
 // both sides only touch the other's exports at call time (ESM live bindings), never at init.
 import { notifyAchievementUnlock, notifyLevelUp } from "./push.ts";
 import { fetchRepoImportance } from "./repoScore.ts";
 
-export const gameDb = drizzle(neon(process.env.DATABASE_URL!));
+const gameRelations = defineRelations(gameSchema);
+export const gameDb = drizzle({ client: neon(process.env.DATABASE_URL!), relations: gameRelations });
 export const hub = createReactiveHub();
 
 export type ProjectSnapshot = { key: string; name?: string; xp?: number; commits?: number; lines?: number; stars?: number; oss?: boolean; visibility?: "public" | "private" | "unknown" };

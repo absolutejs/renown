@@ -15,13 +15,13 @@ import { stripePlugin } from "./plugins/stripePlugin";
 import { wellKnownPlugin } from "./plugins/wellKnownPlugin";
 import { rateLimiting } from "./rateLimit";
 import { hub, playerCache } from "./sync";
-import { schema, type User } from "../../db/schema";
+import { relations, type User } from "../../db/schema";
 import { authConfig } from "./auth/config";
 import { providersConfiguration } from "./auth/providersConfiguration";
 
 const { absolutejs, manifest } = await prepare();
 const databaseUrl = process.env.DATABASE_URL!;
-const authDb = drizzle(neon(databaseUrl), { schema });          // auth-schema client (users, identities, sessions)
+const authDb = drizzle({ client: neon(databaseUrl), relations });          // auth-schema client (users, identities, sessions)
 const authSessionStore = createNeonAuthSessionStore<User>(databaseUrl);
 const linkedProviderStores = createNeonLinkedProviderStores(databaseUrl);
 const linkedProviderCredentialResolver = await createOAuthLinkedProviderCredentialResolver({ ...linkedProviderStores, providersConfiguration });
