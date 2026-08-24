@@ -1,0 +1,379 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - link "Skip to main content" [ref=e3] [cursor=pointer]:
+      - /url: "#main"
+      - generic [ref=e4]: Skip to main content
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - generic [ref=e8]:
+          - button [ref=e9] [cursor=pointer]
+          - link "GoDaddy" [ref=e10] [cursor=pointer]:
+            - /url: https://venture-redirector.godaddy.com/
+            - figure "GoDaddy" [ref=e11]:
+              - img [ref=e12]
+        - generic [ref=e14]:
+          - link "GoDaddy" [ref=e16] [cursor=pointer]:
+            - /url: https://venture-redirector.godaddy.com/
+            - figure "GoDaddy" [ref=e17]:
+              - img [ref=e18]
+          - list [ref=e23]:
+            - listitem [ref=e159]:
+              - generic [ref=e160]: MANAGE
+            - listitem [ref=e24]:
+              - link "Portfolio" [ref=e25] [cursor=pointer]:
+                - /url: https://dcc.godaddy.com/control/portfolio
+                - generic [ref=e30]: Portfolio
+            - listitem [ref=e31]:
+              - link "DNS" [ref=e32] [cursor=pointer]:
+                - /url: https://dcc.godaddy.com/control/dnsmanagement
+                - generic [ref=e37]: DNS
+            - listitem [ref=e38]:
+              - link "Transfers" [ref=e39] [cursor=pointer]:
+                - /url: https://dcc.godaddy.com/control/transfers
+                - generic [ref=e44]: Transfers
+            - listitem [ref=e45]:
+              - button "Services" [ref=e46] [cursor=pointer]:
+                - generic [ref=e51]: Services
+              - list:
+                - listitem [ref=e54]:
+                  - link "DNS Hosting" [ref=e55] [cursor=pointer]:
+                    - /url: https://dcc.godaddy.com/control/dnshosting
+                    - generic [ref=e58]: DNS Hosting
+                - listitem [ref=e59]:
+                  - link "Domain Broker" [ref=e60] [cursor=pointer]:
+                    - /url: https://dbs.godaddy.com/
+                    - generic [ref=e63]: Domain Broker
+                - listitem [ref=e161]:
+                  - link "Pre-Registration" [ref=e162] [cursor=pointer]:
+                    - /url: https://preregistration.godaddy.com/
+                    - generic [ref=e165]: Pre-Registration
+                - listitem [ref=e69]:
+                  - link "Block" [ref=e70] [cursor=pointer]:
+                    - /url: https://dcc.godaddy.com/control/blocks
+                    - generic [ref=e73]: Block
+                - listitem [ref=e74]:
+                  - link "Negotiations" [ref=e75] [cursor=pointer]:
+                    - /url: https://aftermarket.godaddy.com/negotiations
+                    - generic [ref=e78]: Negotiations
+            - listitem [ref=e108]:
+              - button "Settings" [ref=e109] [cursor=pointer]:
+                - generic [ref=e114]: Settings
+              - list:
+                - listitem [ref=e117]:
+                  - link "Delegate Access" [ref=e118] [cursor=pointer]:
+                    - /url: https://sso.godaddy.com/access
+                    - generic [ref=e121]: Delegate Access
+                - listitem [ref=e122]:
+                  - link "DNS Templates" [ref=e123] [cursor=pointer]:
+                    - /url: https://dcc.godaddy.com/control/dns/templates
+                    - generic [ref=e126]: DNS Templates
+                - listitem [ref=e127]:
+                  - link "Exported Lists" [ref=e128] [cursor=pointer]:
+                    - /url: https://dcc.godaddy.com/control/exported-lists
+                    - generic [ref=e131]: Exported Lists
+            - listitem [ref=e132]:
+              - link "Activity Log" [ref=e133] [cursor=pointer]:
+                - /url: https://dcc.godaddy.com/control/activity/log
+                - generic [ref=e138]: Activity Log
+            - listitem [ref=e166]
+            - listitem [ref=e167]:
+              - generic [ref=e168]: BUY AND SELL
+            - listitem [ref=e169]:
+              - link "Afternic" [ref=e170] [cursor=pointer]:
+                - /url: https://sso.godaddy.com/federate/afternic?path=/dashboard?itc=dcc_portfolio_afternic
+                - generic [ref=e175]: Afternic
+            - listitem [ref=e176]:
+              - link "Auctions" [ref=e177] [cursor=pointer]:
+                - /url: https://auctions.godaddy.com/beta?itc=dcc_portfolio_auctions
+                - generic [ref=e182]: Auctions
+            - listitem [ref=e183]:
+              - link "Domain Parking" [ref=e184] [cursor=pointer]:
+                - /url: https://www.godaddy.com/domain-parking/dashboard?itc=dcc_portfolio_parking
+                - generic [ref=e189]: Domain Parking
+            - listitem [ref=e190]:
+              - link "Bulk Search" [ref=e191] [cursor=pointer]:
+                - /url: https://www.godaddy.com/domains/bulk-domain-search?itc=dcc_portfolio_bulk_search
+                - generic [ref=e196]: Bulk Search
+            - listitem [ref=e197]
+            - listitem [ref=e198]:
+              - generic [ref=e199]: LEARN
+            - listitem [ref=e200]:
+              - link "Domain Academy" [ref=e201] [cursor=pointer]:
+                - /url: https://community.godaddy.com/s/domain-academy?itc=dcc_portfolio_domain_academy
+                - generic [ref=e206]: Domain Academy
+      - generic [ref=e139]:
+        - link "Help Center" [ref=e140] [cursor=pointer]:
+          - /url: https://www.godaddy.com/help
+        - button "Notifications" [ref=e213] [cursor=pointer]:
+          - generic "Notifications" [ref=e214]:
+            - generic [ref=e218]: "3"
+        - button "App Switcher" [ref=e143] [cursor=pointer]
+        - button "Customer Info" [ref=e145] [cursor=pointer]:
+          - generic [ref=e219]: LN
+        - link "Empty Cart" [ref=e224] [cursor=pointer]:
+          - /url: https://www.godaddy.com/pricing
+          - generic "Empty Cart" [ref=e225]
+  - main [ref=e148]:
+    - generic [ref=e227]:
+      - generic [ref=e228]:
+        - button "Back to Domain Portfolio" [ref=e229] [cursor=pointer]:
+          - generic: Domain Portfolio
+        - generic [ref=e230]:
+          - heading "absolutejs.com" [level=1] [ref=e232]
+          - group [ref=e234]:
+            - generic [ref=e236]:
+              - link "Use My Domain" [ref=e237] [cursor=pointer]:
+                - /url: https://start.godaddy.com/?domainName=absolutejs.com&domainCount=1&domainConnect=true&itc=dcc_usemydomain_airo
+                - generic [ref=e238]: Use My Domain
+              - generic [ref=e239]:
+                - generic [ref=e240]: "Domain Status:"
+                - generic [ref=e241]: Idle
+      - generic [ref=e242]:
+        - navigation [ref=e243]:
+          - tablist "Navigation" [ref=e245]:
+            - tab "Overview" [ref=e246] [cursor=pointer]
+            - tab "DNS" [selected] [ref=e247] [cursor=pointer]
+            - tab "Products" [ref=e248] [cursor=pointer]
+            - tab "Activity Log" [ref=e249] [cursor=pointer]
+        - tabpanel "DNS" [ref=e250]:
+          - generic [ref=e251]:
+            - navigation [ref=e252]:
+              - tablist "Navigation" [ref=e254]:
+                - tab "DNS Records" [selected] [ref=e255] [cursor=pointer]
+                - tab "Forwarding" [ref=e256] [cursor=pointer]
+                - tab "Nameservers" [ref=e257] [cursor=pointer]
+                - tab "Hostnames" [ref=e258] [cursor=pointer]
+                - tab "DNSSEC" [ref=e259] [cursor=pointer]
+                - tab "Advanced" [ref=e260] [cursor=pointer]: Advanced
+              - generic [ref=e261]:
+                - button [ref=e262] [cursor=pointer]
+                - button [ref=e263] [cursor=pointer]
+            - tabpanel "DNS Records" [ref=e264]:
+              - generic [ref=e266]:
+                - generic [ref=e268]:
+                  - generic [ref=e269]:
+                    - generic [ref=e270]: Powered by Airo
+                    - generic [ref=e272]:
+                      - heading "Connect Your Domain in Minutes" [level=5] [ref=e273]
+                      - paragraph [ref=e274]: Set up your domain with your website, email, or social media profile faster than ever with GoDaddy Airo.
+                      - button "Connect Domain" [ref=e276] [cursor=pointer]:
+                        - generic: Connect Domain
+                  - generic [ref=e277]:
+                    - heading "Easily verify domain ownership" [level=5] [ref=e278]
+                    - paragraph [ref=e279]: Need to verify ownership of your domain to connect to an external service? We've made it easier than ever.
+                    - button "Verify Domain Ownership" [ref=e280] [cursor=pointer]:
+                      - generic: Verify Domain Ownership
+                  - generic [ref=e281]:
+                    - generic [ref=e282]:
+                      - generic [ref=e283]:
+                        - heading "Create MX records" [level=5] [ref=e284]
+                        - paragraph [ref=e285]: Quickly create MX records to connect your domain with email services.
+                      - img [ref=e287]
+                    - button "Create Now" [ref=e310] [cursor=pointer]:
+                      - generic: Create Now
+                - generic [ref=e311]:
+                  - generic [ref=e312]:
+                    - button "Add New Record" [ref=e313] [cursor=pointer]:
+                      - generic: Add New Record
+                    - generic [ref=e314]:
+                      - button "Filters" [ref=e315] [cursor=pointer]:
+                        - generic: Filters
+                      - button "Actions" [ref=e317] [cursor=pointer]:
+                        - generic: Actions
+                  - table [ref=e321]:
+                    - rowgroup [ref=e322]:
+                      - row "Type Click here for more information Name Click here for more information Data Click here for more information TTL Click here for more information Copy Delete Edit" [ref=e323]:
+                        - columnheader [ref=e324]
+                        - columnheader "Type Click here for more information" [ref=e325]:
+                          - generic [ref=e326]:
+                            - text: Type
+                            - button "Click here for more information" [ref=e329] [cursor=pointer]
+                        - columnheader "Name Click here for more information" [ref=e330]:
+                          - generic [ref=e331]:
+                            - text: Name
+                            - button "Click here for more information" [ref=e334] [cursor=pointer]
+                        - columnheader "Data Click here for more information" [ref=e335]:
+                          - generic [ref=e336]:
+                            - text: Data
+                            - button "Click here for more information" [ref=e339] [cursor=pointer]
+                        - columnheader "TTL Click here for more information" [ref=e340]:
+                          - generic [ref=e341]:
+                            - text: TTL
+                            - button "Click here for more information" [ref=e344] [cursor=pointer]
+                        - columnheader "Copy" [ref=e345]:
+                          - generic [ref=e347]: Copy
+                        - columnheader "Delete" [ref=e348]:
+                          - generic [ref=e350]: Delete
+                        - columnheader "Edit" [ref=e351]:
+                          - generic [ref=e353]: Edit
+                    - rowgroup [ref=e354]:
+                      - row "a @ 162.159.140.98 1 Hour Copy Delete Edit" [ref=e355]:
+                        - cell [ref=e356]:
+                          - checkbox [ref=e359] [cursor=pointer]
+                        - cell "a" [ref=e360]
+                        - cell "@" [ref=e361]
+                        - cell "162.159.140.98" [ref=e362]
+                        - cell "1 Hour" [ref=e363]
+                        - cell "Copy" [ref=e364]:
+                          - button "Copy" [ref=e365] [cursor=pointer]
+                        - cell "Delete" [ref=e366]:
+                          - button "Delete" [ref=e368] [cursor=pointer]
+                        - cell "Edit" [ref=e369]:
+                          - button "Edit" [ref=e371] [cursor=pointer]
+                      - row "a @ 172.66.0.96 1 Hour Copy Delete Edit" [ref=e372]:
+                        - cell [ref=e373]:
+                          - checkbox [ref=e376] [cursor=pointer]
+                        - cell "a" [ref=e377]
+                        - cell "@" [ref=e378]
+                        - cell "172.66.0.96" [ref=e379]
+                        - cell "1 Hour" [ref=e380]
+                        - cell "Copy" [ref=e381]:
+                          - button "Copy" [ref=e382] [cursor=pointer]
+                        - cell "Delete" [ref=e383]:
+                          - button "Delete" [ref=e385] [cursor=pointer]
+                        - cell "Edit" [ref=e386]:
+                          - button "Edit" [ref=e388] [cursor=pointer]
+                      - row "a renown 159.89.87.74 600 seconds Copy Delete Edit" [ref=e389]:
+                        - cell [ref=e390]:
+                          - checkbox [ref=e393] [cursor=pointer]
+                        - cell "a" [ref=e394]
+                        - cell "renown" [ref=e395]
+                        - cell "159.89.87.74" [ref=e396]
+                        - cell "600 seconds" [ref=e397]
+                        - cell "Copy" [ref=e398]:
+                          - button "Copy" [ref=e399] [cursor=pointer]
+                        - cell "Delete" [ref=e400]:
+                          - button "Delete" [ref=e402] [cursor=pointer]
+                        - cell "Edit" [ref=e403]:
+                          - button "Edit" [ref=e405] [cursor=pointer]
+                      - 'row "ns @ ns03.domaincontrol.com. 1 Hour Copy Delete: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service. You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service. Edit: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service. You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [ref=e406]':
+                        - cell [ref=e407]:
+                          - checkbox [disabled] [ref=e410]
+                        - cell "ns" [ref=e411]
+                        - cell "@" [ref=e412]
+                        - cell "ns03.domaincontrol.com." [ref=e413]
+                        - cell "1 Hour" [ref=e414]
+                        - cell "Copy" [ref=e415]:
+                          - button "Copy" [ref=e416] [cursor=pointer]
+                        - 'cell "Delete: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service. You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [ref=e417]':
+                          - generic [ref=e419]:
+                            - 'button "Delete: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [disabled] [ref=e420]'
+                            - button "You can't modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [ref=e423] [cursor=pointer]
+                        - 'cell "Edit: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service. You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [ref=e424]':
+                          - generic [ref=e426]:
+                            - 'button "Edit: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [disabled] [ref=e427]'
+                            - button "You can't modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [ref=e430] [cursor=pointer]
+                      - 'row "ns @ ns04.domaincontrol.com. 1 Hour Copy Delete: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service. You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service. Edit: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service. You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [ref=e431]':
+                        - cell [ref=e432]:
+                          - checkbox [disabled] [ref=e435]
+                        - cell "ns" [ref=e436]
+                        - cell "@" [ref=e437]
+                        - cell "ns04.domaincontrol.com." [ref=e438]
+                        - cell "1 Hour" [ref=e439]
+                        - cell "Copy" [ref=e440]:
+                          - button "Copy" [ref=e441] [cursor=pointer]
+                        - 'cell "Delete: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service. You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [ref=e442]':
+                          - generic [ref=e444]:
+                            - 'button "Delete: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [disabled] [ref=e445]'
+                            - button "You can't modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [ref=e448] [cursor=pointer]
+                        - 'cell "Edit: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service. You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [ref=e449]':
+                          - generic [ref=e451]:
+                            - 'button "Edit: You can''t modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [disabled] [ref=e452]'
+                            - button "You can't modify these default NS records when using GoDaddy nameservers. You can change your nameserver settings in the nameservers tab, or add custom NS records for subdomains using a separate DNS service." [ref=e455] [cursor=pointer]
+                      - row "cname www dolphin-app-yj8ff.ondigitalocean.app. 1 Hour Copy Delete Edit" [ref=e456]:
+                        - cell [ref=e457]:
+                          - checkbox [ref=e460] [cursor=pointer]
+                        - cell "cname" [ref=e461]
+                        - cell "www" [ref=e462]
+                        - cell "dolphin-app-yj8ff.ondigitalocean.app." [ref=e463]
+                        - cell "1 Hour" [ref=e464]
+                        - cell "Copy" [ref=e465]:
+                          - button "Copy" [ref=e466] [cursor=pointer]
+                        - cell "Delete" [ref=e467]:
+                          - button "Delete" [ref=e469] [cursor=pointer]
+                        - cell "Edit" [ref=e470]:
+                          - button "Edit" [ref=e472] [cursor=pointer]
+                      - 'row "soa @ Primary nameserver: ns03.domaincontrol.com. 1 Hour Copy Delete: SOA records are required for your DNS zone and can''t be deleted. SOA records are required for your DNS zone and can''t be deleted. Edit" [ref=e473]':
+                        - cell [ref=e474]:
+                          - checkbox [disabled] [ref=e477]
+                        - cell "soa" [ref=e478]
+                        - cell "@" [ref=e479]
+                        - 'cell "Primary nameserver: ns03.domaincontrol.com." [ref=e480]'
+                        - cell "1 Hour" [ref=e481]
+                        - cell "Copy" [ref=e482]:
+                          - button "Copy" [ref=e483] [cursor=pointer]
+                        - 'cell "Delete: SOA records are required for your DNS zone and can''t be deleted. SOA records are required for your DNS zone and can''t be deleted." [ref=e484]':
+                          - generic [ref=e486]:
+                            - 'button "Delete: SOA records are required for your DNS zone and can''t be deleted." [disabled] [ref=e487]'
+                            - button "SOA records are required for your DNS zone and can't be deleted." [ref=e490] [cursor=pointer]
+                        - cell "Edit" [ref=e491]:
+                          - button "Edit" [disabled] [ref=e493]
+                      - row "txt _acme-challenge _DqeT16GxfdMuhRqprVZ9Xm8vdOtF-qtg5gNmJWFHdY 1 Hour Copy Delete Edit" [ref=e494]:
+                        - cell [ref=e495]:
+                          - checkbox [ref=e498] [cursor=pointer]
+                        - cell "txt" [ref=e499]
+                        - cell "_acme-challenge" [ref=e500]
+                        - cell "_DqeT16GxfdMuhRqprVZ9Xm8vdOtF-qtg5gNmJWFHdY" [ref=e501]
+                        - cell "1 Hour" [ref=e502]
+                        - cell "Copy" [ref=e503]:
+                          - button "Copy" [ref=e504] [cursor=pointer]
+                        - cell "Delete" [ref=e505]:
+                          - button "Delete" [ref=e507] [cursor=pointer]
+                        - cell "Edit" [ref=e508]:
+                          - button "Edit" [ref=e510] [cursor=pointer]
+                      - row "txt _acme-challenge.www FIup9qhNIHXcg-dUhw27C_JtsCwMknxqBABqiD0YWuE 1 Hour Copy Delete Edit" [ref=e511]:
+                        - cell [ref=e512]:
+                          - checkbox [ref=e515] [cursor=pointer]
+                        - cell "txt" [ref=e516]
+                        - cell "_acme-challenge.www" [ref=e517]
+                        - cell "FIup9qhNIHXcg-dUhw27C_JtsCwMknxqBABqiD0YWuE" [ref=e518]
+                        - cell "1 Hour" [ref=e519]
+                        - cell "Copy" [ref=e520]:
+                          - button "Copy" [ref=e521] [cursor=pointer]
+                        - cell "Delete" [ref=e522]:
+                          - button "Delete" [ref=e524] [cursor=pointer]
+                        - cell "Edit" [ref=e525]:
+                          - button "Edit" [ref=e527] [cursor=pointer]
+                      - row "txt _dmarc v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net; 1 Hour Copy Delete Edit" [ref=e528]:
+                        - cell [ref=e529]:
+                          - checkbox [ref=e532] [cursor=pointer]
+                        - cell "txt" [ref=e533]
+                        - cell "_dmarc" [ref=e534]
+                        - cell "v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;" [ref=e535]
+                        - cell "1 Hour" [ref=e536]
+                        - cell "Copy" [ref=e537]:
+                          - button "Copy" [ref=e538] [cursor=pointer]
+                        - cell "Delete" [ref=e539]:
+                          - button "Delete" [ref=e541] [cursor=pointer]
+                        - cell "Edit" [ref=e542]:
+                          - button "Edit" [ref=e544] [cursor=pointer]
+            - generic [ref=e547]:
+              - img [ref=e549]
+              - generic [ref=e613]:
+                - generic [ref=e614]: Set up your free social media subdomain!
+                - generic [ref=e615]:
+                  - text: Your domain comes with free, customizable subdomains
+                  - text: such as facebook.absolutejs.com to link to your social media page.
+                - generic [ref=e618]:
+                  - generic [ref=e619]:
+                    - generic [ref=e623]: Improved SEO
+                    - generic [ref=e624]: Social subdomains can help your website rank higher in search engines.
+                  - generic [ref=e625]:
+                    - generic [ref=e629]: Promote your social page
+                    - generic [ref=e631]: Anybody visiting your social subdomain such as facebook.absolutejs.com will see your social media page.
+                  - generic [ref=e632]:
+                    - generic [ref=e636]: Add to your main domain
+                    - generic [ref=e638]: Creating a social subdomain won't affect anything currently connected to absolutejs.com.
+                - generic [ref=e639]: "Choose a platform to start:"
+                - generic [ref=e640]:
+                  - button "Instagram" [ref=e641] [cursor=pointer]:
+                    - generic: Instagram
+                  - button "Facebook" [ref=e642] [cursor=pointer]:
+                    - generic: Facebook
+                  - button "Yelp" [ref=e643] [cursor=pointer]:
+                    - generic: Yelp
+                  - button "Google" [ref=e644] [cursor=pointer]:
+                    - generic: Google
+                  - button "Other" [ref=e645] [cursor=pointer]:
+                    - generic: Other
+  - alert [ref=e646]

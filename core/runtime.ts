@@ -100,10 +100,14 @@ export function ensureStats(s: State) {
   s.lastBossTs ??= 0;
 }
 
-export function freshState(): State {
-  const cfg = loadConfig(), now = Date.now();
+type StoredState = Partial<Omit<State, "best" | "stats">> & {
+  best?: Partial<State["best"]>;
+  stats?: Partial<Stats>;
+};
+
+function stateDefaults(name: string, playerId: string, now: number): State {
   const s: State = {
-    v: STATE_V, name: cfg.playerName, playerId: cfg.playerId, createdAt: now,
+    v: STATE_V, name, playerId, createdAt: now,
     xp: 0, lifetimeXp: 0, streak: 1, lastActiveDay: new Date().toISOString().slice(0, 10),
     commits: 0, linesAdded: 0, bossesSurvived: 0, secondsHealthy: 0, ossCommits: 0, extCommits: 0, starsTouched: 0, topStars: 0,
     langs: {}, hours: {}, days: {}, skillXp: {}, agentUses: {}, agentLastUsedAt: {}, collectibles: {}, wild: [], achievements: {}, bestiary: {},
@@ -113,6 +117,30 @@ export function freshState(): State {
   };
   ensureDailyQuests(s);
   return s;
+}
+
+// The runtime-agnostic npm CLI intentionally persists a sparse v3 state. The full Bun
+// engine shares that file, so version equality alone is not enough: hydrate every field
+// the engine requires while preserving progress and any fields added by newer writers.
+export function hydrateState(stored: StoredState): State {
+  const defaults = stateDefaults(stored.name ?? "player", stored.playerId ?? "local", stored.createdAt ?? Date.now());
+  const s = {
+    ...defaults,
+    ...stored,
+    best: {
+      xpInDay: stored.best?.xpInDay ?? defaults.best.xpInDay,
+      level: stored.best?.level ?? defaults.best.level,
+      streak: stored.best?.streak ?? stored.streak ?? defaults.best.streak,
+    },
+    stats: { ...defaults.stats, ...(stored.stats ?? {}) },
+  } as State;
+  ensureStats(s); ensureSkills(s); ensureDailyQuests(s);
+  return s;
+}
+
+export function freshState(): State {
+  const cfg = loadConfig();
+  return stateDefaults(cfg.playerName, cfg.playerId, Date.now());
 }
 // Skills migrate in without a version bump: existing saves keep their progress and the
 // lifetime grind seeds the headline Shipping skill once, so nobody starts from scratch.
@@ -125,7 +153,7 @@ export function ensureSkills(s: State) {
   s.wild ??= [];
 }
 export function loadState(): State {
-  try { const s = JSON.parse(readFileSync(STATE, "utf8")) as State; if (s.v !== STATE_V) throw 0; ensureStats(s); ensureSkills(s); ensureDailyQuests(s); return s; }
+  try { const s = JSON.parse(readFileSync(STATE, "utf8")) as StoredState; if (s.v !== STATE_V) throw 0; return hydrateState(s); }
   catch { mkdirSync(RDIR, { recursive: true }); const s = freshState(); saveState(s); return s; }
 }
 export function saveState(s: State) { try { mkdirSync(RDIR, { recursive: true }); const t = `${STATE}.tmp`; writeFileSync(t, JSON.stringify(s)); renameSync(t, STATE); } catch {} }

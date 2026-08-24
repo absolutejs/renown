@@ -5,6 +5,8 @@ and engine ship alongside it. Format loosely follows [Keep a Changelog](https://
 this project uses [SemVer](https://semver.org) while pre-1.0 (minor = features, patch = fixes).
 
 ## [Unreleased]
+
+## [0.3.7] — 2026-08-23
 ### Added
 - The CLI now defaults to the hosted leaderboard (`https://renown.absolutejs.com/api`)
   out of the box — `renown link` and submits work immediately on a fresh install. Override
@@ -17,6 +19,8 @@ this project uses [SemVer](https://semver.org) while pre-1.0 (minor = features, 
 - README quick-start, live-leaderboard link, and BSL license note; CONTRIBUTING guide.
 
 ### Fixed
+- Full-engine heartbeats now hydrate the sparse v3 state written by the runtime-agnostic
+  CLI, preventing Claude Stop hooks from crashing when fields such as `best` are absent.
 - `heartbeat` delegates to the full Bun engine when a source checkout is present, so commit
   scoring / achievements / streak survive a hook reinstall (e.g. when adding Codex).
 - Infinite-spinner loading bug: the shared `api()` helper no longer throws on network

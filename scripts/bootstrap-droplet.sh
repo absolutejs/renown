@@ -20,7 +20,8 @@ echo "=== bootstrap $DOMAIN (user=$SERVICE_USER dir=$APP_DIR port=$PORT) ==="
 # 1. Base packages (shared across all apps; apt is idempotent)
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates gnupg unzip rsync ufw nginx certbot python3-certbot-nginx git build-essential htop
+# nodejs: some deps (e.g. esbuild) run a node postinstall script even under bun.
+apt-get install -y -qq curl ca-certificates gnupg unzip rsync ufw nginx certbot python3-certbot-nginx git build-essential htop nodejs
 
 # 2. Swap (1GB droplet builds AbsoluteJS/React — give it headroom so bun build won't OOM)
 if [ ! -f /swapfile ]; then
