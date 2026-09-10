@@ -13,15 +13,17 @@
     "renown": "dist/cli.mjs"
   },
   "files": [
-    "dist/cli.mjs",
-    "cli/",
-    "core/",
-    "integrations/",
-    "db/schema.ts",
+    "CHANGELOG.md",
     "INSTALL.md",
     "README.md",
+    "changelog.json",
+    "cli/",
+    "core/",
+    "db/schema.ts",
+    "dist/cli.mjs",
     "dist/manifest.js",
-    "dist/manifest.json"
+    "dist/manifest.json",
+    "integrations/"
   ],
   "scripts": {
     "test": "bun test",
@@ -95,7 +97,8 @@
     "db:seed": "bun run db/seed.ts",
     "db:backup": "absolute db backup --exclude achievements",
     "db:restore": "absolute db restore && bun run db/recompute-rarity.ts",
-    "build:manifest": "bun build src/manifest.ts --outdir dist --target=node && absolute-manifest emit"
+    "build:manifest": "bun build src/manifest.ts --outdir dist --target=node && absolute-manifest emit",
+    "check:package": "absolute-changelog check"
   },
   "dependencies": {
     "@absolutejs/collectibles": "0.1.2",
@@ -109,6 +112,7 @@
   },
   "devDependencies": {
     "@absolutejs/absolute": "0.20.0-beta.0",
+    "@absolutejs/changelog": "^0.1.2",
     "bun-types": "^1.3.14",
     "drizzle-kit": "1.0.0-rc.4",
     "typescript": "5.9.3"
