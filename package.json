@@ -8,6 +8,10 @@
   "license": "BSL-1.1",
   "private": false,
   "description": "Renown — earn XP and renown for real, meritorious dev work. Editor-agnostic, with 10k achievements and competitive per-project leaderboards. By AbsoluteJS.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/absolutejs/renown.git"
+  },
   "type": "module",
   "bin": {
     "renown": "dist/cli.mjs"
