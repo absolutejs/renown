@@ -57,6 +57,8 @@ jobs:
         run: |
           if [[ -f package.json ]]; then bun install
           else cd "$DIRECTORY" && bun install; fi
+          # Renown's package typecheck also covers the web app and shared tests.
+          if [[ -f web/package.json ]]; then (cd web && bun install --frozen-lockfile); fi
       - name: CI
         if: inputs.task == 'ci'
         working-directory: ${{ inputs.directory }}
@@ -102,6 +104,8 @@ jobs:
           NAME=$(jq -r .name package.json); CURRENT=$(jq -r .version package.json)
           if npm view "$NAME@$CURRENT" version >/dev/null 2>&1; then echo "$NAME@$CURRENT is already published"; exit 0; fi
           bun run --if-present build
+          # Build before npm reads bin metadata; prepack alone runs too late.
+          bun run --if-present prepack
           if jq -e '.scripts["check:package"]' package.json >/dev/null; then bun run check:package; fi
           TAG=latest; [[ "$CURRENT" == *-* ]] && TAG=beta
           npm publish --access public --tag "$TAG"
