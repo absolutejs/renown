@@ -1,5 +1,24 @@
 {
 	"contract": 1,
 	"name": "@absolutejs/renown",
-	"releases": []
+	"releases": [
+		{
+			"changes": [
+				{
+					"kind": "fixed",
+					"summary": "Preserve cumulative cloud progress across sparse or reordered syncs and retain daily database recovery history."
+				},
+				{
+					"kind": "fixed",
+					"summary": "Prevent concurrent local saves and corrupt reads from resetting progress; retain previous and daily backups."
+				},
+				{
+					"kind": "fixed",
+					"summary": "Resume commit backlogs without skipping work and prevent duplicate credit across recovered history and repository clones."
+				}
+			],
+			"date": "2026-09-30",
+			"version": "0.3.8"
+		}
+	]
 }

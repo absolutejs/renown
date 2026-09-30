@@ -30,6 +30,8 @@ export interface State {
   achievements: Record<string, number>; bestiary: Record<string, Boss>;
   questDay: string; quests: Quest[]; repoHeads: Record<string, string>;
   recentFp: string[]; craftDay: string; craftXpToday: number; maxMem: number;
+  // Durable idempotency ledger for recovery/replays and overlapping watched clones.
+  scoredCommits?: Record<string, true>;
   lastTick: number; lastLogScanTs: number; lastBossTs: number;
   best: { xpInDay: number; level: number; streak: number };
   stats: Stats; projects: Record<string, ProjStat>; langsDeep: Record<string, LangStat>;

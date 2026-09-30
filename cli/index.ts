@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { withLocalLock } from "../core/localStore.ts";
 // Renown CLI.  renown [tick | commit <repo> | recap | heartbeat | watch]
 //   (no args)        → interactive TUI
 //   tick             → engine heartbeat (score new work, stats, achievements, submit)
@@ -229,6 +230,7 @@ const PARSE_TOOL: Record<string, (output: string, exit: number) => number> = {
 };
 
 const [, , cmd, arg] = process.argv;
+const dispatch = async () => {
 switch (cmd) {
   case "tick": await runEvent("tick"); break;
   case "commit": await runEvent("commit", arg); break;
@@ -878,3 +880,7 @@ switch (cmd) {
   case undefined: case "": { const { runTui } = await import("./quest.ts"); await runTui(); break; }
   default: console.log("usage: renown [tick|sync|commit <repo>|recap|heartbeat|agent <provider>|statusline|greet|skills|collection|summon|menagerie|adopt|companion|parade|gallery|link|watch]");
 }
+
+};
+if (["agent", "claude", "codex", "cursor", "copilot", "aider", "gemini", "goose", "windsurf", "openhands", "devin", "adopt"].includes(cmd ?? "")) await withLocalLock(dispatch);
+else await dispatch();

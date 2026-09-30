@@ -1,6 +1,7 @@
 // Event processor — the engine heartbeat.  bun cli/index.ts tick | commit <repo>
 // Scores real work (craft), tracks activity/stats, advances quests, scans memory bosses,
 // evaluates the 10k achievement catalog (badges), submits to the leaderboard, writes HUD.
+import { withLocalLock } from "./localStore.ts";
 import { $ } from "bun";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { C, HUD, WATCHED, award, ensureDailyQuests, loadConfig, loadState, renderHud, saveState } from "./runtime.ts";
@@ -40,13 +41,19 @@ function checkAch(s: State) {                                  // achievements a
 
 async function reconcile(s: State, repo: string) {
   const sha = (await $`git -C ${repo} rev-parse HEAD`.text().catch(() => "")).trim(); if (!sha) return;
-  const prev = s.repoHeads[repo]; s.repoHeads[repo] = sha;
-  if (!prev || prev === sha) return;
+  const prev = s.repoHeads[repo];
+  if (!prev) { s.repoHeads[repo] = sha; return; }
+  if (prev === sha) return;
   const meta = await repoMeta(repo).catch(() => null);
   const key = meta ? `${meta.owner}/${meta.name}` : repo, pname = meta?.name ?? repo.split("/").pop() ?? repo;
-  const list = (await $`git -C ${repo} rev-list --no-merges --reverse ${prev}..${sha}`.text().catch(() => "")).trim().split("\n").filter(Boolean).slice(0, 50);
+  const pending = await $`git -C ${repo} rev-list --no-merges --reverse ${prev}..${sha}`.text().catch(() => null);
+  if (pending === null) return; // keep the checkpoint when git failed
+  const list = pending.trim().split("\n").filter(Boolean).slice(0, 50);
+  s.scoredCommits ??= {};
   for (const c of list) {
-    const r = await scoreCommit(s, cfg, repo, c).catch(() => null); if (!r) continue;
+    if (s.scoredCommits[c]) { s.repoHeads[repo] = c; continue; }
+    const r = await scoreCommit(s, cfg, repo, c); // failures leave this commit pending
+    if (!r) { s.repoHeads[repo] = c; continue; }
     s.commits++; s.linesAdded += r.lines;
     for (const l of r.langs) s.langs[l] = (s.langs[l] ?? 0) + 1;
     const cd = new Date(r.committedAt || Date.now()), h = cd.getHours(), d = cd.getDay();
@@ -62,7 +69,12 @@ async function reconcile(s: State, repo: string) {
     if (wild) { if (!s.wild.includes(wild.seed)) s.wild = [...s.wild, wild.seed].slice(-300); ev(`${C.b}${C.mag}🥚 wild ${wild.tier}: ${wild.name}${C.r}`); cels.push({ tier: wildCelebrationTier(wild.tier), text: `🥚 Wild ${wild.tier}: ${wild.name}` }); }
     progress(s, "earn150", r.xp); progress(s, "lines200", r.lines);
     if (r.oss) progress(s, "oss1", 1); if (r.hasTests) progress(s, "tests", 1);
+    s.scoredCommits[c] = true;
+    s.repoHeads[repo] = c;
   }
+  // A bounded batch must not jump past unprocessed commits. The next heartbeat
+  // resumes at the last successfully scored SHA instead of losing the backlog.
+  if (list.length < 50) s.repoHeads[repo] = sha;
 }
 function scanBosses(s: State) {                              // live, universal (core/bosses.ts)
   for (const msg of sampleBosses(s)) { ev(`${C.yel}${msg}${C.r}`); ev(award(s, 30, "slew a boss")); cels.push(bossUp()); progress(s, "slayboss", 1); }
@@ -76,23 +88,27 @@ function memTick(s: State) {
 function memTickMem(): number { try { const t = readFileSync("/proc/meminfo", "utf8"); const kB = (k: string) => Number(t.match(new RegExp(`^${k}:\\s+(\\d+)`, "m"))?.[1] ?? 0); const tot = kB("MemTotal"); return tot ? Math.round((1 - kB("MemAvailable") / tot) * 100) : 0; } catch { return 0; } }
 
 export async function runEvent(cmd?: string, arg?: string) {
-  const s = loadState(); ensureDailyQuests(s);
-  const totalBefore = totalLevel(s.skillXp);
-  if (cmd === "commit" && arg) { await reconcile(s, arg).catch(() => {}); }
-  else {
-    touchStreak(s); memTick(s); scanBosses(s);
-    if (existsSync(WATCHED)) for (const r of [...new Set(readFileSync(WATCHED, "utf8").split("\n").map(x => x.trim()).filter(Boolean))].slice(-40)) await reconcile(s, r).catch(() => {});
-    const q = s.quests.find(x => x.id === "polyglot"); if (q && !q.done) { q.prog = Object.keys(s.langs).length; if (q.prog >= q.goal) { q.done = true; ev(award(s, q.xp, "quest")); } }
-  }
-  checkAch(s); recordActivity(s, s.lifetimeXp, s.commits); s.lastTick = Date.now();
-  const totalAfter = totalLevel(s.skillXp);                    // celebrate every total-level milestone of 10 we crossed
-  for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUp(m));
-  enqueue(cels);
-  if (events.length) s.flash = { msg: events[events.length - 1], until: Date.now() + 45000 };
-  writeFileSync(HUD, renderHud(s)); saveState(s);
-  await submit(s, cfg).catch(() => {});
-  if (events.length && process.stdout.isTTY) process.stdout.write("\n" + events.map(e => "  " + e).join("\n") + "\n\n");
-  // epic moments (a 99 / legendary) take over the terminal with full ASCII fanfare
-  const epic = cels.find(c => c.tier >= 4);
-  if (epic && process.stdout.isTTY) { const { play, epicFrames } = await import("./ascii.ts"); await play(epicFrames(epic.text), { delay: 100 }); }
+  return withLocalLock(async () => {
+    const s = loadState(); ensureDailyQuests(s);
+    const totalBefore = totalLevel(s.skillXp);
+    if (cmd === "commit" && arg) { await reconcile(s, arg).catch(() => {}); }
+    else {
+      touchStreak(s); memTick(s); scanBosses(s);
+      if (existsSync(WATCHED)) for (const r of [...new Set(readFileSync(WATCHED, "utf8").split("\n").map(x => x.trim()).filter(Boolean))]) {
+        if (existsSync(r)) await reconcile(s, r).catch(() => {});
+      }
+      const q = s.quests.find(x => x.id === "polyglot"); if (q && !q.done) { q.prog = Object.keys(s.langs).length; if (q.prog >= q.goal) { q.done = true; ev(award(s, q.xp, "quest")); } }
+    }
+    checkAch(s); recordActivity(s, s.lifetimeXp, s.commits); s.lastTick = Date.now();
+    const totalAfter = totalLevel(s.skillXp);                    // celebrate every total-level milestone of 10 we crossed
+    for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUp(m));
+    enqueue(cels);
+    if (events.length) s.flash = { msg: events[events.length - 1], until: Date.now() + 45000 };
+    writeFileSync(HUD, renderHud(s)); saveState(s);
+    await submit(s, cfg).catch(() => {});
+    if (events.length && process.stdout.isTTY) process.stdout.write("\n" + events.map(e => "  " + e).join("\n") + "\n\n");
+    // epic moments (a 99 / legendary) take over the terminal with full ASCII fanfare
+    const epic = cels.find(c => c.tier >= 4);
+    if (epic && process.stdout.isTTY) { const { play, epicFrames } = await import("./ascii.ts"); await play(epicFrames(epic.text), { delay: 100 }); }
+  });
 }

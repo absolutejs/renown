@@ -7,6 +7,7 @@
 // Single instance → in-memory cache + hub is all we need. To fan changes across
 // multiple server instances later, add a Redis cluster bus (engine.connectCluster);
 // the rest of this file is unchanged.
+import { mergeProgress } from "../../../core/progress.ts";
 import { neon } from "@neondatabase/serverless";
 import { and, defineRelations, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
@@ -54,9 +55,13 @@ const persistPlayer = async (id: string, e: PlayerSnapshot) => {
   }).onConflictDoUpdate({
     target: players.id,
     set: {
-      handle: sql`excluded.handle`, level: sql`excluded.level`, xp: sql`greatest(${players.xp}, excluded.xp)`,
-      streak: sql`excluded.streak`, activeSec: sql`excluded.active_sec`, achievements: sql`excluded.achievements`,
-      ossCommits: sql`excluded.oss_commits`, totalLevel: sql`excluded.total_level`, skillXp: sql`excluded.skill_xp`, updatedAt: sql`now()`
+      handle: sql`case when excluded.handle in ('player', 'anon', '') then ${players.handle} else excluded.handle end`, level: sql`greatest(${players.level}, excluded.level)`, xp: sql`greatest(${players.xp}, excluded.xp)`,
+      streak: sql`greatest(${players.streak}, excluded.streak)`, activeSec: sql`greatest(${players.activeSec}, excluded.active_sec)`, achievements: sql`greatest(${players.achievements}, excluded.achievements)`,
+      ossCommits: sql`greatest(${players.ossCommits}, excluded.oss_commits)`, totalLevel: sql`greatest(${players.totalLevel}, excluded.total_level)`,
+      skillXp: sql`(select coalesce(jsonb_object_agg(key, xp), '{}'::jsonb) from
+        (select key, max(value::numeric) xp from
+          (select key, value from jsonb_each(${players.skillXp}) union all select key, value from jsonb_each(excluded.skill_xp)) entries
+          where jsonb_typeof(value) = 'number' group by key) merged)`, updatedAt: sql`now()`
     }
   });
   const submittedProjects = (Array.isArray(e.projects) ? e.projects : []).filter((p) => Boolean(p?.key));
@@ -141,8 +146,14 @@ export const playerCache = createWriteBehindCache<string, PlayerSnapshot>({
 });
 
 // hot write + notify subscribers — returns instantly, Neon catches up behind the scenes
-export const submitPlayer = (e: PlayerSnapshot) => {
-  playerCache.set(e.id, e);
+export const submitPlayer = async (e: PlayerSnapshot) => {
+  const loaded = await playerCache.get(e.id);
+  // Re-read after the await: another submit may have advanced the cache meanwhile.
+  const previous = playerCache.peek(e.id) ?? loaded;
+  const sanitized = { ...e, skillXp: sanitizeSkillXp(e.skillXp) };
+  for (const key of ["level", "xp", "streak", "oss", "ach", "active", "totalLevel"] as const)
+    sanitized[key] = clampInt(e[key], key === "xp" ? 5_000_000_000 : 4_000_000_000);
+  playerCache.set(e.id, mergeProgress(previous, sanitized));
   hub.publish("top");
   hub.publish(`player:${e.id}`);
 };

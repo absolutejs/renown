@@ -1,7 +1,8 @@
 // Renown runtime — local save/config + helpers. State lives in ~/.renown (editor-
 // agnostic; not tied to Claude Code). XP is earned by the craft engine + quests;
 // achievements are badges (the 10k catalog) recorded with their unlock date.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { createJson, readJson, readProgress, writeJson } from "./localStore.ts";
 import { type Boss, type Quest, type State, type Stats, levelInfo } from "./state.ts";
 import { MAX_TOTAL_LEVEL, SKILLS, displayLevelForSkill, fmtBig, isAgentSkill, maxedCount, skillById, skillProgress, topSkills, totalLevel } from "./skills.ts";
 import { gradientBar, rainbow } from "./shiny.ts";
@@ -33,7 +34,8 @@ const sh = (cmd: string[]) => { try { return (Bun.spawnSync(cmd, { stdout: "pipe
 // game has been accumulating under the old id (and github verification then lands on the new,
 // hollow id). One identity per install.
 const existingStatePlayerId = (): string | undefined => {
-  try { const id = JSON.parse(readFileSync(`${RDIR}/state.json`, "utf8"))?.playerId; return typeof id === "string" && id && id !== "local" ? id : undefined; } catch { return undefined; }
+  const id = readProgress<{ playerId?: string }>(STATE)?.playerId;
+  return typeof id === "string" && id && id !== "local" ? id : undefined;
 };
 // The hosted leaderboard a fresh install points at (env RENOWN_ENDPOINT > config
 // > this default), so `renown link`/submit work without manual setup. Self-hosters
@@ -41,18 +43,21 @@ const existingStatePlayerId = (): string | undefined => {
 export const DEFAULT_ENDPOINT = "https://renown.absolutejs.com/api";
 export function loadConfig(): Config {
   const endpoint = (c: string) => process.env.RENOWN_ENDPOINT || c || DEFAULT_ENDPOINT;
-  try {
-    const cfg = { bossLogDir: `${HOME}/.claude/mem-tools/logs`, leaderboardEndpoint: "", codeRoots: [HOME], ...JSON.parse(readFileSync(CONFIG, "utf8")) } as Config;
+  const stored = readJson<Partial<Config>>(CONFIG);
+  if (stored) {
+    const stateId = existingStatePlayerId();
+    if (stored.playerId && stateId && stored.playerId !== stateId) throw new Error("Renown config/save identity mismatch; refusing to change either player.");
+    const cfg: Config = { bossLogDir: `${HOME}/.claude/mem-tools/logs`, leaderboardEndpoint: "", codeRoots: [HOME], playerName: "player", playerId: stateId ?? "local", myEmails: [], myOwners: [], ...stored };
     return { ...cfg, leaderboardEndpoint: endpoint(cfg.leaderboardEndpoint) };
   }
-  catch {
-    const login = sh(["gh", "api", "user", "-q", ".login"]) || sh(["git", "config", "--global", "user.name"]) || "player";
-    const email = sh(["git", "config", "--global", "user.email"]);
-    const orgs = sh(["gh", "api", "user/orgs", "-q", ".[].login"]).split("\n").filter(Boolean);
-    const cfg: Config = { playerName: login, playerId: existingStatePlayerId() ?? uuid(), myEmails: [email].filter(Boolean), myOwners: [login, ...orgs], leaderboardEndpoint: endpoint(""), bossLogDir: `${HOME}/.claude/mem-tools/logs`, codeRoots: [HOME] };
-    try { mkdirSync(RDIR, { recursive: true }); writeFileSync(CONFIG, JSON.stringify(cfg, null, 2)); } catch {}
-    return cfg;
-  }
+  const login = sh(["gh", "api", "user", "-q", ".login"]) || sh(["git", "config", "--global", "user.name"]) || "player";
+  const email = sh(["git", "config", "--global", "user.email"]);
+  const orgs = sh(["gh", "api", "user/orgs", "-q", ".[].login"]).split("\n").filter(Boolean);
+  const cfg: Config = { playerName: login, playerId: existingStatePlayerId() ?? uuid(), myEmails: [email].filter(Boolean), myOwners: [login, ...orgs], leaderboardEndpoint: endpoint(""), bossLogDir: `${HOME}/.claude/mem-tools/logs`, codeRoots: [HOME] };
+  mkdirSync(RDIR, { recursive: true });
+  try { createJson(CONFIG, cfg); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") return loadConfig(); throw error; }
+  return cfg;
 }
 
 export function bossFor(comm: string): { key: string; name: string; emoji: string } {
@@ -153,10 +158,12 @@ export function ensureSkills(s: State) {
   s.wild ??= [];
 }
 export function loadState(): State {
-  try { const s = JSON.parse(readFileSync(STATE, "utf8")) as StoredState; if (s.v !== STATE_V) throw 0; return hydrateState(s); }
-  catch { mkdirSync(RDIR, { recursive: true }); const s = freshState(); saveState(s); return s; }
+  const stored = readProgress<StoredState>(STATE);
+  if (!stored) return freshState();
+  if (stored.v !== 2 && stored.v !== STATE_V) throw new Error("Unsupported Renown save version; refusing to reset progress.");
+  return hydrateState({ ...stored, v: STATE_V });
 }
-export function saveState(s: State) { try { mkdirSync(RDIR, { recursive: true }); const t = `${STATE}.tmp`; writeFileSync(t, JSON.stringify(s)); renameSync(t, STATE); } catch {} }
+export function saveState(s: State) { writeJson(STATE, s); }
 
 export function memPct(): number { try { const t = readFileSync("/proc/meminfo", "utf8"); const kB = (k: string) => Number(t.match(new RegExp(`^${k}:\\s+(\\d+)`, "m"))?.[1] ?? 0); const tot = kB("MemTotal"); return tot ? Math.round((1 - kB("MemAvailable") / tot) * 100) : 0; } catch { return 0; } }
 export function availG(): number { try { const t = readFileSync("/proc/meminfo", "utf8"); return Number(t.match(/^MemAvailable:\s+(\d+)/m)?.[1] ?? 0) / 1048576; } catch { return 0; } }

@@ -42,7 +42,7 @@ export async function repoMeta(repo: string): Promise<RepoMeta | null> {
 export interface CraftResult { xp: number; lines: number; oss: boolean; ext: boolean; stars: number; langs: string[]; paths: string[]; hasTests: boolean; subject: string; committedAt: number; breakdown: string[]; repoPublic?: boolean; repoVisibility: RepoVisibility }
 
 export async function scoreCommit(s: State, cfg: Config, repo: string, sha: string): Promise<CraftResult | null> {
-  const raw = await $`git -C ${repo} show --no-color --no-renames --format=%ae%x00%P%x00%ct%x00%s --numstat ${sha}`.text().catch(() => "");
+  const raw = await $`git -C ${repo} show --no-color --no-renames --format=%ae%x00%P%x00%ct%x00%s --numstat ${sha}`.text();
   if (!raw) return null;
   const [head, ...rest] = raw.split("\n");
   const [ae, parents, ctStr, subject] = head.split("\0");

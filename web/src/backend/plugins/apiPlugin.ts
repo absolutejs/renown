@@ -1175,7 +1175,7 @@ ${items}
       // unauthenticated submit can't game anything. A valid M2M token (renown:submit)
       // just marks the write as first-party-trusted for a caller's own bookkeeping.
       const trusted = hasScopes(await principal(headers.authorization), ["renown:submit"]);
-      submitPlayer(e);   // synchronous hot write + live push; Neon persist coalesced behind it
+      await submitPlayer(e);   // merge with durable progress before coalescing the write
       // Mile High Code Club — server-observed signal (NOT a client field): does this
       // submit's egress IP belong to an in-flight Wi-Fi carrier? If so, you're coding from
       // a plane. Granted off the request's own source IP, so it can't be forged from the

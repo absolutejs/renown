@@ -24,6 +24,8 @@
 
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { levelInfo } from "../core/state.ts";
+import { readJson, readProgress, writeJson, withLocalLock } from "../core/localStore.ts";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,28 +66,21 @@ const loadConfig = (): AppConfig => {
     ...c,
     leaderboardEndpoint: process.env.RENOWN_ENDPOINT || c.leaderboardEndpoint || DEFAULT_ENDPOINT,
   });
-  try {
-    const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-    const currentPath = join(RDIR, "config.json");
-    const historicalPath = join(base, "renown", "config.json");
-    const path = [currentPath, historicalPath].find((p) => existsSync(p)) ?? currentPath;
-    let config: AppConfig = {};
-    let state: LocalState = {};
-    try { config = JSON.parse(readFileSync(path, "utf8")) as AppConfig; } catch {}
-    try { state = JSON.parse(readFileSync(STATE, "utf8")) as LocalState; } catch {}
-    const playerId = validPlayerId(config.playerId) ? config.playerId : validPlayerId(state.playerId) ? state.playerId : randomUUID();
-    config.playerId = playerId;
-    state = {
-      v: 3, name: "player", createdAt: Date.now(), xp: 0, lifetimeXp: 0,
-      streak: 1, ossCommits: 0, achievements: {}, skillXp: {}, agentUses: {},
-      agentLastUsedAt: {}, stats: { activeSec: 0 }, ...state, playerId,
-    };
-    mkdirSync(dirname(path), { recursive: true });
-    mkdirSync(RDIR, { recursive: true });
-    writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
-    saveLocalState(state);
-    return withEndpoint(config);
-  } catch { return withEndpoint({ playerId: randomUUID() }); }
+  const base = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+  const currentPath = join(RDIR, "config.json");
+  const historicalPath = join(base, "renown", "config.json");
+  const path = [currentPath, historicalPath].find((p) => existsSync(p)) ?? currentPath;
+  const config = readJson<AppConfig>(path) ?? {};
+  const state = readProgress<LocalState>(STATE);
+  if (validPlayerId(config.playerId) && validPlayerId(state?.playerId) && config.playerId !== state.playerId)
+    throw new Error("Renown config and save identify different players; refusing to overwrite either identity.");
+  const playerId = validPlayerId(config.playerId) ? config.playerId : validPlayerId(state?.playerId) ? state.playerId : randomUUID();
+  if (config.playerId !== playerId) { config.playerId = playerId; writeJson(path, config); }
+  // Loading configuration is read-only on an initialized install. In particular,
+  // statusline must not rewrite a save that another process is updating.
+  if (!state) saveLocalState({ v: 3, name: config.playerName ?? "player", playerId, createdAt: Date.now(), xp: 0, lifetimeXp: 0, streak: 1, ossCommits: 0, achievements: {}, skillXp: {}, agentUses: {}, agentLastUsedAt: {}, stats: { activeSec: 0 } });
+  else if (!validPlayerId(state.playerId)) { state.playerId = playerId; saveLocalState(state); }
+  return withEndpoint(config);
 };
 
 type LocalState = {
@@ -97,18 +92,12 @@ type LocalState = {
 };
 
 const loadLocalState = (): LocalState => {
-  try { return JSON.parse(readFileSync(STATE, "utf8")) as LocalState; } catch {
-    const now = Date.now();
-    return { v: 3, name: "player", playerId: "local", createdAt: now, xp: 0, lifetimeXp: 0, streak: 1, ossCommits: 0, achievements: {}, skillXp: {}, agentUses: {}, agentLastUsedAt: {}, stats: { activeSec: 0 } };
-  }
+  const state = readProgress<LocalState>(STATE);
+  if (!state) throw new Error("Renown save is missing; initialize the identity before loading progress.");
+  return state;
 };
-const saveLocalState = (s: LocalState) => {
-  mkdirSync(RDIR, { recursive: true });
-  const t = `${STATE}.tmp`;
-  writeFileSync(t, JSON.stringify(s));
-  renameSync(t, STATE);
-};
-// Color codes mirrored from core/runtime.ts's `C` so this node bundle stays hermetic
+const saveLocalState = (s: LocalState) => writeJson(STATE, s);
+// HUD palette shared with the Bun engine.
 // (importing runtime here would pull in its Bun.* references). Keep in sync with `C`.
 const HC = { r: "\x1b[0m", b: "\x1b[1m", dim: "\x1b[2m", mag: "\x1b[95m" };
 
@@ -214,7 +203,7 @@ const submitLocalState = async (s: LocalState, cfg: AppConfig) => {
   const body = {
     id: s.playerId,
     name: s.name ?? "player",
-    level: 1,
+    level: levelInfo(s.xp ?? 0).level,
     xp: s.lifetimeXp ?? 0,
     streak: s.streak ?? 1,
     oss: s.ossCommits ?? 0,
@@ -721,10 +710,8 @@ const installTmuxStatus = (dryRun: boolean) => {
 const main = async () => {
   const [, , cmd, ...rest] = process.argv;
   if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") { usage(); return; }
-  const cfg = loadConfig();
-  const apiBase = cfg.leaderboardEndpoint?.replace(/\/$/, "");
-
   if (cmd === "statusline" || cmd === "hud") {
+    if (!readProgress<LocalState>(STATE)) await withLocalLock(loadConfig);
     const s = loadLocalState();
     // statusline drains one queued celebration per refresh (the parade); `hud` is a
     // non-consuming manual peek, so it never pops the queue.
@@ -736,6 +723,9 @@ const main = async () => {
     console.log(line);
     return;
   }
+
+  const cfg = await withLocalLock(loadConfig);
+  const apiBase = cfg.leaderboardEndpoint?.replace(/\/$/, "");
 
   // ── ci-sync: refresh every contributor's renown from a CI run (powers the GitHub Action) ──
   // Zero secrets. /api/verify recomputes a linked player's renown (base score + Co-Authored-By
@@ -861,22 +851,25 @@ const main = async () => {
     // bounded; if it's absent or fails we still do the per-turn nudge.
     const engine = fullEngineEntry(cfg);
     if (engine) { try { await run([engine.bun, engine.entry, "heartbeat", "--quiet"]); } catch {} }
-    const s = loadLocalState();   // reload so the nudge/HUD/submit reflect the engine's writes
-    s.skillXp ??= {};
-    const totalBefore = totalLevel(s.skillXp);
-    const cels: Celebration[] = [];
-    // Small per-turn activity XP to the CURRENT agent's skill so the status line visibly moves
-    // each turn. Distinct from `agent` (a whole SESSION, +250, fired once at SessionStart) — this
-    // doesn't bump the sessions counter, just XP. Level-ups + total milestones become toasts.
-    const a = agentById(agentFromEnv());
-    if (a) for (const u of applyGains(s.skillXp, { [a.skillId]: HEARTBEAT_XP })) cels.push(skillUpCel(a.icon, a.name, u.to));
-    const totalAfter = totalLevel(s.skillXp);
-    for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUpCel(m));
-    cels.push(...checkAchievements(s));   // 🏆 newly-unlocked catalog achievements
-    enqueueCelebrations(cels);
-    saveLocalState(s);
-    mkdirSync(RDIR, { recursive: true });
-    writeFileSync(HUD, renderLocalHud(s));
+    const s = await withLocalLock(() => {
+      const s = loadLocalState();   // reload so the nudge/HUD/submit reflect the engine's writes
+      s.skillXp ??= {};
+      const totalBefore = totalLevel(s.skillXp);
+      const cels: Celebration[] = [];
+      // Small per-turn activity XP to the CURRENT agent's skill so the status line visibly moves
+      // each turn. Distinct from `agent` (a whole SESSION, +250, fired once at SessionStart) — this
+      // doesn't bump the sessions counter, just XP. Level-ups + total milestones become toasts.
+      const a = agentById(agentFromEnv());
+      if (a) for (const u of applyGains(s.skillXp, { [a.skillId]: HEARTBEAT_XP })) cels.push(skillUpCel(a.icon, a.name, u.to));
+      const totalAfter = totalLevel(s.skillXp);
+      for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUpCel(m));
+      cels.push(...checkAchievements(s));   // 🏆 newly-unlocked catalog achievements
+      enqueueCelebrations(cels);
+      saveLocalState(s);
+      mkdirSync(RDIR, { recursive: true });
+      writeFileSync(HUD, renderLocalHud(s));
+      return s;
+    });
     await submitLocalState(s, cfg);
     if (!hasFlag(rest, "quiet")) { console.log(renderLocalHud(s)); return; }
     // hook path (always --quiet, no stdout to flush): hard-exit so an unreachable
@@ -891,33 +884,36 @@ const main = async () => {
     if (!a) { console.log("usage: renown agent <claude|codex|cursor|copilot|aider|gemini|goose|windsurf|openhands|devin|other> [--count N] [--quiet]"); return; }
     const count = Math.max(1, Math.min(10000, Number(flag(rest, "count") ?? 1) || 1));
     const quiet = hasFlag(rest, "quiet") || rest.includes("-q");
-    const s = loadLocalState();
-    s.skillXp ??= {};
-    s.agentUses ??= {};
-    s.agentLastUsedAt ??= {};
-    s.agentUses[a.id] = (s.agentUses[a.id] ?? 0) + count;
-    s.agentLastUsedAt[a.id] = Date.now();
-    const totalBefore = totalLevel(s.skillXp);
-    const ups = applyGains(s.skillXp, { [a.skillId]: count * 250 });
-    const totalAfter = totalLevel(s.skillXp);
-    // Queue level-up + total-level toasts so they show in the status-line parade even under the
-    // --quiet SessionStart hook (previously only printed in interactive mode → silently dropped).
-    const cels: Celebration[] = ups.map((u) => skillUpCel(a.icon, a.name, u.to));
-    for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUpCel(m));
-    cels.push(...checkAchievements(s));   // 🏆 newly-unlocked catalog achievements
-    enqueueCelebrations(cels);
-    saveLocalState(s);
-    writeFileSync(HUD, renderLocalHud(s));
+    const s = await withLocalLock(() => {
+      const s = loadLocalState();
+      s.skillXp ??= {};
+      s.agentUses ??= {};
+      s.agentLastUsedAt ??= {};
+      s.agentUses[a.id] = (s.agentUses[a.id] ?? 0) + count;
+      s.agentLastUsedAt[a.id] = Date.now();
+      const totalBefore = totalLevel(s.skillXp);
+      const ups = applyGains(s.skillXp, { [a.skillId]: count * 250 });
+      const totalAfter = totalLevel(s.skillXp);
+      // Queue level-up + total-level toasts so they show in the status-line parade even under the
+      // --quiet SessionStart hook (previously only printed in interactive mode → silently dropped).
+      const cels: Celebration[] = ups.map((u) => skillUpCel(a.icon, a.name, u.to));
+      for (let m = Math.floor(totalBefore / 10) * 10 + 10; m <= totalAfter; m += 10) cels.push(totalUpCel(m));
+      cels.push(...checkAchievements(s));   // 🏆 newly-unlocked catalog achievements
+      enqueueCelebrations(cels);
+      saveLocalState(s);
+      writeFileSync(HUD, renderLocalHud(s));
+
+      if (!quiet) {
+        const pr = skillProgress(s.skillXp[a.skillId] ?? 0);
+        console.log(`${a.icon} ${a.name}: +${count} session${count === 1 ? "" : "s"} (total ${(s.agentUses[a.id] ?? 0).toLocaleString()})`);
+        if (ups.length) for (const u of ups) console.log(`  ${a.name} Lv${u.to}. The agent has been fed; this was probably legal.`);
+        else console.log(`  ${a.blurb} Lv${pr.level}, ${pr.pct}% to next.`);
+      }
+      // hook path (--quiet, e.g. SessionStart): hard-exit so an unreachable endpoint
+      // can't hold the process open ~10s past submitLocalState's abort.
+      return s;
+    });
     await submitLocalState(s, cfg);
-    if (!quiet) {
-      const pr = skillProgress(s.skillXp[a.skillId] ?? 0);
-      console.log(`${a.icon} ${a.name}: +${count} session${count === 1 ? "" : "s"} (total ${(s.agentUses[a.id] ?? 0).toLocaleString()})`);
-      if (ups.length) for (const u of ups) console.log(`  ${a.name} Lv${u.to}. The agent has been fed; this was probably legal.`);
-      else console.log(`  ${a.blurb} Lv${pr.level}, ${pr.pct}% to next.`);
-      return;
-    }
-    // hook path (--quiet, e.g. SessionStart): hard-exit so an unreachable endpoint
-    // can't hold the process open ~10s past submitLocalState's abort.
     process.exit(0);
   }
 
