@@ -37,6 +37,7 @@ import { acceptMarketTrade, buyMarketListing, cancelMarketAuction, cancelMarketB
 import { deleteSubjectWatch, loadSubjectWatch, saveSubjectWatch } from "../petExchange.ts";
 import { bootstrapGithubRepoGrantFromSession, loadPrivateReposFromGithubGrants } from "../auth/githubRepoGrants.ts";
 import { loadPrivateProject } from "../privateProject.ts";
+import { acknowledgeVisit, loadVisitRecap, refreshPlayerGithubAccounts } from "../visitRecap.ts";
 import { normalizeProjectSort } from "../project.ts";
 
 type Deps = { authSessionStore: AuthSessionStore<User>; bindingStore: LinkedProviderBindingStore; credentialResolver: LinkedProviderCredentialResolver; db: NeonHttpDatabase<SchemaType>; grantStore: LinkedProviderGrantStore };
@@ -236,6 +237,30 @@ export const authApiPlugin = ({ authSessionStore, bindingStore, credentialResolv
     .onAfterHandle(({ set }) => { set.headers["cache-control"] = "private, no-store"; set.headers.pragma = "no-cache"; })
     // Everything attached to my account.
     .get("/", ({ protectRoute }) => protectRoute((user) => accountPayload(db, user.sub)))
+    // Opening the site: refresh this player's GitHub accounts in the background and return what
+    // they earned since they last dismissed the recap. Nothing new moves the marker silently.
+    .post("/visit", ({ cookie, protectRoute }) => protectRoute(async (user) => {
+      const player = await resolvePlayerByUserSub(user.sub);
+      if (!player) return { recap: null, syncing: [] };
+      const sessionId = cookie.user_session_id.value as SessionId | undefined;
+      const session = sessionId ? await authSessionStore.getSession(sessionId) : undefined;
+      const syncing = await refreshPlayerGithubAccounts(player.id, session?.user.sub === user.sub ? session.accessToken : undefined);
+      const recap = await loadVisitRecap(player);
+      if (recap.isEmpty) await acknowledgeVisit(player);
+      return { recap: recap.isEmpty ? null : recap, syncing };
+    }))
+    // Re-read after a background sync lands (the page hears `player:<id>` over /sync).
+    .get("/visit/recap", ({ protectRoute }) => protectRoute(async (user) => {
+      const player = await resolvePlayerByUserSub(user.sub);
+      if (!player) return { recap: null };
+      const recap = await loadVisitRecap(player);
+      return { recap: recap.isEmpty ? null : recap };
+    }))
+    .post("/visit/ack", ({ protectRoute }) => protectRoute(async (user) => {
+      const player = await resolvePlayerByUserSub(user.sub);
+      if (player) await acknowledgeVisit(player);
+      return { ok: true };
+    }))
     // Live, owner-only private repository list. The OAuth token is session-scoped and the
     // response inherits this plugin's `private, no-store` policy. Nothing is persisted.
     .get("/repos", ({ cookie, protectRoute }) => protectRoute((user) => loadAccountPrivateRepoPage({

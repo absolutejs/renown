@@ -518,6 +518,16 @@ export const playerAttributionSnapshots = pgTable("player_attribution_snapshots"
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({ pk: primaryKey({ columns: [t.playerId, t.snapshotDate] }) }));
 
+// The last time the signed-in owner acknowledged their "since your last visit" recap, plus the
+// headline numbers they saw then. Pets and achievements carry their own earned timestamps; the
+// snapshot supplies the before side of XP/level/score deltas. Kept off `players` so the
+// progress-preserving trigger and its history never fire for a page visit.
+export const playerVisits = pgTable("player_visits", {
+  playerId: text("player_id").primaryKey().references(() => players.id, { onDelete: "cascade" }),
+  lastVisitAt: timestamp("last_visit_at").notNull().defaultNow(),
+  snapshot: jsonb("snapshot").$type<{ xp: number; totalLevel: number; verifiedScore: number; meritScore: number; petsCount: number }>().notNull(),
+});
+
 // Web Push subscriptions — per (player, endpoint). One player can have many endpoints
 // (laptop browser + phone browser + work browser). On verified attestation we fan out
 // to every active subscription. unsubscribe = delete by id; expired endpoints (410

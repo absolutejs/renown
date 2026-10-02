@@ -22,23 +22,43 @@ export interface VerifiedScore {
 
 const headersFor = (token?: string): Record<string, string> => ({ accept: "application/vnd.github+json", "user-agent": "renown", ...(token ? { authorization: `Bearer ${token}` } : {}) });
 
-// Recompute a player's authoritative score from GitHub public data. Returns null if the
-// account doesn't exist. Weighted toward what OTHERS validate (stars, contributions to
-// repos you don't own), discounted for very young accounts (anti-fresh-farm).
-export const verifyGithub = async (login: string, token = process.env.GITHUB_TOKEN): Promise<VerifiedScore | null> => {
-  if (!/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(login)) return null;
+// Why a recompute could not run. Rate limits and timeouts are transient and say nothing about
+// the account, so callers keep the last verified score and retry later.
+export type GithubFailure = { reason: "rate_limited" | "unavailable" | "not_found"; retryAt: number | null };
+
+const failureFor = (response: Response | null): GithubFailure => {
+  if (!response) return { reason: "unavailable", retryAt: null };
+  if (response.status === 404) return { reason: "not_found", retryAt: null };
+  const reset = Number(response.headers.get("x-ratelimit-reset"));
+  const retryAfter = Number(response.headers.get("retry-after"));
+  const limited = response.status === 429 || (response.status === 403 && (response.headers.get("x-ratelimit-remaining") === "0" || retryAfter > 0));
+  if (!limited) return { reason: "unavailable", retryAt: null };
+  return { reason: "rate_limited", retryAt: retryAfter > 0 ? Date.now() + retryAfter * 1000 : reset > 0 ? reset * 1000 : null };
+};
+
+// Recompute a player's authoritative score from GitHub public data, or report why GitHub could
+// not answer. Weighted toward what OTHERS validate (stars, contributions to repos you don't own),
+// discounted for very young accounts (anti-fresh-farm).
+export const verifyGithubResult = async (login: string, token = process.env.GITHUB_TOKEN): Promise<VerifiedScore | GithubFailure> => {
+  if (!/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(login)) return { reason: "not_found", retryAt: null };
   const headers = headersFor(token);
-  const get = async <T>(path: string): Promise<T | null> => { try { const r = await fetch(`${GH}${path}`, { headers, signal: AbortSignal.timeout(10000) }); return r.ok ? (await r.json() as T) : null; } catch { return null; } };
+  let failure: GithubFailure | null = null;
+  const get = async <T>(path: string): Promise<T | null> => {
+    const r = await fetch(`${GH}${path}`, { headers, signal: AbortSignal.timeout(10000) }).catch(() => null);
+    if (r?.ok) return await r.json().catch(() => null) as T | null;
+    failure ??= failureFor(r);
+    return null;
+  };
 
   const user = await get<{ created_at: string }>(`/users/${login}`);
-  if (!user) return null;
+  if (!user) return failure ?? { reason: "unavailable", retryAt: null };
   // `get` returns null on a FAILED fetch (non-ok/timeout — e.g. GitHub rate-limiting us) and a
   // 200 returns the array (possibly empty for a real account with no repos/events). Abort on
   // failure rather than coalescing to [] — otherwise a transient 403/429 would compute a
   // deflated score and overwrite the player's real one.
   const repos = await get<Repo[]>(`/users/${login}/repos?sort=pushed&per_page=100&type=owner`);
   const events = await get<Event[]>(`/users/${login}/events/public?per_page=100`);
-  if (repos === null || events === null) return null;
+  if (repos === null || events === null) return failure ?? { reason: "unavailable", retryAt: null };
 
   const accountAgeDays = Math.max(0, Math.round((Date.now() - Date.parse(user.created_at)) / DAY));
   const owned = repos.filter((r) => !r.fork);
@@ -56,4 +76,12 @@ export const verifyGithub = async (login: string, token = process.env.GITHUB_TOK
   const score = Math.round(ageTrust * (Math.log10(totalStars + 1) * 400 + publicRepos * 20 + extContribs * 60 + Math.min(recentCommits, 300) * 3));
 
   return { login, ok: true, score, totalStars, publicRepos, extContribs, recentCommits, accountAgeDays, skillXp, verifiedAt: Date.now() };
+};
+
+export const isGithubFailure = (value: VerifiedScore | GithubFailure): value is GithubFailure => "reason" in value;
+
+// Null-on-failure form for callers that only need the score.
+export const verifyGithub = async (login: string, token = process.env.GITHUB_TOKEN): Promise<VerifiedScore | null> => {
+  const result = await verifyGithubResult(login, token);
+  return isGithubFailure(result) ? null : result;
 };

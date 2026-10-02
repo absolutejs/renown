@@ -4,6 +4,7 @@ import { addPadVoice, chimeVoiceFor, isSoundOn, playBell, playChime, playGong, p
 import { MenagerieCanvas } from "../components/MenagerieCanvas";
 import { GhostAvatar, SinglePet, SpotlightView, SummonCinematic } from "../components/PetViewer";
 import { ProfileModal } from "../components/ProfileModal";
+import { SinceLastVisit, type VisitRecap } from "../components/SinceLastVisit";
 import { SiteHeader, type SiteSection } from "../components/SiteHeader";
 import { DEFAULT_PET_LOOK_ID, isPetLookId, PET_LOOKS, type PetLookId } from "../../../shared/petLooks.ts";
 import { generate } from "../../../shared/procgen.ts";
@@ -1750,7 +1751,7 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
         <div>
           <span className="collectionEyebrow">ONE PERSON · {gh.accounts.length} GITHUB {gh.accounts.length === 1 ? "ACCOUNT" : "ACCOUNTS"}</span>
           <h2>GitHub contributions</h2>
-          <p className="muted">Your public profile is <strong>@{gh.login}</strong>. Scores below roll up into one Renown identity.{gh.isAi && <AiBadge isAi attestation={gh.aiAttestation} style={{ marginLeft: 8 }} />}</p>
+          <p className="muted">Your public profile is <strong>@{gh.login}</strong>. Scores below roll up into one Renown identity. They sync automatically whenever you open Renown and every few hours in the background.{gh.isAi && <AiBadge isAi attestation={gh.aiAttestation} style={{ marginLeft: 8 }} />}</p>
           {gh.isAi && <p className="muted hint" style={{ marginTop: 6 }}>This account is marked as an <strong>AI participant</strong>. You earn score, pets, and achievements the same way humans do — the 🤖 badge shows up next to your handle on the leaderboard and your profile, in keeping with renown's "be honest about AI participation" stance.</p>}
         </div>
       </div>
@@ -1824,7 +1825,7 @@ const GithubSyncCard = ({ gh, refresh, onBanner, onSummon }: { gh: GithubSync | 
               </div>
               <div className="githubAccountFoot">
                 <span className="muted">{account.loginLinked ? "Available as a web login" : "Linked through the CLI score ledger"}</span>
-                <button className="btn ghost sm" disabled={busyLogin !== null} onClick={() => sync(account)}>{busyLogin === account.login ? `Syncing @${account.login}…` : `Sync @${account.login}`}</button>
+                <button className="btn ghost sm" disabled={busyLogin !== null} onClick={() => sync(account)}>{busyLogin === account.login ? `Refreshing @${account.login}…` : `Refresh @${account.login} now`}</button>
               </div>
             </article>
           );
@@ -2263,6 +2264,11 @@ const App = ({ initialView = "landing" }: { initialView?: "landing" | "board" })
   const [cfg, setCfg] = useState<StripeConfig | null>(null);
   const [banner, setBanner] = useState<{ kind: "ok" | "info" | "warn"; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Since-your-last-visit recap. Opening the site refreshes GitHub in the background; results
+  // arrive over the player's /sync topic and update the recap in place.
+  const [visitRecap, setVisitRecap] = useState<VisitRecap | null>(null);
+  const [visitSyncing, setVisitSyncing] = useState<string[]>([]);
+  const visitedPlayerRef = useRef<string | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(THEME_KEY);
@@ -2364,6 +2370,40 @@ const App = ({ initialView = "landing" }: { initialView?: "landing" | "board" })
     } else if (reset) { setResetToken(reset); setView("reset"); window.history.replaceState({}, "", window.location.pathname); }
   }, [loadAccount]);
 
+  const playerId = account?.github?.playerId ?? null;
+  useEffect(() => {
+    if (!playerId || visitedPlayerRef.current === playerId) return;
+    visitedPlayerRef.current = playerId;
+    void post("/api/account/visit").then((r) => {
+      const data = r.data as { recap: VisitRecap | null; syncing: string[] } | null;
+      if (!r.ok || !data) return;
+      setVisitRecap(data.recap);
+      setVisitSyncing(data.syncing);
+    });
+  }, [playerId]);
+  useEffect(() => {
+    if (!playerId) return undefined;
+    // The CLI's progress uploads publish this topic every few seconds while you code, so
+    // refetch at most every 5s. Mid-session, only new pets or achievements reopen the recap;
+    // XP keeps accumulating for the next visit.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastPets = -1;
+    const refresh = async () => {
+      timer = null;
+      const r = await api("/api/account/visit/recap");
+      const recap = (r.data as { recap: VisitRecap | null } | null)?.recap ?? null;
+      setVisitSyncing([]);
+      setVisitRecap((open) => open || (recap && (recap.petTotal > 0 || recap.achievementTotal > 0)) ? recap : null);
+      if (recap && recap.petTotal !== lastPets) { lastPets = recap.petTotal; void loadAccount(); }
+    };
+    const unsubscribe = subscribeSync([`player:${playerId}`], () => { timer ??= setTimeout(() => { void refresh(); }, 5000); });
+    return () => { unsubscribe(); if (timer) clearTimeout(timer); };
+  }, [playerId, loadAccount]);
+  const closeVisitRecap = useCallback(() => {
+    setVisitRecap(null);
+    void post("/api/account/visit/ack");
+  }, []);
+
   const act = useCallback((fn: () => Promise<{ ok: boolean; data: unknown }>) => {
     (async () => { const r = await fn(); if (r.ok && r.data && typeof r.data === "object" && "identities" in (r.data as object)) setAccount(r.data as Account); else loadAccount(); })();
   }, [loadAccount]);
@@ -2435,6 +2475,7 @@ const App = ({ initialView = "landing" }: { initialView?: "landing" | "board" })
         me={account?.github?.login ?? null}
         following={account?.following ?? []}
         onToggleFollow={async (l, follow) => { await post(`/api/account/${follow ? "follow" : "unfollow"}`, { login: l }); loadAccount(); }} />}
+      {visitRecap && <SinceLastVisit recap={visitRecap} syncing={visitSyncing} onReveal={(pets) => setSummonPets(pets)} onClose={closeVisitRecap} />}
       {summonPets && summonPets.length > 0 && <SummonCinematic summons={summonPets} onClose={() => setSummonPets(null)} />}
       {/* One shared WebGL context for all <View>-based pets on the page: the Board view (one
           mini-pet per row), the Account view (menagerie grid), or the ProfileModal (showcase

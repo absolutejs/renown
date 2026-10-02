@@ -1,4 +1,4 @@
-// Scheduled background tasks. Currently just the attestation-expiry sweep — runs
+// Scheduled background tasks. Includes the attestation-expiry sweep — runs
 // hourly and demotes verified-with-past-expiresAt attestations to public claims. The
 // per-/api/verify sweep keeps active players current; this catches the players who
 // never re-sync (so a stale verified badge gets demoted in a timely way regardless).
@@ -19,6 +19,7 @@ import { gameDb, grantAchievements, hub } from "../sync.ts";
 import { processOnchainTransferOutbox } from "../onchainOutbox.ts";
 import { syncAttributedProjects } from "../project.ts";
 import { syncObservedAiAttribution } from "../observedAi.ts";
+import { syncGithubAccount } from "../githubSync.ts";
 
 const sweepExpiredAttestations = async (): Promise<number> => {
   // jsonb update path: build the demoted attestation (drop .verified + .expiresAt,
@@ -137,6 +138,35 @@ export const cronPlugin = () =>
           }
         } catch (error) {
           console.error("[renown:cron] ai-participant-refresh batch failed", error);
+        }
+      },
+    }))
+    .use(cron({
+      // Humans get the same hands-off refresh: verified GitHub accounts not synced in the last
+      // 6h, oldest first, through the shared account sync. Opening the site syncs immediately
+      // on the player's own token; this catches everyone who hasn't visited. Needs the server
+      // GITHUB_TOKEN — the unauthenticated 60/hour budget belongs to interactive syncs.
+      name: "human-github-refresh",
+      pattern: "*/20 * * * *",
+      run: async () => {
+        if (!process.env.GITHUB_TOKEN) return;
+        try {
+          const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000);
+          const due = await gameDb.select({ login: playerAccounts.githubLogin })
+            .from(playerAccounts).innerJoin(players, eq(players.id, playerAccounts.playerId))
+            .where(and(
+              eq(players.isAi, false), eq(players.githubVerified, true), eq(playerAccounts.githubVerified, true),
+              or(sql`${playerAccounts.verifiedAt} IS NULL`, lt(playerAccounts.verifiedAt, cutoff)),
+            )).orderBy(sql`${playerAccounts.verifiedAt} NULLS FIRST`).limit(10);
+          let refreshed = 0;
+          for (const { login } of due) {
+            const result = await syncGithubAccount(login).catch((error) => ({ error: String(error) }));
+            if ("error" in result) console.error(`[renown:cron] human-github-refresh @${login}: ${result.error}`);
+            else refreshed++;
+          }
+          if (due.length > 0) console.log(`[renown:cron] human-github-refresh refreshed ${refreshed}/${due.length} github account(s)`);
+        } catch (error) {
+          console.error("[renown:cron] human-github-refresh batch failed", error);
         }
       },
     }))
