@@ -7,7 +7,7 @@
 // scammers actually burn our money. None of this gates gameplay.
 import { createAbuseGuard, defaultBotClassifier } from "@absolutejs/auth";
 import { Elysia } from "elysia";
-import { rateLimit } from "elysia-rate-limit";
+import { rateLimit, slidingWindow, type RateLimitContext } from "@absolutejs/rate-limit";
 
 const MIN = 60_000;
 const FIFTEEN_MIN = 15 * MIN;
@@ -58,36 +58,44 @@ const isWrite = (p: string) => p === "/api/submit";
 // OAuth + token entry points (credential surface bots probe).
 const isAuthEntry = (p: string) => p.startsWith("/oauth2/");
 
+// Each bucket is its own sliding window under its own namespace, so one bucket's keys never
+// count against another's. Keys reuse the trusted-proxy-aware generators above.
+type Ctx = RateLimitContext;
+const ipKey = ({ request, server }: Ctx) => ipGenerator(request, server ?? null);
+const sessionOrIpKey = ({ request, server }: Ctx) => sessionGenerator(request, server ?? null);
+const bucket = (
+  namespace: string,
+  periodMs: number,
+  requestsPerPeriod: number,
+  key: (ctx: Ctx) => string,
+  skip: (request: Request) => boolean,
+) =>
+  rateLimit({
+    algorithm: slidingWindow({ periodMs, requestsPerPeriod }),
+    key,
+    namespace: `renown-${namespace}`,
+    skip: ({ request }) => skip(request),
+  });
+
 // Generous per-session bucket for signed-in callers (only applies when a session cookie is present).
-const authedRateLimit = rateLimit({
-  duration: MIN, max: 600, generator: sessionGenerator, scoping: "global",
-  skip: (request) => isExempt(path(request)) || !sessionKey(request),
-});
+const authedRateLimit = bucket("authed", MIN, 600, sessionOrIpKey,
+  (request) => isExempt(path(request)) || !sessionKey(request));
 
 // Tighter per-IP bucket for anonymous callers (only applies when there's no session).
-const anonRateLimit = rateLimit({
-  duration: MIN, max: 100, generator: ipGenerator, scoping: "global",
-  skip: (request) => isExempt(path(request)) || Boolean(sessionKey(request)),
-});
+const anonRateLimit = bucket("anon", MIN, 100, ipKey,
+  (request) => isExempt(path(request)) || Boolean(sessionKey(request)));
 
 // Costly GitHub-API / identity-binding paths: small bucket, keyed by session-or-IP.
-const expensiveRateLimit = rateLimit({
-  duration: FIFTEEN_MIN, max: 30, generator: sessionGenerator, scoping: "global",
-  skip: (request) => !isExpensive(path(request)),
-});
+const expensiveRateLimit = bucket("expensive", FIFTEEN_MIN, 30, sessionOrIpKey,
+  (request) => !isExpensive(path(request)));
 
 // Gameplay submit bucket — generous enough for legit heartbeats (well under 2/s) but bounds a
 // single session/IP from spam-creating players or hammering the rarity counter.
-const writeRateLimit = rateLimit({
-  duration: MIN, max: 120, generator: sessionGenerator, scoping: "global",
-  skip: (request) => !isWrite(path(request)),
-});
+const writeRateLimit = bucket("write", MIN, 120, sessionOrIpKey, (request) => !isWrite(path(request)));
 
 // OAuth / token entry points: small per-IP bucket.
-const authEntryRateLimit = rateLimit({
-  duration: FIFTEEN_MIN, max: 40, generator: ipGenerator, scoping: "global",
-  skip: (request) => !isAuthEntry(path(request)),
-});
+const authEntryRateLimit = bucket("auth-entry", FIFTEEN_MIN, 40, ipKey,
+  (request) => !isAuthEntry(path(request)));
 
 // UA-heuristic bot guard (headers only, no body) ONLY on the HUMAN browser OAuth flows
 // (authorize / callback) — denies obvious non-human callers (empty UA, curl/python-requests/

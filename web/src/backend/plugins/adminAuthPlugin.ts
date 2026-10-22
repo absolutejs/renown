@@ -38,7 +38,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
   new Elysia({ name: "renown-admin-auth" })
     .onAfterHandle(({ set }) => { set.headers["cache-control"] = "private, no-store"; set.headers.pragma = "no-cache"; })
     // Credentials login for admins. Argon2id via Bun.password (built-in). Issues the signed cookie.
-    .post("/admin/login", async ({ body, set }) => {
+    .post("/admin/login", { body: t.Object({ email: t.String({ format: "email" }), password: t.String({ minLength: 8 }) }) }, async ({ body, set }) => {
       const email = body.email.trim().toLowerCase();
       const rows = await db.select().from(schema.admins).where(eq(schema.admins.email, email));
       const admin = rows[0];
@@ -50,7 +50,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       await db.update(schema.admins).set({ last_login_at: new Date() }).where(eq(schema.admins.sub, admin.sub));
       set.headers["set-cookie"] = `${adminCookieName}=${issueAdminToken(admin.sub)}; ${adminCookieAttrs}`;
       return { ok: true, admin: { sub: admin.sub, email: admin.email, name: admin.name } };
-    }, { body: t.Object({ email: t.String({ format: "email" }), password: t.String({ minLength: 8 }) }) })
+    })
     // Logout — clear the cookie.
     .delete("/admin/logout", ({ set }) => {
       set.headers["set-cookie"] = `${adminCookieName}=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax`;
@@ -88,7 +88,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       }));
     })
     // Manually grant or revoke a tier (admin override, audited via last_login_at + status).
-    .post("/api/admin/users/:sub/tier", async ({ params, body, request, set }) => {
+    .post("/api/admin/users/:sub/tier", { body: t.Object({ tier: t.String() }) }, async ({ params, body, request, set }) => {
       const admin = await requireAdmin(db, request);
       if (!admin) { set.status = 401; return { error: "not admin" }; }
       if (!isTier(body.tier)) { set.status = 400; return { error: "invalid tier" }; }
@@ -102,7 +102,7 @@ export const adminAuthPlugin = ({ db }: Deps) =>
       if (pl) await gameDb.update(players).set({ tier }).where(eq(players.id, pl.id));
       console.log(`[renown:admin] ${admin.sub} → set tier=${tier} for user ${target.sub}`);
       return { ok: true, sub: target.sub, tier };
-    }, { body: t.Object({ tier: t.String() }) })
+    })
     // Replay a failed webhook delivery. Reads the original event_kind + payload from
     // the row and re-runs the retry-and-log pipeline against the current configured
     // webhook URL (RENOWN_ATTESTATION_WEBHOOK) — i.e. respects any URL change the

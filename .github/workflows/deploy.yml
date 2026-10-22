@@ -69,6 +69,9 @@ jobs:
       - name: Add linked-provider OAuth grants
         run: bun --env-file=web/.env web/scripts/migrate-linked-provider-grants.ts
 
+      - name: Add the session columns @absolutejs/auth writes
+        run: bun --env-file=web/.env web/scripts/migrate-auth-sessions.ts
+
       - name: Reserve unclaimed Claude and Codex identities
         run: bun --env-file=web/.env db/migrate-reserved-ai-identities.ts
 
