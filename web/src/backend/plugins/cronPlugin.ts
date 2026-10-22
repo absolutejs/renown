@@ -6,7 +6,7 @@
 // Single instance, in-process — matches the rest of sync.ts. When we cluster, this
 // moves to a leader-elected job (or @elysiajs/cron's clustered mode if it lands).
 
-import { cron } from "@elysiajs/cron";
+import { cron } from "@elysia/cron";
 import { and, eq, isNotNull, lt, or, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { players, playerAccounts } from "../../../../db/schema.ts";

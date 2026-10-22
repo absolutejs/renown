@@ -267,17 +267,17 @@ export const authApiPlugin = ({ authSessionStore, bindingStore, credentialResolv
       authSessionStore, bindingStore, credentialResolver, db, grantStore, page: 1, query: "", sessionId: cookie.user_session_id.value, userSub: user.sub,
     })))
     // Search and pagination use POST so private search terms never appear in proxy URLs/logs.
-    .post("/repos/search", ({ body, cookie, protectRoute }) => protectRoute((user) => loadAccountPrivateRepoPage({
+    .post("/repos/search", { body: t.Object({ page: t.Optional(t.Number()), query: t.Optional(t.String({ maxLength: 100 })) }) }, ({ body, cookie, protectRoute }) => protectRoute((user) => loadAccountPrivateRepoPage({
       authSessionStore, bindingStore, credentialResolver, db, grantStore,
       page: Math.max(1, Math.min(100, Math.floor(Number(body.page) || 1))),
       query: String(body.query ?? "").trim().slice(0, 100),
       sessionId: cookie.user_session_id.value,
       userSub: user.sub,
-    })), { body: t.Object({ page: t.Optional(t.Number()), query: t.Optional(t.String({ maxLength: 100 })) }) })
+    })))
     // Live private-repository board. POST keeps owner/repo out of proxy access-log URLs; the
     // protected response is no-store, and loadPrivateProject rechecks the viewer's linked GitHub
     // grant against the exact repository before returning any identity or contribution data.
-    .post("/private-project", ({ body, protectRoute }) => protectRoute(async (user) => {
+    .post("/private-project", { body: t.Object({ owner: t.String({ maxLength: 100 }), repo: t.String({ maxLength: 100 }), sort: t.Optional(t.Union([t.Literal("xp"), t.Literal("commits"), t.Literal("lines")])) }) }, ({ body, protectRoute }) => protectRoute(async (user) => {
       const identities = await listDBAuthIdentitiesByUser({ db, userSub: user.sub });
       const allowedLogins = identities.filter((identity) => identity.auth_provider === "github")
         .map((identity) => githubIdentityLogin(identity) ?? "").filter(Boolean);
@@ -290,7 +290,7 @@ export const authApiPlugin = ({ authSessionStore, bindingStore, credentialResolv
         sort: normalizeProjectSort(body.sort),
       });
       return project ? { project } : { error: "not_found_or_no_access" };
-    }), { body: t.Object({ owner: t.String({ maxLength: 100 }), repo: t.String({ maxLength: 100 }), sort: t.Optional(t.Union([t.Literal("xp"), t.Literal("commits"), t.Literal("lines")])) }) })
+    }))
     // Keyset-paginated achievement details. The account bootstrap carries only the
     // denormalized count; rows are fetched when the trophy cabinet is actually visible.
     .get("/achievements", ({ query, protectRoute }) =>

@@ -80,8 +80,12 @@ export const authSessions = pgTable("auth_sessions", {
   created_at: timestamp("created_at").notNull().defaultNow(),
   expires_at_ms: bigint("expires_at_ms", { mode: "number" }).notNull(),
   id: varchar("id", { length: 255 }).primaryKey(),
+  // Added by @absolutejs/auth's own session migrations (scripts/migrate-auth-sessions.ts).
+  oauth_subject_json: jsonb("oauth_subject_json"),
   refresh_token: text("refresh_token"),
+  sign_in_method: varchar("sign_in_method", { length: 64 }),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
+  user_agent: varchar("user_agent", { length: 512 }),
   user_json: jsonb("user_json").$type<Record<string, unknown>>().notNull(),
 });
 
@@ -90,6 +94,7 @@ export const authUnregisteredSessions = pgTable("auth_unregistered_sessions", {
   created_at: timestamp("created_at").notNull().defaultNow(),
   expires_at_ms: bigint("expires_at_ms", { mode: "number" }).notNull(),
   id: varchar("id", { length: 255 }).primaryKey(),
+  oauth_subject_json: jsonb("oauth_subject_json"),
   refresh_token: text("refresh_token"),
   session_information_json: jsonb("session_information_json").$type<
     Record<string, unknown>
