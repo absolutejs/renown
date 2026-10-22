@@ -16,7 +16,7 @@
     "stripe:local": "stripe listen --forward-to http://localhost:7777/webhooks/stripe --events customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,checkout.session.completed"
   },
   "dependencies": {
-    "@absolutejs/absolute": "0.20.0-beta.144",
+    "@absolutejs/absolute": "0.20.0-beta.145",
     "@absolutejs/auth": "0.101.0",
     "@absolutejs/collectibles": "0.1.2",
     "@absolutejs/linked-providers": "0.0.6",
