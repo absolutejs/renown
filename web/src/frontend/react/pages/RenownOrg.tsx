@@ -5,8 +5,8 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { SiteHeader } from "../components/SiteHeader";
 import { useState } from "react";
-import { generate } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 
 const petSvgHtml = (seed: string, box: number) => {
   const { svg, width, height } = spriteToSvg(generate(seed), { box });

@@ -2,8 +2,8 @@
 // achievement's emoji + name + description, its rarity ("X% of N players"), and the recent
 // earners' pets. Mirrors ogImage.ts / projectOg.ts.
 import { Resvg } from "@resvg/resvg-js";
-import { generate, TIER_RGB } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate, TIER_RGB } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import type { AchievementData } from "./achievement.ts";
 
 type Ach = NonNullable<AchievementData>;

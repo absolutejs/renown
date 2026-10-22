@@ -9,8 +9,8 @@
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
-import type { RGB } from "../../../shared/shiny.ts";
-import type { Creature } from "../../../shared/procgen";
+import type { RGB } from "@absolutejs/renown-core/shiny";
+import type { Creature } from "@absolutejs/renown-core/procgen";
 
 const PATTERN_MAP: Record<string, number> = { plain: 0, spots: 1, stripes: 2, scales: 3, runes: 4, cosmic: 5 };
 const COPY_PATTERN_MAP: Record<string, number> = { Speckled: 1, Pinstripe: 2, Constellation: 5, Circuit: 9, "Aurora Veil": 10, "Gilded Filigree": 4, "Impossible Fracture": 6 };

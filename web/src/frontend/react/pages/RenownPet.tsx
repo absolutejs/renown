@@ -1,8 +1,8 @@
 // Public /pet/:seed page — a complete collectible record for one pet copy.
 import { Head } from "@absolutejs/absolute/react/components";
 import type { ReactNode } from "react";
-import { CARD_VARIANTS, COPY_COLORWAYS, COPY_MATERIALS, COPY_MUTATIONS, COPY_PATTERNS, generate, TIER_RGB, type CardVariant, type CopyTraits, type RarityComponent, type Tier, type WeightedCopyTrait } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { CARD_VARIANTS, COPY_COLORWAYS, COPY_MATERIALS, COPY_MUTATIONS, COPY_PATTERNS, generate, TIER_RGB, type CardVariant, type CopyTraits, type RarityComponent, type Tier, type WeightedCopyTrait } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import { SiteHeader } from "../components/SiteHeader";
 
 type RGB = readonly [number, number, number];

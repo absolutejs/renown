@@ -2,8 +2,8 @@
 // contributor's pet + the org headline (repos, devs, renown) + its top-3 contributors. Mirrors
 // ogImage.ts / projectOg.ts.
 import { Resvg } from "@resvg/resvg-js";
-import { generate, TIER_RGB } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate, TIER_RGB } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import type { OrgData } from "./org.ts";
 
 type Org = NonNullable<OrgData>;

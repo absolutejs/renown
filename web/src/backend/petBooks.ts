@@ -1,7 +1,7 @@
 // Official spoiler-safe set binders + persistent personal chase books.
 // Official subjects are only revealed when the requesting player owns a copy.
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import { CARD_VARIANTS, type CardVariant } from "../../../core/procgen.ts";
+import { CARD_VARIANTS, type CardVariant } from "@absolutejs/renown-core/procgen";
 import {
   collectorBooks, collectorBookSlots, petPrintings, petSetDisplaySelections, petSets, petSubjects, wildSeedSources,
   players, type CollectorSlotTarget,

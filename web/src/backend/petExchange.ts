@@ -6,7 +6,7 @@ import {
 } from "../../../db/schema.ts";
 import { gameDb } from "./sync.ts";
 import { notifyMarketplace } from "./push.ts";
-import { CARD_VARIANTS, cardPrintingId, type CardVariant } from "../shared/procgen.ts";
+import { CARD_VARIANTS, cardPrintingId, type CardVariant } from "@absolutejs/renown-core/procgen";
 
 const watchId = (playerId: string, subjectId: string) => `watch:${playerId}:${subjectId}`;
 

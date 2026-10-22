@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { isSoundOn, setSoundOn } from "../../audio";
-import { generate } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 
 type SessionUser = { email?: string; first_name?: string };
 type HeaderAccount = {

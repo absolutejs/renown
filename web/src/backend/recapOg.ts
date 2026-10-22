@@ -2,8 +2,8 @@
 // carrying the player's pet and their week's headline numbers (renown earned, achievements,
 // level, pets). Mirrors ogImage.ts's renderer; the data comes from the shared recap loader.
 import { Resvg } from "@resvg/resvg-js";
-import { generate, TIER_RGB } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate, TIER_RGB } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import type { RecapData } from "./recap.ts";
 
 type Recap = NonNullable<RecapData>;

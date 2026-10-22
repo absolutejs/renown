@@ -7,8 +7,8 @@
 // and the right segment shows live devs · XP · top login. The pet is pure rects/circles/ellipses
 // with no <defs>/IDs, so it composes into the badge without collisions and survives GitHub's
 // camo rasterizer (which is why we still avoid emoji in the text).
-import { generate } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import type { ProjectData } from "./project.ts";
 
 type Project = NonNullable<ProjectData>;

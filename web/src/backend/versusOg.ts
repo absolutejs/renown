@@ -1,7 +1,7 @@
 // 1200×630 share card for /vs/:a/:b — two devs, their avatar pets, scores, and the verdict.
 import { Resvg } from "@resvg/resvg-js";
-import { generate, TIER_RGB } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate, TIER_RGB } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import type { Versus } from "./versus.ts";
 
 type RGB = [number, number, number];

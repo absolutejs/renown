@@ -38,10 +38,8 @@ jobs:
         with:
           bun-version: 1.4.2
 
-      - name: Install dependencies (root + web)
-        run: |
-          bun install --frozen-lockfile
-          cd web && bun install --frozen-lockfile
+      - name: Install dependencies (one lockfile for the CLI, core and web workspace)
+        run: bun install --frozen-lockfile
 
       - name: Typecheck and test (hard gate — blocks every deploy)
         run: |

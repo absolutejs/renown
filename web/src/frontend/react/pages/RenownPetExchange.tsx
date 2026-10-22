@@ -1,7 +1,7 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { useMemo, useState } from "react";
-import { CARD_VARIANTS, generate, type CardVariant } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { CARD_VARIANTS, generate, type CardVariant } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import { SiteHeader } from "../components/SiteHeader";
 
 type Copy = { seed: string; printingId: string | null; owner: string | null; ownerHandle: string; ownerIsAi: boolean; name: string; tier: string; finish: string | null; mutation: string | null; material: string | null; colorway: string | null; pattern: string | null; serialNumber: number | null; supply: number | null; rarityScore: number; size: number; earnedAt: string };

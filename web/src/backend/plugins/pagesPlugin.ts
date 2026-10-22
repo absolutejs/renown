@@ -33,7 +33,7 @@ import { profilePetsEtag, renderProfilePets } from "../profilePets";
 import { petCardEtag, renderPetCard } from "../petCard";
 import { petOgEtag, renderPetOgPng } from "../petOg";
 import { findPetOwner } from "../petOwner";
-import { canonicalPetSeed, generate } from "../../../../core/procgen.ts";
+import { canonicalPetSeed, generate } from "@absolutejs/renown-core/procgen";
 import { loadProfile, profileShareSnippet } from "../profile";
 import { loadProject, loadProjectDirectory, normalizeProjectDirectorySort, normalizeProjectSort, projectShareSnippet } from "../project";
 import { projectOgEtag, renderProjectOgPng } from "../projectOg";

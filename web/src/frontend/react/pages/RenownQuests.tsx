@@ -2,8 +2,8 @@
 // earned for completing them. Completion settles server-side on load (idempotent). Lightweight.
 import { Head } from "@absolutejs/absolute/react/components";
 import { SiteHeader } from "../components/SiteHeader";
-import { generate } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 
 type QuestView = { id: string; name: string; desc: string; icon: string; progress: number; target: number; pct: number; completed: boolean; rewardSeed: string | null };
 type Quests = { login: string; handle: string; weekKey: string; quests: QuestView[]; completedCount: number };

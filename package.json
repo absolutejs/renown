@@ -132,5 +132,9 @@
     },
     "./manifest.json": "./dist/manifest.json",
     "./package.json": "./package.json"
-  }
+  },
+  "workspaces": [
+    "core",
+    "web"
+  ]
 }

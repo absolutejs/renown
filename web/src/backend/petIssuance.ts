@@ -5,7 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import {
   CARD_RECIPE_VERSION, CARD_SET, CARD_VARIANTS, cardCopyToken, cardPrintingId, cardSeedPrefix,
   cardSubjectIndex, chooseCardVariant, generate, serialPermutation, type CardVariant,
-} from "../../../core/procgen.ts";
+} from "@absolutejs/renown-core/procgen";
 import { petSubjects, wildSeedSources } from "../../../db/schema.ts";
 import { gameDb } from "./sync.ts";
 

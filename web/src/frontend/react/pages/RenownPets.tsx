@@ -2,8 +2,8 @@
 // can switch to database-backed discovery with the same search/filter/sort controls.
 import { Head } from "@absolutejs/absolute/react/components";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { CARD_VARIANTS, COPY_COLORWAYS, COPY_MATERIALS, COPY_MUTATIONS, COPY_PATTERNS, generate, TIER_RGB, type Tier } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { CARD_VARIANTS, COPY_COLORWAYS, COPY_MATERIALS, COPY_MUTATIONS, COPY_PATTERNS, generate, TIER_RGB, type Tier } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import { PetBooksWorkspace } from "../components/PetBooksWorkspace";
 import { SiteHeader } from "../components/SiteHeader";
 

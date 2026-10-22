@@ -3,8 +3,8 @@
 // so a repo that embeds it advertises renown with a real board. Verified (GitHub-scored) renown
 // is shown green; self-reported is muted. Pure rects/circles/text (no <defs> beyond a clip, no
 // foreignObject/external refs) so it survives GitHub's camo rasterizer — hence no emoji.
-import { generate } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import type { ProjectData } from "./project.ts";
 
 type Project = NonNullable<ProjectData>;
