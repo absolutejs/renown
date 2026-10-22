@@ -5,7 +5,7 @@
 // their linked GitHub accounts in the background, so nothing depends on a manual sync.
 import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { achievements, playerAchievements, playerVisits, players, wildSeedSources } from "../../../db/schema.ts";
-import { resolvePetLookId } from "../../../core/petLooks.ts";
+import { resolvePetLookId } from "@absolutejs/renown-core/petLooks";
 import { syncGithubAccount } from "./githubSync.ts";
 import { getPlayerPetLookAssignments } from "./petLooks.ts";
 import { listPlayerAccounts } from "./resolvePlayer.ts";

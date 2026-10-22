@@ -16,7 +16,7 @@ import type { SchemaType, User } from "../../../db/schema";
 import { SignJWT } from "jose";
 import { applyAttestation } from "../attestation.ts";
 import { gameDb, hub } from "../sync.ts";
-import { isPetLookId, type PetLookId, resolvePetLookId } from "../../../../core/petLooks.ts";
+import { isPetLookId, type PetLookId, resolvePetLookId } from "@absolutejs/renown-core/petLooks";
 import { buildAuthenticationOptions, buildRegistrationOptions, verifyAuthentication, verifyRegistration } from "../webauthn.ts";
 import {
   deleteDBAuthIdentityMergeRequest,

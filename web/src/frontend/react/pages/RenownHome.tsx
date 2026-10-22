@@ -6,10 +6,10 @@ import { GhostAvatar, SinglePet, SpotlightView, SummonCinematic } from "../compo
 import { ProfileModal } from "../components/ProfileModal";
 import { SinceLastVisit, type VisitRecap } from "../components/SinceLastVisit";
 import { SiteHeader, type SiteSection } from "../components/SiteHeader";
-import { DEFAULT_PET_LOOK_ID, isPetLookId, PET_LOOKS, type PetLookId } from "../../../shared/petLooks.ts";
-import { generate } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
-import { SKILLS } from "../../../shared/skills.ts";
+import { DEFAULT_PET_LOOK_ID, isPetLookId, PET_LOOKS, type PetLookId } from "@absolutejs/renown-core/petLooks";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
+import { SKILLS } from "@absolutejs/renown-core/skills";
 import { subscribeSync } from "../../syncClient";
 
 type Tier = "free" | "supporter" | "pro";

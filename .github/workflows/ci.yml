@@ -21,11 +21,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
-      - name: Install (root)
+      - name: Install (one lockfile for the CLI, core and web workspace)
         run: bun install --frozen-lockfile
-      - name: Install (web)
-        run: bun install --frozen-lockfile
-        working-directory: web
       - name: Typecheck (root + web)
         run: bun run typecheck:all
       - name: Test

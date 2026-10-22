@@ -2,8 +2,8 @@
 // and a shareable OG card. Reuses the canonical 2D pet sprite for avatars. Lightweight, no three.js.
 import { Head } from "@absolutejs/absolute/react/components";
 import { SiteHeader } from "../components/SiteHeader";
-import { generate } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 
 type VsSide = { login: string; handle: string; tier: string; isAi: boolean; avatarSeed: string | null; score: number; totalLevel: number; achievements: number; petsCount: number; rarestPetScore: number; reviews: number; crossRepo: number; merged: number; downloads: number };
 type VsDim = { key: string; label: string; a: number; b: number; winner: "a" | "b" | "tie"; float?: boolean };

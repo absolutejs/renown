@@ -4,8 +4,8 @@
 import { createNeonAccessTokenStore, hasScopes, resolveApiPrincipal } from "@absolutejs/auth";
 import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
-import { generate } from "../../../../core/procgen.ts";
-import { SKILLS, levelForXp, skillProgress, totalLevel } from "../../../../core/skills.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { SKILLS, levelForXp, skillProgress, totalLevel } from "@absolutejs/renown-core/skills";
 import { achievements, aiAttestationEvents, playerAccounts, playerAchievements, playerAttributionSnapshots, playerProjects, players, projects, wildSeedSources } from "../../../../db/schema.ts";
 import { resolvePlayerByGithubLogin } from "../resolvePlayer.ts";
 import { fetchRepoImportance, scoreRepoForLogin } from "../repoScore.ts";

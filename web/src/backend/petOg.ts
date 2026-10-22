@@ -2,8 +2,8 @@
 // creature, so this is pure (no DB) and cached hard. Mirrors ogImage.ts's look (tier-accented
 // gradient + the canonical pet projection) so a shared pet link produces a real card.
 import { Resvg } from "@resvg/resvg-js";
-import { generate, TIER_RGB } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate, TIER_RGB } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 
 type RGB = [number, number, number];
 const WIDTH = 1200, HEIGHT = 630;

@@ -2,8 +2,8 @@
 // [![renown](.../org/<owner>/badge.svg)](.../org/<owner>) to advertise its collective renown.
 // Carries the org's top contributor's pet next to the wordmark, then repos · devs · top login.
 // Pure rects/circles, no <defs>/IDs → composes cleanly and survives GitHub's camo rasterizer.
-import { generate } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import type { OrgData } from "./org.ts";
 
 type Org = NonNullable<OrgData>;

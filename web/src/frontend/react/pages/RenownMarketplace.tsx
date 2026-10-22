@@ -1,7 +1,7 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { useEffect, useMemo, useState } from "react";
-import { generate } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import { SiteHeader } from "../components/SiteHeader";
 
 type Listing = {

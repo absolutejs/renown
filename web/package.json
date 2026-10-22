@@ -21,6 +21,7 @@
     "@absolutejs/collectibles": "0.1.2",
     "@absolutejs/linked-providers": "0.0.6",
     "@absolutejs/rate-limit": "0.8.0",
+    "@absolutejs/renown-core": "workspace:*",
     "@absolutejs/sync": "3.0.0",
     "@absolutejs/wallet": "0.9.3",
     "@absolutejs/wallet-stripe": "0.4.4",
@@ -45,6 +46,7 @@
     "react-router": "^7.1.0",
     "stripe": "^20.2.0",
     "three": "^0.184.0",
+    "typebox": "1.3.16",
     "web-push": "^3.6.7"
   },
   "devDependencies": {

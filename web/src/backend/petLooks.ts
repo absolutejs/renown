@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { DEFAULT_PET_LOOK_ID, resolvePetLookId, type PetLookId } from "../../../core/petLooks.ts";
+import { DEFAULT_PET_LOOK_ID, resolvePetLookId, type PetLookId } from "@absolutejs/renown-core/petLooks";
 import { petLookAssignments, players } from "../../../db/schema.ts";
 import { gameDb } from "./sync.ts";
 

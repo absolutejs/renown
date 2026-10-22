@@ -9,8 +9,8 @@
 import { Head } from "@absolutejs/absolute/react/components";
 import { SiteHeader } from "../components/SiteHeader";
 import { useEffect, useState } from "react";
-import { generate } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 
 // Each contributor's 1/1 pet, rendered as a static 2D SVG (the same canonical sprite the OG
 // card + 3D viewer use) — no three.js, so the board stays fast + crawlable but still shows the

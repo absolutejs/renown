@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { generate, TIER_RGB, type Tier } from "../../../shared/procgen.ts";
-import { spriteToSvg } from "../../../shared/petSvg.ts";
+import { generate, TIER_RGB, type Tier } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 
 type Parallel = { variant: string; finish: string; tier: string; printRun: number; ownedCount: number; globallyDiscovered: boolean };
 type SubjectCopy = { petSeed: string; finish: string | null; tier: string; mutation: string | null; material: string | null; colorway: string | null; copyPattern: string | null; serialNumber: number | null; printRun: number | null; rarityScore: number; size: number };

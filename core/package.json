@@ -1,0 +1,14 @@
+{
+  "name": "@absolutejs/renown-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Renown's game engine, shared by the CLI and the web app. The CLI bundles it, so it is not published on its own.",
+  "type": "module",
+  "exports": {
+    "./*": "./*.ts",
+    "./achievements/*": "./achievements/*.ts"
+  },
+  "dependencies": {
+    "@absolutejs/collectibles": "0.1.2"
+  }
+}

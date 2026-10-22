@@ -2,8 +2,8 @@
 // celebration in the VS Code extension (it only has the pet's seed from /verify's newPetSeeds, so
 // the server renders the creature). generate() + spriteToSvg, the same sprite source as the badge
 // / OG card / 3D viewer, so it can't drift. Pure rects/circles/text, no <defs>/IDs.
-import { generate, TIER_RGB, type Tier } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate, TIER_RGB, type Tier } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import { idleBob } from "./petAnim.ts";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

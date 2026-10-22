@@ -9,9 +9,9 @@
 // importance (stars/oss/owner) is fetched (cached per repo) so the project multiplier applies and
 // the opensource/stargazing/foreign skills train too — matching the local engine. The 10 agent-*
 // skills are excluded (no GitHub signal).
-import { scoreCommitData } from "../../../core/craftScore.ts";
-import { awardCraft } from "../../../core/skills.ts";
-import type { CraftResult } from "../../../core/craft.ts";
+import { scoreCommitData } from "@absolutejs/renown-core/craftScore";
+import { awardCraft } from "@absolutejs/renown-core/skills";
+import type { CraftResult } from "@absolutejs/renown-core/craft";
 import { fetchRepoImportance, type RepoImportance } from "./repoScore.ts";
 
 const GH = "https://api.github.com";

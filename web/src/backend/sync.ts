@@ -7,7 +7,7 @@
 // Single instance → in-memory cache + hub is all we need. To fan changes across
 // multiple server instances later, add a Redis cluster bus (engine.connectCluster);
 // the rest of this file is unchanged.
-import { mergeProgress } from "../../../core/progress.ts";
+import { mergeProgress } from "@absolutejs/renown-core/progress";
 import { neon } from "@neondatabase/serverless";
 import { and, defineRelations, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PetLookId } from "../../../shared/petLooks.ts";
+import type { PetLookId } from "@absolutejs/renown-core/petLooks";
 
 export type VisitRecap = {
   since: string;

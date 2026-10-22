@@ -4,8 +4,8 @@
 // Carries their 1/1 pet (the signature sprite, same source as the OG card + 3D viewer) next to
 // the wordmark, then their score + total level. Pure rects/circles, no <defs>/IDs, so it
 // composes cleanly and survives GitHub's camo rasterizer (hence no emoji in the text).
-import { generate } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import type { ProfileData } from "./profile";
 
 type Profile = NonNullable<ProfileData>;

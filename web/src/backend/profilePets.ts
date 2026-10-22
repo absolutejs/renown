@@ -3,8 +3,8 @@
 // SAME source as the badge / OG card / 3D viewer, so it can't drift) into a tidy tier-tinted
 // grid with the pet's name + tier. Pure rects/circles/text, no <defs>/IDs, so it survives
 // GitHub's camo rasterizer.
-import { generate, TIER_RGB, type Tier } from "../../../core/procgen.ts";
-import { spriteToSvg } from "../../../core/petSvg.ts";
+import { generate, TIER_RGB, type Tier } from "@absolutejs/renown-core/procgen";
+import { spriteToSvg } from "@absolutejs/renown-core/petSvg";
 import { idleBob } from "./petAnim.ts";
 import type { ProfileData } from "./profile";
 

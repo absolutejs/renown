@@ -8,7 +8,7 @@
 // scored — a monotonic FLOOR, since the board upsert keeps the greatest value, so this can only
 // ever raise a contributor's standing (e.g. first-time contributors get put on the board), never
 // regress what the local CLI already submitted.
-import { scoreCommitData } from "../../../core/craftScore.ts";
+import { scoreCommitData } from "@absolutejs/renown-core/craftScore";
 
 const GH = "https://api.github.com";
 const headers = (token?: string): Record<string, string> => ({

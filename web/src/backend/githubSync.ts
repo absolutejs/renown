@@ -5,7 +5,7 @@
 // player never has to press a button to stay current.
 import { and, desc, eq, sql } from "drizzle-orm";
 import { attributionCommits, playerAccounts, playerAttributionSnapshots, players, wildSeedSources } from "../../../db/schema.ts";
-import { resolvePetLookId } from "../../../core/petLooks.ts";
+import { resolvePetLookId } from "@absolutejs/renown-core/petLooks";
 import { advanceAllTimeVerifiedScore } from "./allTimeScore.ts";
 import { fetchAttributionShas } from "./attribution.ts";
 import { REVERIFY_COOLDOWN_MS, normalizeTier } from "./billing/tiers";
