@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "app": "web",
+  "release": {
+    "command": [
+      "bun",
+      "run",
+      "paas:release"
+    ],
+    "timeoutSeconds": 900
+  },
+  "egress": {
+    "hosts": [
+      "accounts.google.com",
+      "api.github.com",
+      "api.npmjs.org",
+      "api.stripe.com",
+      "github.com",
+      "oauth2.googleapis.com",
+      "openidconnect.googleapis.com",
+      "registry.npmjs.org",
+      "www.googleapis.com"
+    ]
+  }
+}
