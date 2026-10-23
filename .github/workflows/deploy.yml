@@ -1,7 +1,11 @@
-name: Deploy
+name: Deploy to the droplet (fallback)
 
-# Continuous deployment for Renown. origin/main is the single source of truth for
-# what runs on the droplet.
+# Renown runs on the AbsoluteJS PaaS since 2026-10-23 (renown.absolutejs.com →
+# edge.absolutejs.app): the platform deploys every push to main itself, from
+# absolute.hosting.json. This droplet path runs only by hand, as the fallback
+# while the move soaks; delete it with the droplet.
+#
+# Continuous deployment for Renown, as it ran on the droplet:
 #
 #   push to main → typecheck → seed catalog → pull droplet env → compile ON THE
 #                  RUNNER → scp binary → atomic swap + smoke + auto-rollback
@@ -16,8 +20,7 @@ name: Deploy
 #   ABSOLUTEJS_SSH_KEY — private key authorized as root@ on the droplet.
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref }}
