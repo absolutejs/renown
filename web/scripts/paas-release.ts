@@ -1,7 +1,7 @@
 // The AbsoluteJS PaaS runs this once per release, before the new web process
 // takes traffic (absolute.hosting.json `release`), with the project's
 // production variables. Each step is idempotent and runs in the order the
-// droplet deploy (.github/workflows/deploy.yml) ran them; the first failure
+// droplet deploy ran them (until 2026-10-23); the first failure
 // stops the release and the previous one keeps serving.
 import { join } from "node:path";
 
