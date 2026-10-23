@@ -62,7 +62,11 @@ builtApp.use(adminAuthPlugin({ db: authDb }));   // /admin/login + /api/admin/* 
 builtApp.use(stripePlugin({ authSessionStore, db: authDb }));   // /stripe/config, /billing/*, /webhooks/stripe (no-op without keys)
 builtApp.use(wellKnownPlugin());   // /.well-known/renown-providers.json — self-discovery for AI providers
 builtApp.use(pushPlugin());   // /sw.js — Web Push service worker for cross-tab/closed-tab notifications
-builtApp.use(cronPlugin());   // hourly attestation-expiry sweep (and any future scheduled tasks)
+// Scheduled jobs run on exactly one deployment of the shared database: while a second
+// copy is staged (a host move), it runs with RENOWN_CRONS=off so digests and outbox
+// transfers are not sent twice.
+if (process.env.RENOWN_CRONS !== "off")
+  builtApp.use(cronPlugin());   // hourly attestation-expiry sweep (and any future scheduled tasks)
 builtApp.use(pagesPlugin(manifest));
 builtApp
   .onStop(async () => { await playerCache.flush(); })

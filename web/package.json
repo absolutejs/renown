@@ -11,6 +11,7 @@
     "config": "absolute config",
     "typecheck": "absolute typecheck",
     "db:push": "drizzle-kit push",
+    "paas:release": "bun run scripts/paas-release.ts",
     "provision:m2m": "bun run scripts/provision-m2m-client.ts",
     "vapid:keys": "bun run scripts/vapid-keys.ts",
     "stripe:local": "stripe listen --forward-to http://localhost:7777/webhooks/stripe --events customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,checkout.session.completed"
