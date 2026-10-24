@@ -87,7 +87,9 @@ export const loadQuests = async (login: string): Promise<Quests | null> => {
   }
 
   if (wildChanged) {
-    const capped = newWild.slice(0, 100);   // match /verify's wild cap so the two write paths agree
+    const ownedSeeds = new Set((await gameDb.select({ seed: wildSeedSources.petSeed }).from(wildSeedSources)
+      .where(eq(wildSeedSources.playerId, p.id))).map((item) => item.seed));
+    const capped = newWild.filter((seed) => ownedSeeds.has(seed)).slice(0, 100);   // match /verify's wild cap so the two write paths agree
     const [{ total = 0 } = { total: 0 }] = await gameDb.select({ total: sql<number>`count(*)::int` })
       .from(wildSeedSources).where(eq(wildSeedSources.playerId, p.id));
     await gameDb.update(players).set({ wild: capped, petsCount: total }).where(eq(players.id, p.id));
