@@ -2,6 +2,7 @@
 // Cloud holds the competitive truth: players, the achievement catalog (with global
 // unlock counts → rarity %), per-player unlocks (with date achieved), and per-project
 // boards. Rich local activity/recap data stays on-device; only scores/unlocks sync.
+import { sql } from "drizzle-orm";
 import { bigint, boolean, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const players = pgTable("players", {
@@ -158,9 +159,11 @@ export const attributionCommits = pgTable("attribution_commits", {
   githubLogin: text("github_login").notNull(),
   sha: text("sha").notNull(),
   discoveredAt: timestamp("discovered_at").notNull().defaultNow(),
+  issuedPetSeed: text("issued_pet_seed"),
 }, (t) => ({
   pk: primaryKey({ columns: [t.playerId, t.githubLogin, t.sha] }),
   accountIdx: index("attribution_commits_account_idx").on(t.playerId, t.githubLogin, t.discoveredAt),
+  pendingIssueIdx: index("attribution_commits_pending_issue_idx").on(t.playerId, t.githubLogin, t.discoveredAt, t.sha).where(sql`${t.issuedPetSeed} is null`),
 }));
 
 // Immutable official binder manifests. Sets publish how many numbered subject slots exist,
@@ -254,7 +257,9 @@ export const wildSeedSources = pgTable("wild_seed_sources", {
   materialRecentIdx: index("wild_seed_sources_material_recent_idx").on(t.material, t.earnedAt, t.petSeed),
   copyPatternRecentIdx: index("wild_seed_sources_copy_pattern_recent_idx").on(t.copyPattern, t.earnedAt, t.petSeed),
   copySerialUniq: uniqueIndex("wild_seed_sources_printing_serial_uniq").on(t.printingId, t.serialNumber),
-  provenanceUniq: uniqueIndex("wild_seed_sources_player_provenance_uniq").on(t.playerId, t.provenanceSeed),
+  copyProvenanceUniq: uniqueIndex("wild_seed_sources_copy_provenance_uniq")
+    .on(t.provenanceSeed, sql`(split_part(${t.petSeed}, ':', 8))`)
+    .where(sql`${t.provenanceSeed} is not null and ${t.petSeed} like 'card:v%'`),
 }));
 
 export type CollectorSlotTarget = {

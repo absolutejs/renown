@@ -3,7 +3,7 @@
 // player's headline numbers up across every linked github. POST /api/verify, the background
 // refresh when a signed-in player opens the site, and the human-refresh cron all run this, so a
 // player never has to press a button to stay current.
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { attributionCommits, playerAccounts, playerAttributionSnapshots, players, wildSeedSources } from "../../../db/schema.ts";
 import { resolvePetLookId } from "@absolutejs/renown-core/petLooks";
 import { advanceAllTimeVerifiedScore } from "./allTimeScore.ts";
@@ -105,10 +105,16 @@ const runGithubSync = async (login: string, token?: string) => {
   const acctScore = score.verifiedScore;
   // Turn commit provenance into supply-limited serialized copies. PostgreSQL assigns the
   // next serial atomically; replaying this sync returns the same already-issued copy.
-  const issuedPets = newShas.length > 0
-    ? await issuePetCopies({ playerId: row.id, githubLogin: login, provenanceSeeds: newShas.slice(0, 30) })
+  const pending = await gameDb.select({ sha: attributionCommits.sha }).from(attributionCommits)
+    .where(and(eq(attributionCommits.playerId, row.id), eq(attributionCommits.githubLogin, login), or(isNull(attributionCommits.issuedPetSeed), sql`exists (select 1 from wild_seed_sources w where w.pet_seed = ${attributionCommits.issuedPetSeed} and w.name = '')`)))
+    .orderBy(asc(attributionCommits.discoveredAt), asc(attributionCommits.sha)).limit(30);
+  const issuedPets = pending.length > 0
+    ? await issuePetCopies({ playerId: row.id, githubLogin: login, provenanceSeeds: pending.map((item) => item.sha), contributionReceipts: true })
     : [];
-  const issuedSeeds = issuedPets.map((pet) => pet.seed);
+  // A recovered receipt can refer to a copy already sold to another collector.
+  const ownedSeeds = new Set((await gameDb.select({ seed: wildSeedSources.petSeed }).from(wildSeedSources)
+    .where(eq(wildSeedSources.playerId, row.id))).map((item) => item.seed));
+  const issuedSeeds = issuedPets.map((pet) => pet.seed).filter((seed) => ownedSeeds.has(seed));
   const createdPets = issuedPets.filter((pet) => pet.created);
   // Append issued copies to the player's wild; cap at the 100 newest so it doesn't grow forever.
   const wild: string[] = Array.isArray(row.wild) ? row.wild : [];

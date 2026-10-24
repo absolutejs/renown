@@ -1,7 +1,7 @@
 // Authoritative serialized-copy issuance. Subject/variant selection is deterministic
 // from commit provenance; serial assignment and supply enforcement happen atomically
 // inside PostgreSQL's issue_pet_copy() function.
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   CARD_RECIPE_VERSION, CARD_SET, CARD_VARIANTS, cardCopyToken, cardPrintingId, cardSeedPrefix,
   cardSubjectIndex, chooseCardVariant, generate, serialPermutation, type CardVariant,
@@ -26,7 +26,7 @@ type IssueRow = {
   out_created: boolean;
 };
 
-const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: string, subjects: { id: string; setId: string; subjectSeed: string; name: string }[]): Promise<IssuedPet | null> => {
+const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: string, subjects: { id: string; setId: string; subjectSeed: string; name: string }[], contributionReceipts: boolean): Promise<IssuedPet | null> => {
   // Exhausted short runs retry another deterministic subject/variant. The final
   // attempts use the effectively inexhaustible base run, so a valid pull is never lost.
   for (let attempt = 0; attempt < 16; attempt++) {
@@ -37,7 +37,7 @@ const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: s
     const printingId = cardPrintingId(subject.setId, subject.subjectSeed, variant);
     const permutation = serialPermutation(printingId, printRun);
     const copyToken = cardCopyToken(playerId, provenanceSeed);
-    const result = await gameDb.execute(sql`select * from issue_pet_copy(
+    const result = await gameDb.execute(sql`select * from ${sql.raw(contributionReceipts ? "issue_pending_pet_copy" : "issue_pet_copy")}(
       ${playerId}, ${githubLogin}, ${provenanceSeed}, ${subject.id}, ${subject.subjectSeed}, ${subject.name},
       ${subject.setId}, ${variant}, ${printingId}, ${printRun}, ${permutation.offset}, ${permutation.step}, ${CARD_VARIANTS[variant].finish},
       ${CARD_RECIPE_VERSION}, ${cardSeedPrefix(subject.setId, subject.subjectSeed, variant)}, ${copyToken}
@@ -52,7 +52,7 @@ const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: s
       printRun: Number(row.out_print_run),
       created: row.out_created,
     };
-    if (issued.created) {
+    { // Also repair materialized traits after an interrupted first issuance.
       const pet = generate(issued.seed);
       await gameDb.update(wildSeedSources).set({
         name: pet.name, tier: pet.tier, rarityScore: pet.score, size: pet.sizeN,
@@ -60,15 +60,17 @@ const issueOne = async (playerId: string, githubLogin: string, provenanceSeed: s
         recipeVersion: pet.card?.recipeVersion ?? CARD_RECIPE_VERSION,
         mutation: pet.copyTraits?.mutation ?? "Standard", colorway: pet.copyTraits?.colorway ?? "Original",
         material: pet.copyTraits?.material ?? "Standard", copyPattern: pet.copyTraits?.copyPattern ?? "None",
-      }).where(and(eq(wildSeedSources.playerId, playerId), eq(wildSeedSources.petSeed, issued.seed)));
+      }).where(eq(wildSeedSources.petSeed, issued.seed));
     }
     return issued;
   }
   return null;
 };
 
-export const issuePetCopies = async ({ playerId, githubLogin, provenanceSeeds }: {
+export const issuePetCopies = async ({ playerId, githubLogin, provenanceSeeds, contributionReceipts = false }: {
   playerId: string; githubLogin: string; provenanceSeeds: string[];
+  /** Use durable GitHub contribution receipts; quest eligibility is verified by its own caller. */
+  contributionReceipts?: boolean;
 }): Promise<IssuedPet[]> => {
   const subjects = await gameDb.select({ id: petSubjects.id, setId: petSubjects.setId, subjectSeed: petSubjects.subjectSeed, name: petSubjects.name })
     .from(petSubjects).where(eq(petSubjects.setId, CARD_SET)).orderBy(petSubjects.slotNumber);
@@ -76,7 +78,7 @@ export const issuePetCopies = async ({ playerId, githubLogin, provenanceSeeds }:
   const unique = [...new Set(provenanceSeeds.filter(Boolean))];
   const out: IssuedPet[] = [];
   for (const provenanceSeed of unique) {
-    const issued = await issueOne(playerId, githubLogin, provenanceSeed, subjects);
+    const issued = await issueOne(playerId, githubLogin, provenanceSeed, subjects, contributionReceipts);
     if (issued) out.push(issued);
   }
   return out;

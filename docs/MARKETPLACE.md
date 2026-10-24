@@ -87,3 +87,41 @@ Live funding has two locks: set `STRIPE_WALLET_FUNDING_ENABLED=true` and record 
 approval ticket/reference in `STRIPE_MARKETPLACE_APPROVAL_REFERENCE`. Test mode only requires
 the first flag. The marketplace can browse and accept listings while funding is disabled,
 but accurately shows that deposits are not open. See `docs/STRIPE_LAUNCH.md` for the runbook.
+
+## Issuance recovery and Wishes investigation (October 2026)
+
+The meeting guide is `docs/WISHES_MARKETPLACE_BRIEF.pdf`. Engineering verification and
+remaining integration dependencies are tracked separately in
+`docs/WISHES_TECHNICAL_READINESS.html`.
+
+`migrate-issuance-recovery.ts` runs after serialized-pet and marketplace migrations.
+It adds a durable contribution-to-copy receipt, switches issuance identity away from
+mutable current ownership, and records new mint provenance in the issuance transaction.
+Refreshes process up to 30 pending receipts, including materialization interrupted after
+allocation. Existing copies are recovered using their original copy token even after sale;
+coauthors can transfer copies earned from the same commit without an owner/provenance
+uniqueness conflict. Historical unissued contributions enter this queue and can increase
+issued supply over subsequent refreshes, within the existing edition limits.
+
+These changes are tested locally with isolated PostgreSQL (PGlite); they do not prove
+production rollout, global fraud resistance, or independent blockchain immutability.
+The Wishes package in `~/abs/wallet-adapters/wishes` is a private transaction reader,
+not a payout adapter. Existing funding controls, cash-out restrictions and monetary limits
+remain in effect until a complete provider-backed funds flow is implemented and verified.
+
+
+## Proposed AbsoluteJS-wide wallet scope
+
+The intended Wishes-backed wallet is shared across Renown collectibles, the AbsoluteJS
+AI builder, paid documentation demos (compute/API usage, described as “gas”), and future
+hosted AbsoluteJS products. Users can fund the wallet or receive sale proceeds, spend
+eligible balances across products, and withdraw eligible sale proceeds. This is a proposed
+expansion; the current Renown-only, closed-loop implementation described above remains
+unchanged.
+
+Cross-product integration needs one authoritative account/ledger, authenticated product
+charging, idempotent usage references, reservations before costly work, actual-usage
+capture, refunds and release of unused reservations. Spending eligibility and withdrawal
+eligibility must be tracked separately. Review shared-balance acceptance and settlement
+across the actual operating entities with Wishes. See the technical readiness note for
+remaining integration work.

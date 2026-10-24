@@ -77,7 +77,7 @@ await sql`alter table wild_seed_sources add column if not exists colorway text`;
 await sql`alter table wild_seed_sources add column if not exists material text`;
 await sql`alter table wild_seed_sources add column if not exists copy_pattern text`;
 await sql`create unique index if not exists wild_seed_sources_printing_serial_uniq on wild_seed_sources (printing_id, serial_number)`;
-await sql`create unique index if not exists wild_seed_sources_player_provenance_uniq on wild_seed_sources (player_id, provenance_seed)`;
+// Issuance identity is independent of current ownership; see migrate-issuance-recovery.ts.
 await sql`create index if not exists wild_seed_sources_finish_recent_idx on wild_seed_sources (finish, earned_at, pet_seed)`;
 await sql`create index if not exists wild_seed_sources_mutation_recent_idx on wild_seed_sources (mutation, earned_at, pet_seed)`;
 await sql`create index if not exists wild_seed_sources_material_recent_idx on wild_seed_sources (material, earned_at, pet_seed)`;
@@ -144,7 +144,9 @@ begin
   select w.pet_seed, w.serial_number, w.print_run, w.printing_id
     into v_existing
     from wild_seed_sources w
-   where w.player_id = p_player_id and w.provenance_seed = p_provenance_seed
+   where w.provenance_seed = p_provenance_seed
+     and split_part(w.pet_seed, ':', 8) = p_copy_token
+     and w.pet_seed like 'card:v%'
    limit 1;
   if found then
     return query select v_existing.pet_seed::text, v_existing.serial_number::integer, v_existing.print_run::integer, v_existing.printing_id::text, false;

@@ -17,6 +17,7 @@ const steps = [
   "db/seed.ts",
   "db/migrate-serialized-pets.ts",
   "db/migrate-marketplace.ts",
+  "db/migrate-issuance-recovery.ts",
   "db/migrate-all-time-verified-score.ts",
   "db/migrate-preserve-progress.ts",
   "db/migrate-add-player-visits.ts",
