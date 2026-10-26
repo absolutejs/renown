@@ -247,9 +247,13 @@ for (const row of legacyRows) {
 // Install stable permutations for pre-existing printings, then give every already-earned
 // copy its mint ordinal and shuffled serial. We preserve pet_seed so every historical link,
 // avatar, showcase and appearance assignment remains valid; the ledger is authoritative.
-const printingRows = await sql`select id, print_run from pet_printings` as { id: string; print_run: number }[];
+// The permutation is a pure function of (id, print_run), so only a printing whose stored
+// one differs is written. Rewriting every printing on every release, one HTTP round trip
+// each, is part of what pushed this step past the PaaS release timeout (2026-10-26).
+const printingRows = await sql`select id, print_run, serial_offset, serial_step from pet_printings` as { id: string; print_run: number; serial_offset: number; serial_step: number }[];
 for (const printing of printingRows) {
   const permutation = serialPermutation(printing.id, Number(printing.print_run));
+  if (Number(printing.serial_offset) === permutation.offset && Number(printing.serial_step) === permutation.step) continue;
   await sql`update pet_printings set serial_offset = ${permutation.offset}, serial_step = ${permutation.step} where id = ${printing.id}`;
 }
 const unnumbered = await sql`select player_id, pet_seed, printing_id from wild_seed_sources where mint_number is null and printing_id is not null` as { player_id: string; pet_seed: string; printing_id: string }[];
@@ -276,7 +280,15 @@ if (unnumbered.length > 0) {
 
 // Materialize the versioned copy recipe after Founders conversion. Existing card:v1
 // links retain their exact v1 generation; new card:v2 copies use Genesis v2.
-const recipeRows = await sql`select player_id, pet_seed, variant from wild_seed_sources where printing_id is not null` as { player_id: string; pet_seed: string; variant: CardVariant }[];
+// Only copies not yet materialized: generate() is deterministic for a pet_seed, so a row
+// that has its recipe and traits already holds exactly what this loop would write. It
+// used to rewrite every collected copy on every release, one HTTP round trip each, which
+// grew with the collection until the release command ran past its 900s timeout.
+const recipeRows = await sql`select player_id, pet_seed, variant from wild_seed_sources
+  where printing_id is not null and (
+    recipe_version is null or mutation is null or colorway is null
+    or material is null or copy_pattern is null
+  )` as { player_id: string; pet_seed: string; variant: CardVariant }[];
 for (const row of recipeRows) {
   const pet = generate(row.pet_seed);
   await sql`update wild_seed_sources set
