@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.4.4"
+          bun-version-file: .bun-version
       - name: Install (one lockfile for the CLI, core and web workspace)
         run: bun install --frozen-lockfile
       - name: Typecheck (root + web)
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.4.4"
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       # Dogfood renown's own CI sync against renown's own /project board. We run the LOCAL
       # ci-sync (not the published npm package, which predates the command). External repos use
