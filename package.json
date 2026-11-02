@@ -108,15 +108,15 @@
   "dependencies": {
     "@absolutejs/collectibles": "0.1.2",
     "@absolutejs/manifest": "^0.10.0",
-    "@absolutejs/marketplace": "0.1.7",
+    "@absolutejs/marketplace": "0.1.8",
     "@absolutejs/onchain": "0.1.2",
-    "@absolutejs/wallet": "0.9.3",
+    "@absolutejs/wallet": "0.10.0",
     "@neondatabase/serverless": "^1.2.0",
     "@sinclair/typebox": "^0.34.52",
     "drizzle-orm": "1.0.0-rc.4"
   },
   "devDependencies": {
-    "@absolutejs/absolute": "0.20.0-beta.161",
+    "@absolutejs/absolute": "0.20.0-beta.162",
     "@absolutejs/changelog": "^0.7.1",
     "@electric-sql/pglite": "0.5.14",
     "bun-types": "^1.4.4",

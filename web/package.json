@@ -17,15 +17,15 @@
     "stripe:local": "stripe listen --forward-to http://localhost:7777/webhooks/stripe --events customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,checkout.session.completed"
   },
   "dependencies": {
-    "@absolutejs/absolute": "0.20.0-beta.161",
-    "@absolutejs/auth": "0.102.2",
+    "@absolutejs/absolute": "0.20.0-beta.162",
+    "@absolutejs/auth": "0.102.3",
     "@absolutejs/collectibles": "0.1.2",
-    "@absolutejs/linked-providers": "0.0.6",
+    "@absolutejs/linked-providers": "0.0.8",
     "@absolutejs/rate-limit": "0.8.0",
     "@absolutejs/renown-core": "workspace:*",
     "@absolutejs/sync": "3.0.2",
-    "@absolutejs/wallet": "0.9.3",
-    "@absolutejs/wallet-stripe": "0.4.4",
+    "@absolutejs/wallet": "0.10.0",
+    "@absolutejs/wallet-stripe": "0.4.5",
     "@elysia/cron": "2.0.0-rc.0",
     "@neondatabase/serverless": "^1.2.0",
     "@opentelemetry/api": "^1.9.1",
@@ -47,7 +47,7 @@
     "react-router": "^7.1.0",
     "stripe": "^20.2.0",
     "three": "^0.187.0",
-    "typebox": "1.3.16",
+    "typebox": "1.4.3",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
