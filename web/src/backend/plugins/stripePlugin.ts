@@ -7,6 +7,7 @@
 import { type AuthSessionStore, protectRoutePlugin } from "@absolutejs/auth";
 import { steamLikeWalletPolicy } from "@absolutejs/wallet";
 import { createStripeWalletAdapter } from "@absolutejs/wallet-stripe";
+import { createHash } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { Elysia, t } from "elysia";
@@ -25,6 +26,11 @@ const SECRET = process.env.STRIPE_SECRET_KEY;
 const PUBLISHABLE = process.env.STRIPE_PUBLISHABLE_KEY ?? null;
 const stripe = SECRET ? new Stripe(SECRET, { apiVersion: "2026-02-25.clover" }) : null;
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+// A short one-way fingerprint of the webhook secret, so an operator can confirm the
+// running app has the secret the Stripe dashboard shows without ever seeing it.
+const webhookSecretFingerprint = stripeWebhookSecret
+  ? createHash("sha256").update(stripeWebhookSecret).digest("hex").slice(0, 12)
+  : null;
 const walletStripe = stripe && stripeWebhookSecret ? createStripeWalletAdapter({ stripe, webhookSecret: stripeWebhookSecret }) : null;
 const stripeMode = SECRET?.startsWith("sk_live_") ? "live" : SECRET?.startsWith("sk_test_") ? "test" : "unconfigured";
 const fundingRequested = process.env.STRIPE_WALLET_FUNDING_ENABLED === "true";
@@ -84,6 +90,7 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
         requested: fundingRequested,
         marketplaceApprovalRecorded,
         webhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+        webhookSecretFingerprint,
       },
       publishableKey: PUBLISHABLE,
       tiers: TIER_INFO,
@@ -169,7 +176,10 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
         event = await walletStripe.verifyWebhook(await request.text(), signature);
       } catch (e) {
         console.error("renown: stripe webhook verify failed", e);
-        return status("Bad Request", "invalid signature");
+        // Stripe's reason (bad signature, stale timestamp, empty body) says which half
+        // is wrong; it never contains the secret.
+        const reason = e instanceof Error ? e.message.split(".")[0]?.slice(0, 120) : "unknown";
+        return status("Bad Request", `invalid signature: ${reason}`);
       }
       if ((stripeMode === "live") !== event.livemode) return status("Bad Request", "Stripe mode mismatch");
       const receipt = await gameDb.insert(stripeWebhookEvents).values({ id: event.id, type: event.type, liveMode: event.livemode })
