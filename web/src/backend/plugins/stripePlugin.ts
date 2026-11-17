@@ -167,13 +167,16 @@ export const stripePlugin = ({ authSessionStore, db }: Deps) =>
     )
     // Stripe -> us. Raw body + signature verification; the source of truth for tier changes.
     // NOT session-protected (Stripe calls it) and exempt from rate limiting (see rateLimit.ts).
-    .post("/webhooks/stripe", async ({ request, status }) => {
+    // The body arrives as the exact text Stripe signed (parse: "text"). Reading
+    // request.text() inside the handler failed with "Body already used" once the
+    // app parsed JSON bodies ahead of handlers (Elysia 2), refusing every event.
+    .post("/webhooks/stripe", { body: t.String(), parse: "text" }, async ({ body, request, status }) => {
       if (!stripe) return status("Service Unavailable", "billing not configured");
       const signature = request.headers.get("stripe-signature") ?? "";
       if (!signature || !walletStripe) return status("Bad Request", "missing signature/secret");
       let event: Stripe.Event;
       try {
-        event = await walletStripe.verifyWebhook(await request.text(), signature);
+        event = await walletStripe.verifyWebhook(body, signature);
       } catch (e) {
         console.error("renown: stripe webhook verify failed", e);
         // Stripe's reason (bad signature, stale timestamp, empty body) says which half
